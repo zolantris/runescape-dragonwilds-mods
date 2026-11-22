@@ -46,11 +46,11 @@ ue4ss/
 
 <!-- CHANGELOG:START -->
 ### v1.3.6
-_Changes since `UltraWideMenuAlignment-v1.3.5`_
+_Changes since [UltraWideMenuAlignment-v1.3.5](https://github.com/zolantris/runescape-dragonwilds-mods/releases/tag/UltraWideMenuAlignment-v1.3.5)_
 
 
-- **2026-11-22** - autocommit release readme updates before pushing tag (`7733b20`)
-- **2026-11-22** - bump to 1.3.6 to test diff again (`9a6f2c8`)
+- **2026-11-22** - autocommit release readme updates before pushing tag ([7733b20](https://github.com/zolantris/runescape-dragonwilds-mods/commit/7733b20bf5083a9e8a0d174afb3af1f0ff387718))
+- **2026-11-22** - bump to 1.3.6 to test diff again ([9a6f2c8](https://github.com/zolantris/runescape-dragonwilds-mods/commit/9a6f2c8b466785b44fd2e3d1cc637c12ed98d603))
 ### v1.3.5
 _Changes since `UltraWideMenuAlignment-v1.3.4`_
 
