@@ -64,11 +64,20 @@ if (-not (Test-Path $readmePath)) {
 
 $commits = @()
 $prevTag = $null
+$repoWebUrl = $null
 
 Push-Location $repoRoot
 try {
     $gitAvailable = Get-Command git -ErrorAction SilentlyContinue
     if ($gitAvailable -and (Test-Path (Join-Path $repoRoot ".git"))) {
+        $remoteUrl = (git remote get-url origin 2>$null)
+        if ($remoteUrl) {
+            $repoWebUrl = $remoteUrl.Trim() -replace '\.git$', ''
+            if ($repoWebUrl -match '^git@([^:]+):(.+)$') {
+                $repoWebUrl = "https://$($Matches.Item(1))/$($Matches.Item(2))"
+            }
+        }
+
         $targetSemVer = Parse-SemVer $Version
         $allTags = @(git tag -l "$modName-v*" 2>$null | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
         if ($targetSemVer -and $allTags.Count -gt 0) {
@@ -87,17 +96,22 @@ try {
         }
 
         $rangeSpec = if ($prevTag) { "$prevTag..HEAD" } else { "HEAD" }
-        $rawLog = @(git log $rangeSpec -n $MaxCommits --pretty=format:"%ad|%h|%s" --date=short -- $ModFolder 2>$null)
+        $rawLog = @(git log $rangeSpec -n $MaxCommits --pretty=format:"%ad|%h|%H|%s" --date=short -- $ModFolder 2>$null)
         if ($LASTEXITCODE -eq 0 -and $rawLog.Count -gt 0) {
             foreach ($entry in $rawLog) {
                 if ([string]::IsNullOrWhiteSpace($entry)) { continue }
-                $parts = $entry.Split('|', 3)
-                if ($parts.Length -eq 3) {
-                    $date = ($parts | Select-Object -Index 0).Trim()
-                    $hash = ($parts | Select-Object -Index 1).Trim()
-                    $msg  = ($parts | Select-Object -Index 2).Trim()
+                $parts = $entry.Split('|', 4)
+                if ($parts.Length -eq 4) {
+                    $date     = ($parts | Select-Object -Index 0).Trim()
+                    $shortSha = ($parts | Select-Object -Index 1).Trim()
+                    $fullSha  = ($parts | Select-Object -Index 2).Trim()
+                    $msg      = ($parts | Select-Object -Index 3).Trim()
                     if ($msg -notmatch '^(chore\(release\)|docs: update changelog)') {
-                        $commits += "- **$date** - $msg (``$hash``)"
+                        if ($repoWebUrl) {
+                            $commits += "- **$date** - $msg ([$shortSha]($repoWebUrl/commit/$fullSha))"
+                        } else {
+                            $commits += "- **$date** - $msg ($shortSha)"
+                        }
                     }
                 }
             }
@@ -111,10 +125,19 @@ if ($commits.Count -eq 0) {
     $commits = @("- **$(Get-Date -Format 'yyyy-MM-dd')** - Release v$Version")
 }
 
-$compareNote = if ($prevTag) { "`n_Changes since ``$prevTag``_`n" } else { "" }
+$compareNote = ""
+if ($prevTag) {
+    if ($repoWebUrl) {
+        $compareNote = "`n_Changes since [$prevTag]($repoWebUrl/releases/tag/$prevTag)_`n"
+    } else {
+        $compareNote = "`n_Changes since $prevTag_`n"
+    }
+}
 $newSection = (@("### v$Version$compareNote", "") + $commits) -join "`n"
 
 $readmeText = Get-Content $readmePath -Raw
+
+# Update version inside top H1 heading
 $readmeText = [regex]::Replace(
     $readmeText,
     '(?m)^(#\s+.+?`[^`]+`\s+v)[^\)\r\n]+(\))',
