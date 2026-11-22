@@ -49,8 +49,8 @@ ue4ss/
 _Changes since `UltraWideMenuAlignment-v1.3.5`_
 
 
+- **2026-11-22** - autocommit release readme updates before pushing tag (`7733b20`)
 - **2026-11-22** - bump to 1.3.6 to test diff again (`9a6f2c8`)
-
 ### v1.3.5
 _Changes since `UltraWideMenuAlignment-v1.3.4`_
 
