@@ -13,7 +13,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Support Unix-style --force-update and --dry-run flags cleanly
 if ($ExtraArgs) {
     foreach ($arg in $ExtraArgs) {
         switch ($arg.ToLower()) {
@@ -45,7 +44,6 @@ if ($modDirs.Count -ne 1) {
 }
 $modName = $modDirs.Name
 
-# Read version.json
 $versionFile = Join-Path $modRoot "version.json"
 $verData = if (Test-Path $versionFile) { Get-Content $versionFile -Raw | ConvertFrom-Json } else { $null }
 
@@ -60,6 +58,31 @@ $fullVersion = if ($Channel -and $Channel.ToLower() -ne "stable") { "$Version-$C
 $tagName     = "$modName-v$fullVersion"
 $zipPath     = Join-Path $repoRoot "archives\$tagName.zip"
 
+function Parse-SemVer([string]$verStr) {
+    $clean = $verStr -replace '^v', ''
+    $m = [regex]::Match($clean, '^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$')
+    if ($m.Success) {
+        $pre = $m.Groups.Item(4).Value
+        return [PSCustomObject]@{
+            Major      = [int]$m.Groups.Item(1).Value
+            Minor      = [int]$m.Groups.Item(2).Value
+            Patch      = [int]$m.Groups.Item(3).Value
+            PreRelease = $pre
+            IsStable   = [string]::IsNullOrEmpty($pre)
+        }
+    }
+    return $null
+}
+
+function Compare-SemVer($a, $b) {
+    if ($a.Major -ne $b.Major) { return $a.Major.CompareTo($b.Major) }
+    if ($a.Minor -ne $b.Minor) { return $a.Minor.CompareTo($b.Minor) }
+    if ($a.Patch -ne $b.Patch) { return $a.Patch.CompareTo($b.Patch) }
+    if ($a.IsStable -and -not $b.IsStable) { return 1 }
+    if (-not $a.IsStable -and $b.IsStable) { return -1 }
+    return [string]::Compare($a.PreRelease, $b.PreRelease, $true)
+}
+
 if (-not $SkipBuild) {
     if ($DryRun) {
         Write-Host "[DRY-RUN] Would run build-mod.ps1 -ModFolder '$ModFolder' -Version '$Version' -Channel '$Channel'" -ForegroundColor DarkCyan
@@ -73,14 +96,14 @@ if (-not $DryRun -and -not (Test-Path $zipPath)) {
     throw "Release archive not found at '$zipPath'. Run build-mod.ps1 first or omit -SkipBuild."
 }
 
-# Extract latest changelog block from README.md for release notes
 $notes = "Release $tagName"
 $readmePath = Join-Path $modRoot "README.md"
 if (Test-Path $readmePath) {
     $readmeText = Get-Content $readmePath -Raw
-    $m = [regex]::Match($readmeText, '(?s)<!-- CHANGELOG:START -->\s*(.*?)\s*<!-- CHANGELOG:END -->')
+    $escapedVer = [regex]::Escape($fullVersion)
+    $m = [regex]::Match($readmeText, "(?s)(### v$escapedVer\b.*?)(?=\r?\n### v|\r?\n<!-- CHANGELOG:END -->)")
     if ($m.Success) {
-        $notes = $m.Groups.Value.Trim()
+        $notes = $m.Groups.Item(1).Value.Trim()
     }
 }
 
@@ -102,15 +125,34 @@ try {
         exit 1
     }
 
+    $prevTag = $null
+    $targetSemVer = Parse-SemVer $fullVersion
+    $allTags = @(git tag -l "$modName-v*" 2>$null | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($targetSemVer -and $allTags.Count -gt 0) {
+        $lowerTags = @()
+        foreach ($t in $allTags) {
+            $tVerStr = $t.Substring("$modName-v".Length)
+            $tSemVer = Parse-SemVer $tVerStr
+            if ($tSemVer -and (Compare-SemVer $tSemVer $targetSemVer) -lt 0) {
+                $lowerTags += [PSCustomObject]@{ Tag = $t; SemVer = $tSemVer }
+            }
+        }
+        if ($lowerTags.Count -gt 0) {
+            $sorted = @($lowerTags | Sort-Object { $_.SemVer.Major }, { $_.SemVer.Minor }, { $_.SemVer.Patch }, { $_.SemVer.IsStable }, { $_.SemVer.PreRelease })
+            $prevTag = ($sorted | Select-Object -Last 1).Tag
+        }
+    }
+
     if ($DryRun) {
         Write-Host "`n================ [DRY-RUN RELEASE PREVIEW] ================" -ForegroundColor Cyan
         Write-Host "Mod Folder   : $ModFolder"
         Write-Host "Tag Name     : $tagName"
+        Write-Host "Previous Tag : $(if ($prevTag) { $prevTag } else { '<none - initial release>' })"
         Write-Host "Release Title: $modName v$fullVersion"
         Write-Host "Prerelease   : $($Channel.ToLower() -ne 'stable')"
         Write-Host "Asset Path   : $zipPath (Exists: $(Test-Path $zipPath))"
         Write-Host "Tag Exists   : local=$([bool]$localTag), remote=$([bool]$remoteTag), release=$releaseExists (ForceUpdate=$ForceUpdate)"
-        Write-Host "--- Release Notes ---" -ForegroundColor DarkGray
+        Write-Host "--- Folder-Scoped Delta Notes (+ GitHub --generate-notes) ---" -ForegroundColor DarkGray
         Write-Host $notes
         Write-Host "===========================================================`n" -ForegroundColor Cyan
         return
@@ -127,14 +169,15 @@ try {
         }
     }
 
-    # Create annotated tag on current HEAD and push
     git tag -a $tagName -m "Release $tagName"
     git push origin $tagName
 
-    # Write release notes to temp file so multiline markdown passes cleanly to gh.exe
     Set-Content -Path $notesFile -Value $notes -Encoding UTF8
 
-    $ghArgs = @("release", "create", $tagName, $zipPath, "--title", "$modName v$fullVersion", "--notes-file", $notesFile)
+    $ghArgs = @("release", "create", $tagName, $zipPath, "--title", "$modName v$fullVersion", "--notes-file", $notesFile, "--generate-notes")
+    if ($prevTag) {
+        $ghArgs += @("--notes-start-tag", $prevTag)
+    }
     if ($Channel.ToLower() -ne "stable") {
         $ghArgs += "--prerelease"
     }
@@ -144,7 +187,7 @@ try {
         throw "gh release create failed with exit code $LASTEXITCODE"
     }
 
-    Write-Host "Published release '$tagName' with asset '$zipPath'" -ForegroundColor Green
+    Write-Host "Published release '$tagName' (delta from $(if ($prevTag) { $prevTag } else { 'initial release' }))" -ForegroundColor Green
 } finally {
     if (Test-Path $notesFile) { Remove-Item $notesFile -Force -ErrorAction SilentlyContinue }
     Pop-Location
