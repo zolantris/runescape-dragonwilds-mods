@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "title": "Drag On Resize",
+  "version": "0.3.3",
+  "format": "kv",
+  "file": "config.txt",
+  "settings": [
+    { "key": "Enabled", "label": "Enable Drag On Resize", "type": "toggle", "default": true },
+    { "key": "EnableMouseDrag", "label": "Mouse Drag (Middle Mouse / Alt+Left)", "type": "toggle", "default": true },
+    { "key": "EnableKeyboardMove", "label": "Keyboard Move (Alt + Arrows)", "type": "toggle", "default": true },
+    { "key": "EnableScaling", "label": "Window Scaling (Alt+Right / PageUp / Num+/-)", "type": "toggle", "default": true },
+    { "key": "ClampToViewport", "label": "Keep All 4 Corners Inside Screen", "type": "toggle", "default": true },
+    { "key": "ClampEdgePaddingPx", "label": "Screen Edge Padding (px)", "type": "slider", "min": 0, "max": 100, "step": 2, "default": 8 },
+    { "key": "SafeZoneMinX", "label": "Horizontal Bound Min (0.00 = Far Left)", "type": "slider", "min": 0.00, "max": 0.45, "step": 0.01, "default": 0.00 },
+    { "key": "SafeZoneMaxX", "label": "Horizontal Bound Max (1.00 = Far Right)", "type": "slider", "min": 0.55, "max": 1.00, "step": 0.01, "default": 1.00 },
+    { "key": "SafeZoneMinY", "label": "Vertical Bound Min (0.00 = Top)", "type": "slider", "min": 0.00, "max": 0.40, "step": 0.01, "default": 0.00 },
+    { "key": "SafeZoneMaxY", "label": "Vertical Bound Max (1.00 = Bottom)", "type": "slider", "min": 0.60, "max": 1.00, "step": 0.01, "default": 1.00 },
+    { "key": "DragSensitivity", "label": "Mouse Drag Sensitivity", "type": "slider", "min": 0.25, "max": 2.50, "step": 0.05, "default": 1.00 },
+    { "key": "MouseScaleSensitivity", "label": "Mouse Resize Sensitivity", "type": "slider", "min": 0.0005, "max": 0.0100, "step": 0.0005, "default": 0.0025 },
+    { "key": "KeyboardStepPx", "label": "Keyboard Nudge Step (px)", "type": "slider", "min": 5, "max": 100, "step": 5, "default": 20 },
+    { "key": "RepeatIntervalMs", "label": "Hold-Key Repeat Interval (ms)", "type": "slider", "min": 25, "max": 250, "step": 5, "default": 50 },
+    { "key": "ScaleStep", "label": "Scale Step Increment", "type": "slider", "min": 0.01, "max": 0.25, "step": 0.01, "default": 0.05 },
+    { "key": "MinScale", "label": "Minimum Window Scale", "type": "slider", "min": 0.35, "max": 1.00, "step": 0.05, "default": 0.50 },
+    { "key": "MaxScale", "label": "Maximum Window Scale", "type": "slider", "min": 1.00, "max": 2.50, "step": 0.05, "default": 1.75 },
+    { "key": "EnableInventory", "label": "Enable Player Inventory", "type": "toggle", "default": true },
+    { "key": "EnableContainers", "label": "Enable Chests & Storage", "type": "toggle", "default": true },
+    { "key": "EnableStations", "label": "Enable Crafting & Processing Stations", "type": "toggle", "default": true },
+    { "key": "EnableBuildSpells", "label": "Enable Build & Spellcasting Menus", "type": "toggle", "default": true },
+    { "key": "EnablePauseMenu", "label": "Enable Pause / Save Menu", "type": "toggle", "default": true },
+    { "key": "ResetAllLayouts", "label": "Reset All Saved Layouts (One-Shot)", "type": "toggle", "default": false },
+    { "key": "VerboseLog", "label": "Verbose Diagnostic Logging", "type": "toggle", "default": true }
+  ]
+}
