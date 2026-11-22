@@ -96,6 +96,7 @@ if (-not $DryRun -and -not (Test-Path $zipPath)) {
     throw "Release archive not found at '$zipPath'. Run build-mod.ps1 first or omit -SkipBuild."
 }
 
+# Extract ONLY the current version's delta block from README.md
 $notes = "Release $tagName"
 $readmePath = Join-Path $modRoot "README.md"
 if (Test-Path $readmePath) {
@@ -125,6 +126,7 @@ try {
         exit 1
     }
 
+    # Find closest lower semver tag (handles 0 prior tags gracefully)
     $prevTag = $null
     $targetSemVer = Parse-SemVer $fullVersion
     $allTags = @(git tag -l "$modName-v*" 2>$null | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
@@ -143,6 +145,11 @@ try {
         }
     }
 
+    # Check if README.md or version.json was updated during build so working tree stays clean
+    $relReadme  = "$ModFolder/README.md"
+    $relVersion = "$ModFolder/version.json"
+    $dirtyReleaseFiles = @(git status --porcelain -- $relReadme $relVersion 2>$null | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+
     if ($DryRun) {
         Write-Host "`n================ [DRY-RUN RELEASE PREVIEW] ================" -ForegroundColor Cyan
         Write-Host "Mod Folder   : $ModFolder"
@@ -152,10 +159,19 @@ try {
         Write-Host "Prerelease   : $($Channel.ToLower() -ne 'stable')"
         Write-Host "Asset Path   : $zipPath (Exists: $(Test-Path $zipPath))"
         Write-Host "Tag Exists   : local=$([bool]$localTag), remote=$([bool]$remoteTag), release=$releaseExists (ForceUpdate=$ForceUpdate)"
+        Write-Host "Dirty Meta   : $($dirtyReleaseFiles.Count) file(s) would be auto-committed before tagging"
         Write-Host "--- Folder-Scoped Delta Notes (+ GitHub --generate-notes) ---" -ForegroundColor DarkGray
         Write-Host $notes
         Write-Host "===========================================================`n" -ForegroundColor Cyan
         return
+    }
+
+    # Commit & push updated README.md / version.json before creating the release tag
+    if ($dirtyReleaseFiles.Count -gt 0) {
+        Write-Host "Committing updated release metadata ($relReadme)..." -ForegroundColor Cyan
+        git add -- $relReadme $relVersion 2>$null
+        git commit -m "chore(release): update $ModFolder README for v$fullVersion"
+        git push
     }
 
     if ($ForceUpdate) {
