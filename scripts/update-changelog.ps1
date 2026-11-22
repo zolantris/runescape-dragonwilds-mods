@@ -57,6 +57,19 @@ function Compare-SemVer($a, $b) {
     return [string]::Compare($a.PreRelease, $b.PreRelease, $true)
 }
 
+function Resolve-RepoWebUrl {
+    $remoteUrl = (git remote get-url origin 2>$null)
+    if ([string]::IsNullOrWhiteSpace($remoteUrl)) { return $null }
+    $remoteUrl = $remoteUrl.Trim()
+    if ($remoteUrl -match '^git@([^:]+):(.+?)(?:\.git)?$') {
+        return "https://$($Matches[1])/$($Matches[2])"
+    }
+    if ($remoteUrl -match '^https?://(.+?)(?:\.git)?$') {
+        return "https://$($Matches[1])"
+    }
+    return $null
+}
+
 $readmePath = Join-Path $modRoot "README.md"
 if (-not (Test-Path $readmePath)) {
     throw "Missing README.md at '$readmePath'"
@@ -70,12 +83,14 @@ Push-Location $repoRoot
 try {
     $gitAvailable = Get-Command git -ErrorAction SilentlyContinue
     if ($gitAvailable -and (Test-Path (Join-Path $repoRoot ".git"))) {
-        $remoteUrl = (git remote get-url origin 2>$null)
-        if ($remoteUrl) {
-            $repoWebUrl = $remoteUrl.Trim() -replace '\.git$', ''
-            if ($repoWebUrl -match '^git@([^:]+):(.+)$') {
-                $repoWebUrl = "https://$($Matches.Item(1))/$($Matches.Item(2))"
-            }
+        $repoWebUrl = Resolve-RepoWebUrl
+
+        # Resolve active local branch (fallback to 'main' if detached HEAD)
+        $baseRef = (git rev-parse --abbrev-ref HEAD 2>$null)
+        if ([string]::IsNullOrWhiteSpace($baseRef) -or $baseRef.Trim() -eq "HEAD") {
+            $baseRef = "main"
+        } else {
+            $baseRef = $baseRef.Trim()
         }
 
         $targetSemVer = Parse-SemVer $Version
@@ -95,8 +110,8 @@ try {
             }
         }
 
-        $rangeSpec = if ($prevTag) { "$prevTag..HEAD" } else { "HEAD" }
-        $rawLog = @(git log $rangeSpec -n $MaxCommits --pretty=format:"%ad|%h|%H|%s" --date=short -- $ModFolder 2>$null)
+        $rangeSpec = if ($prevTag) { "$prevTag..$baseRef" } else { $baseRef }
+        $rawLog = @(git log $rangeSpec -n $MaxCommits --pretty=format:"%ad|%h|%H|%s" --date=short 2>$null)
         if ($LASTEXITCODE -eq 0 -and $rawLog.Count -gt 0) {
             foreach ($entry in $rawLog) {
                 if ([string]::IsNullOrWhiteSpace($entry)) { continue }
@@ -125,19 +140,19 @@ if ($commits.Count -eq 0) {
     $commits = @("- **$(Get-Date -Format 'yyyy-MM-dd')** - Release v$Version")
 }
 
-$compareNote = ""
 if ($prevTag) {
     if ($repoWebUrl) {
         $compareNote = "`n_Changes since [$prevTag]($repoWebUrl/releases/tag/$prevTag)_`n"
     } else {
         $compareNote = "`n_Changes since $prevTag_`n"
     }
+} else {
+    $compareNote = ""
 }
+
 $newSection = (@("### v$Version$compareNote", "") + $commits) -join "`n"
 
 $readmeText = Get-Content $readmePath -Raw
-
-# Update version inside top H1 heading
 $readmeText = [regex]::Replace(
     $readmeText,
     '(?m)^(#\s+.+?`[^`]+`\s+v)[^\)\r\n]+(\))',
