@@ -1,8 +1,0 @@
-Enabled=true
-CenterInventory=true
-CenterContainers=true
-CenterStations=true
-CenterPauseMenu=true
-MinX=0.25
-MaxX=0.75
-OffsetX=0

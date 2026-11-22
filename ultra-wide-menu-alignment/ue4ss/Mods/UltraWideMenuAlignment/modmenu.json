@@ -1,0 +1,102 @@
+{
+  "schema": 1,
+  "mod": {
+    "id": "UltraWideMenuAlignment",
+    "name": "Ultra-Wide Menu Alignment",
+    "author": "Community",
+    "version": "1.3.3",
+    "description": "Centers Inventory, Chests, Personal Chests, Crafting Stations, and Pause Menus into an ultrawide safe zone without affecting your HUD."
+  },
+  "config": {
+    "file": "config.txt",
+    "format": "kv"
+  },
+  "settings": [
+    {
+      "key": "Enabled",
+      "type": "toggle",
+      "label": "Enable Ultra-Wide Menu Alignment",
+      "description": "Master toggle for centering dynamic UI panels.",
+      "default": true
+    },
+    {
+      "key": "MinX",
+      "type": "slider",
+      "label": "Safe Zone Left Edge (MinX)",
+      "description": "Left viewport anchor (0.25 = centered 16:9 box on 32:9).",
+      "min": 0.0,
+      "max": 0.45,
+      "step": 0.01,
+      "default": 0.25
+    },
+    {
+      "key": "MaxX",
+      "type": "slider",
+      "label": "Safe Zone Right Edge (MaxX)",
+      "description": "Right viewport anchor (0.75 = centered 16:9 box on 32:9).",
+      "min": 0.55,
+      "max": 1.0,
+      "step": 0.01,
+      "default": 0.75
+    },
+    {
+      "key": "OffsetX",
+      "type": "slider",
+      "label": "Horizontal Fine-Tune Offset (px)",
+      "description": "Additional pixel translation on top of safe-zone anchors.",
+      "min": -1200,
+      "max": 1200,
+      "step": 20,
+      "default": 0
+    },
+    {
+      "key": "CenterInventory",
+      "type": "toggle",
+      "label": "Center Player Inventory",
+      "description": "Centers WBP_Inventory_MainPanel_C.",
+      "default": true
+    },
+    {
+      "key": "CenterContainers",
+      "type": "toggle",
+      "label": "Center Chests & Personal Chests",
+      "description": "Centers WBP_WorldActorInventory_MainPanel_C.",
+      "default": true
+    },
+    {
+      "key": "CenterStations",
+      "type": "toggle",
+      "label": "Center Crafting & Processing Stations",
+      "description": "Centers Crafting, Smelting, Composter, and Enchanting panels.",
+      "default": true
+    },
+    {
+      "key": "CenterBuildSpells",
+      "type": "toggle",
+      "label": "Center Build & Spellcasting Menus",
+      "description": "Centers Building and Spellcasting panels.",
+      "default": true
+    },
+    {
+      "key": "CenterPauseMenu",
+      "type": "toggle",
+      "label": "Center Pause & Save Menu",
+      "description": "Centers WBP_InGameScreensRoot_C (Esc menu).",
+      "default": true
+    },
+    {
+      "key": "EnableDebugHotkeys",
+      "type": "toggle",
+      "label": "Enable Debug Hotkeys (Shift + F7/F8/F9)",
+      "description": "OFF by default. Enable to use Shift+F7 (Snapshot), Shift+F8 (Force Apply), Shift+F9 (Banner), and Shift+NumPad +/- (Nudge).",
+      "default": false
+    },
+    {
+      "key": "ShowDebugBanner",
+      "type": "toggle",
+      "label": "Show Top Inspector Banner",
+      "description": "Logs active panel status when debug hotkeys are enabled.",
+      "default": false
+    }
+  ]
+}

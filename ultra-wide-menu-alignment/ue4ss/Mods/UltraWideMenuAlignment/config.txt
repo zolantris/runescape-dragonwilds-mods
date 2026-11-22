@@ -1,0 +1,11 @@
+Enabled=1
+MinX=0.25
+MaxX=0.75
+OffsetX=0
+CenterInventory=1
+CenterContainers=1
+CenterStations=1
+CenterBuildSpells=1
+CenterPauseMenu=1
+EnableDebugHotkeys=0
+ShowDebugBanner=0
