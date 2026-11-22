@@ -1,0 +1,14 @@
+Enabled=1
+EnableMouseDrag=1
+EnableKeyboardMove=1
+EnableScaling=1
+DragSensitivity=1.00
+KeyboardStepPx=20
+ScaleStep=0.05
+MinScale=0.50
+MaxScale=1.75
+EnableInventory=1
+EnableContainers=1
+EnableStations=1
+EnableBuildSpells=1
+EnablePauseMenu=1

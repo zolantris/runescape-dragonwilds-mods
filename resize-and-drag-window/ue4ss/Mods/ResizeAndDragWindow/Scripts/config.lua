@@ -1,0 +1,47 @@
+return {
+    Enabled = true,
+    EnableMouseDrag = true,
+    EnableKeyboardMove = true,
+    EnableScaling = true,
+    ClampToViewport = true,
+    ClampMarginPx = 120,
+    DragSensitivity = 1.0,
+    KeyboardStepPx = 20,
+    ScaleStep = 0.05,
+    MinScale = 0.50,
+    MaxScale = 1.75,
+    EnableDebugHotkeys = false,
+    Groups = {
+        inventory = true,
+        containers = true,
+        stations = true,
+        build_spells = true,
+        pause_menu = true,
+    },
+    TargetPanels = {
+        WBP_Inventory_MainPanel_C = { group = "inventory", label = "Player Inventory" },
+        WBP_WorldActorInventory_MainPanel_C = { group = "containers", label = "Chest / Personal Chest" },
+        WBP_Crafting_MainPanel_C = { group = "stations", label = "Crafting Station" },
+        WBP_ProcessingStation_MainPanel_C = { group = "stations", label = "Processing Station" },
+        WBP_Composter_MainPanel_C = { group = "stations", label = "Composter" },
+        WBP_Enchanting_MainPanel_C = { group = "stations", label = "Enchanting Altar" },
+        WBP_Building_MainPanel_C = { group = "build_spells", label = "Build Menu" },
+        WBP_Spellcasting_MainPanel_C = { group = "build_spells", label = "Spellcasting" },
+        WBP_InGameScreensRoot_C = { group = "pause_menu", label = "Pause / Save Menu" },
+    },
+    -- Individual per-panel overrides (optional):
+    -- Set enabled = false to block dragging/scaling a specific panel even if its group is on,
+    -- or override minScale / maxScale / defaultX / defaultY per class.
+    PanelOverrides = {
+        -- WBP_InGameScreensRoot_C = { enabled = true, minScale = 0.75, maxScale = 1.25 },
+        -- WBP_Inventory_MainPanel_C = { enabled = true, defaultX = 0.0, defaultY = 0.0 },
+    },
+    SnapshotIgnoreSubstrings = {
+        "Default__",
+        "WBP_FloatingDamage",
+        "WBP_FloatingText",
+        "ItemSlot",
+        "CategoryItemSlot",
+        "Tooltip",
+    },
+}
