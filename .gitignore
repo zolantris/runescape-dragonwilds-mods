@@ -1,2 +1,5 @@
 */archives
 archives/
+
+# nested readmes are ignored as top level readms are copied down into these roots during archive
+ultra-wide-menu-alignment\ue4ss\Mods\UltraWideMenuAlignment\README.md

@@ -1,17 +1,32 @@
-[CmdletBinding(SupportsShouldProcess = $true)]
+[CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, Position = 0)]
     [string]$ModFolder,
     [string]$Version,
     [string]$Channel,
-    [Alias("force-update")]
     [switch]$ForceUpdate,
-    [Alias("dry-run")]
     [switch]$DryRun,
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$ExtraArgs
 )
 
 $ErrorActionPreference = "Stop"
+
+# Support Unix-style --force-update and --dry-run flags cleanly
+if ($ExtraArgs) {
+    foreach ($arg in $ExtraArgs) {
+        switch ($arg.ToLower()) {
+            "--force-update" { $ForceUpdate = $true }
+            "-force-update"  { $ForceUpdate = $true }
+            "--dry-run"      { $DryRun = $true }
+            "-dry-run"       { $DryRun = $true }
+            "--skip-build"   { $SkipBuild = $true }
+            default          { throw "Unknown argument: '$arg'" }
+        }
+    }
+}
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $modRoot  = Join-Path $repoRoot $ModFolder
 $ue4ssSrc = Join-Path $modRoot "ue4ss"
@@ -21,7 +36,7 @@ if (-not (Test-Path $ue4ssSrc)) {
 }
 
 if (-not $DryRun -and -not (Get-Command gh -ErrorAction SilentlyContinue)) {
-    throw "GitHub CLI ('gh') is required to publish releases. Install it from https://github.com and run 'gh auth login'."
+    throw "GitHub CLI ('gh') is required to publish releases. Install it from https://cli.github.com/ and run 'gh auth login'."
 }
 
 $modDirs = Get-ChildItem -Path (Join-Path $ue4ssSrc "Mods") -Directory
@@ -70,8 +85,8 @@ if (Test-Path $readmePath) {
 }
 
 Push-Location $repoRoot
+$notesFile = Join-Path $env:TEMP "gh-release-notes-$tagName.md"
 try {
-    # Check local and remote tags
     git fetch --tags --quiet 2>$null
     $localTag  = git tag -l $tagName
     $remoteTag = git ls-remote --tags origin "refs/tags/$tagName" 2>$null
@@ -116,7 +131,10 @@ try {
     git tag -a $tagName -m "Release $tagName"
     git push origin $tagName
 
-    $ghArgs = @("release", "create", $tagName, $zipPath, "--title", "$modName v$fullVersion", "--notes", $notes)
+    # Write release notes to temp file so multiline markdown passes cleanly to gh.exe
+    Set-Content -Path $notesFile -Value $notes -Encoding UTF8
+
+    $ghArgs = @("release", "create", $tagName, $zipPath, "--title", "$modName v$fullVersion", "--notes-file", $notesFile)
     if ($Channel.ToLower() -ne "stable") {
         $ghArgs += "--prerelease"
     }
@@ -128,5 +146,6 @@ try {
 
     Write-Host "Published release '$tagName' with asset '$zipPath'" -ForegroundColor Green
 } finally {
+    if (Test-Path $notesFile) { Remove-Item $notesFile -Force -ErrorAction SilentlyContinue }
     Pop-Location
 }

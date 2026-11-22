@@ -1,4 +1,4 @@
-# Ultra-Wide Menu Alignment (`UltraWideMenuAlignment` v1.3.3)
+# Ultra-Wide Menu Alignment (`UltraWideMenuAlignment` v--force-update)
 
 Centers dynamic UI panels (Player Inventory, Chests, Personal Chests, Crafting Stations, Processing Stations, Building, Spellcasting, and Pause/Save menus) into an ultrawide safe zone while leaving your persistent HUD untouched for HUD layout mods like **Rune UI**.
 
@@ -45,7 +45,8 @@ ue4ss/
 ## Changelog
 
 <!-- CHANGELOG:START -->
-### v1.3.4
+### v--force-update
 
+- **2026-11-22** - reorganize repo (`150120c`)
 - **2026-11-22** - 1.2.9 working with both pause menu and inventory alignment and does not interfere with other panels (`76fab60`)
 <!-- CHANGELOG:END -->
