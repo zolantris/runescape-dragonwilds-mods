@@ -1,0 +1,60 @@
+# Arcane Wilds Custom Spell Scaffolding (Hot-Reloaded Automatically on Save!)
+# Define custom spells that wrap an existing DominionSpellData base spell and attach
+# custom VFX (Niagara / SpawnActor / GameplayEffect), SFX (SoundWave / SoundCue),
+# AnimMontage, and Speed/Clamp settings at runtime—without .pak asset overrides.
+#
+# Block Format:
+#   [CustomSpellName]
+#   BaseSpell = <DA_Spell_*, HAM_*, or DA_AncientStaff_* asset name>
+#   Category  = <Category tag for chaining & movement unlock, e.g. Fire, Air, Water, Earth, AncientMagicks>
+#   VFX       = <Optional NiagaraSystem / Actor / GameplayEffect object name>
+#   SFX       = <Optional SoundWave / SoundCue object name>
+#   Montage   = <Optional AnimMontage object name>
+#   Speed     = <Optional speed multiplier >= 1.0, e.g. 2.0>
+#   Clamp     = <Optional true/false; true caps high speeds at ~1.35x so AnimNotifies aren't skipped>
+#   RuneCost  = <Optional rune alias or item name, e.g. fire, air, blood, ice>
+#   RuneCount = <Optional integer quantity >= 1, default 1>
+#
+# Once defined here, you can reference [CustomSpellName] directly in combo_rules.txt!
+# Example: Fire@bolt_1,bolt_2:2.0 -> FlamesOfZamorak@FlamesOfZamorak:1.8 :5;
+
+[FlamesOfZamorak]
+BaseSpell = DA_Spell_Primary_Fire_04
+Category  = Fire
+VFX       = NS_Attack_Fire_Magic_BurningGround
+SFX       = SW_HAM_BloodBarrage
+Speed     = 1.8
+Clamp     = true
+RuneCost  = fire
+RuneCount = 2
+
+[StormOfArmadyl]
+BaseSpell = DA_Spell_Primary_Air_03
+Category  = Air
+VFX       = HAM_IceBarrage
+SFX       = SW_IceBarrage
+Speed     = 2.2
+Clamp     = false
+RuneCost  = air
+RuneCount = 2
+
+# Additional scaffolding templates (uncomment & tune object names from Live View / detected_spells.txt):
+# [SaradominStrike]
+# BaseSpell = DA_Spell_Primary_Water_03
+# Category  = Water
+# VFX       =
+# SFX       =
+# Speed     = 2.0
+# Clamp     = false
+# RuneCost  = water
+# RuneCount = 1
+
+# [IbanBlast]
+# BaseSpell = DA_Spell_Primary_Fire_03
+# Category  = Fire
+# VFX       =
+# SFX       =
+# Speed     = 1.9
+# Clamp     = true
+# RuneCost  = fire
+# RuneCount = 1

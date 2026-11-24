@@ -1,4 +1,6 @@
 {
-  "version": "1.0.0",
-  "channel": "stable"
+  "name": "ArcaneWilds",
+  "display_name": "Arcane Wilds",
+  "version": "1.67.0",
+  "author": "zolantris"
 }

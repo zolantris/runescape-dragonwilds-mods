@@ -1,12 +1,13 @@
--- ArcaneWilds v1.65.0
+-- ArcaneWilds v1.67.0
 -- Move-While-Casting + Cross-Element & Ancient Magicks Chaining + Rune Consumption + Montage Pacing
 
-local MOD_VERSION = "1.65.0"
+local MOD_VERSION = "1.67.0"
 local MOD_DIR = debug.getinfo(1, "S").source:match("^@?(.*[\\/])Scripts[\\/]") or "ue4ss\\Mods\\ArcaneWilds\\"
 local SCRIPTS_DIR = MOD_DIR .. "Scripts\\"
 local CONFIG_PATH = MOD_DIR .. "config.txt"
 local COMBO_RULES_PATH = MOD_DIR .. "combo_rules.txt"
 local SPELL_NAMES_PATH = MOD_DIR .. "spell_names.txt"
+local CUSTOM_SPELLS_PATH = MOD_DIR .. "custom_spells.txt"
 local DETECTED_PATH = MOD_DIR .. "detected_spells.txt"
 
 if not package.path:find(SCRIPTS_DIR, 1, true) then
@@ -15,6 +16,7 @@ end
 
 local RuleParser = require("rule_parser")
 local SpellScanner = require("spell_scanner")
+local CustomSpells = require("custom_spells")
 
 local DEFAULT_SPELL_NAMES_CONTENT = table.concat({
     "# ArcaneWilds Direct Spell Name -> Asset Map (Hot-Reloaded Automatically on Save!)",
@@ -124,6 +126,7 @@ local State = {
     LastConfigPollTime = 0,
     LastScanTime = 0,
     LastSpellNamesRaw = nil,
+    LastCustomSpellsRaw = nil,
     LastComboRulesRaw = nil,
     LastRulesStatusWritten = "",
     LastDetectedSummaryWritten = "",
@@ -131,6 +134,8 @@ local State = {
     SpellChains = {},
     AllChainsList = {},
     SpellRegistry = {},
+    BaseSpellRegistry = {},
+    CustomSpellDefs = {},
     DiscoveredLookup = {},
     RuneItemDataCache = {},        -- [elemLower] = ItemData UObject (e.g., "fire" -> DA_Item_Rune_Fire)
     NameMapByCat = {},
@@ -270,8 +275,59 @@ local function LoadSpellNamesFile()
     return false
 end
 
+local function LoadCustomSpellsFile()
+    local f = io.open(CUSTOM_SPELLS_PATH, "r")
+    if not f then
+        local wf = io.open(CUSTOM_SPELLS_PATH, "w")
+        if wf then
+            wf:write("-- Arcane Wilds Custom Spells (see custom_spells.txt template)\n")
+            wf:close()
+        end
+        return false
+    end
+    local raw = f:read("*a") or ""
+    f:close()
+    if State.LastCustomSpellsRaw ~= raw then
+        local isInitial = (State.LastCustomSpellsRaw == nil)
+        State.LastCustomSpellsRaw = raw
+        State.CustomSpellDefs = CustomSpells.ParseDefinitions(raw)
+        if not isInitial then
+            Log("Hot-reloaded custom_spells.txt")
+        end
+        return true
+    end
+    return false
+end
+
+local function RebuildMergedRegistry()
+    local merged = {}
+    for k, v in pairs(State.BaseSpellRegistry) do
+        merged[k] = v
+    end
+    local lookup = {}
+    for k, entry in pairs(merged) do
+        lookup[k] = entry.shortName
+        if entry.montageName and entry.montageName ~= "" then
+            lookup[entry.montageName:lower()] = entry.shortName
+        end
+    end
+    local customEntries = CustomSpells.BuildCustomRegistryEntries(
+        State.CustomSpellDefs, merged, State.SpellChains, State.RuneItemDataCache,
+        SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName)
+    for k, cEntry in pairs(customEntries) do
+        merged[k] = cEntry
+        lookup[k] = cEntry.shortName
+    end
+    State.SpellRegistry = merged
+    State.DiscoveredLookup = lookup
+end
+
 local function LoadComboRulesFile(forceRebuild, legacyRuleFallback)
     local namesChanged = LoadSpellNamesFile()
+    local customChanged = LoadCustomSpellsFile()
+    if customChanged then
+        RebuildMergedRegistry()
+    end
 
     local f = io.open(COMBO_RULES_PATH, "r")
     if not f then
@@ -308,7 +364,7 @@ local function LoadComboRulesFile(forceRebuild, legacyRuleFallback)
     f:close()
 
     local combinedRules = table.concat(lines, " ")
-    if forceRebuild or namesChanged or State.LastComboRulesRaw ~= combinedRules then
+    if forceRebuild or namesChanged or customChanged or State.LastComboRulesRaw ~= combinedRules then
         local isInitial = (State.LastComboRulesRaw == nil)
         State.LastComboRulesRaw = combinedRules
         State.ParsedMacros = RuleParser.ParseWeightedMacros(
@@ -423,8 +479,8 @@ local function RefreshSpells()
         Config, MOD_VERSION, DETECTED_PATH, State.NameMapByCat, State.GlobalNameMap)
     State.SpellChains = chains
     State.AllChainsList = ordered
-    State.SpellRegistry = registry
-    State.DiscoveredLookup = discovered
+    State.BaseSpellRegistry = registry
+    RebuildMergedRegistry()
     DiscoverRuneItemAssets()
 
     if summary ~= State.LastDetectedSummaryWritten then
@@ -865,7 +921,10 @@ end
 
 local function ApplyStageSpeedAndPriming(combatMagic, stage, stepInStage, pawn)
     if not stage then return end
-    local variedSpeed = RuleParser.ComputeVariedSpeed(stage.speed, Config.BonusSpeedVariancePct)
+    local stepDesc = stage.steps[stepInStage] or stage.steps[1]
+    local previewEntry = ResolveStepEntry(stage, stepDesc)
+    local effectiveBaseSpeed = (previewEntry and previewEntry.customOverrideSpeed) or stage.speed
+    local variedSpeed = RuleParser.ComputeVariedSpeed(effectiveBaseSpeed, Config.BonusSpeedVariancePct)
     local stepDesc = stage.steps[stepInStage] or stage.steps[1]
     local entry = ResolveStepEntry(stage, stepDesc)
     local isAirSmash = IsNotifyClampedEntry(entry)
@@ -940,6 +999,7 @@ local function TriggerSpellEntryForPlayer(pawn, entry)
         end)
         if ok then
             ConsumeRunesForSpellEntry(pawn, entry)
+            CustomSpells.TriggerCustomPresentation(pawn, entry, SpellScanner.SafeGetName)
             return true
         end
     end
