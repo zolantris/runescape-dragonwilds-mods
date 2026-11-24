@@ -140,13 +140,77 @@ local function RunDebugInspection()
     end
 end
 
-local function BindDebugHotkey()
-    local rawKey = (Config.DebugHotkey or "OEM_5"):upper()
-    if rawKey == "\\" or rawKey == "BACKSLASH" then rawKey = "OEM_5" end
-    if State.BoundDebugKey == rawKey then return end
-    State.BoundDebugKey = rawKey
+local CANDIDATE_KEY_NAMES = {
+    "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+    "BackSlash", "Slash", "Semicolon", "Apostrophe", "LeftBracket", "RightBracket",
+    "Period", "Comma", "Minus", "Equals", "Grave", "Insert", "Delete", "Home", "End", "PageUp", "PageDown",
+    "NumPadZero", "NumPadOne", "NumPadTwo", "NumPadThree", "NumPadFour",
+    "NumPadFive", "NumPadSix", "NumPadSeven", "NumPadEight", "NumPadNine",
+    "ThumbMouseButton", "ThumbMouseButton2"
+}
 
-    local keyEnum = Key[rawKey] or Key.OEM_5
+local FRIENDLY_KEY_ALIASES = {
+    ["\"] = "BackSlash",
+    ["BACKSLASH"] = "BackSlash",
+    ["OEM_5"] = "BackSlash",
+    ["/"] = "Slash",
+    ["FORWARDSLASH"] = "Slash",
+    ["`"] = "Grave",
+    ["TILDE"] = "Grave",
+    ["MOUSE4"] = "ThumbMouseButton",
+    ["MOUSE5"] = "ThumbMouseButton2"
+}
+
+local function NormalizeKeyName(raw)
+    local up = (tostring(raw or "BackSlash")):gsub("^%s*(.-)%s*$", "%1"):upper()
+    if FRIENDLY_KEY_ALIASES[up] then
+        return FRIENDLY_KEY_ALIASES[up]
+    end
+    return tostring(raw or "BackSlash"):gsub("^%s*(.-)%s*$", "%1")
+end
+
+local function PollHotkeyListener(pc)
+    if not State.ListeningForDebugHotkey then return end
+    if not pc or not pc:IsValid() then return end
+    if (os.clock() - (State.ListenerStartedAt or 0)) < 0.25 then return end
+
+    for _, kName in ipairs(CANDIDATE_KEY_NAMES) do
+        local pressed = false
+        pcall(function()
+            pressed = pc:IsInputKeyDown({ KeyName = FName(kName) })
+        end)
+        if pressed then
+            State.ListeningForDebugHotkey = false
+            Config.DebugHotkey = kName
+            State.BoundDebugKey = nil
+            ConfigManager.SaveConfigFile(Paths, Config)
+            Log("Captured new DebugHotkey via input listener: [" .. kName .. "] (saved to config.txt; press SHIFT + " .. kName .. " for debug dump)")
+            return
+        end
+    end
+end
+
+local function StartHotkeyListener()
+    if State.ListeningForDebugHotkey then return end
+    State.ListeningForDebugHotkey = true
+    State.ListenerStartedAt = os.clock()
+    Log("Hotkey listener ACTIVE: press any bindable key (e.g. F9, F10, BackSlash, Insert, NumPadOne) to bind DebugHotkey...")
+end
+
+local function BindDebugHotkey()
+    local rawTrim = tostring(Config.DebugHotkey or "BackSlash"):gsub("^%s*(.-)%s*$", "%1")
+    local upper = rawTrim:upper()
+    if upper == "LISTEN" or upper == "BIND" or upper == "CAPTURE" or upper == "?" then
+        StartHotkeyListener()
+        return
+    end
+    State.ListeningForDebugHotkey = false
+
+    local normalized = NormalizeKeyName(rawTrim)
+    if State.BoundDebugKey == normalized then return end
+    State.BoundDebugKey = normalized
+
+    local keyEnum = Key[normalized] or Key[upper] or Key.BackSlash or Key.OEM_5
     pcall(function()
         RegisterKeyBind(keyEnum, { ModifierKey.SHIFT }, function()
             if Config.AllowDebugCommands then
@@ -154,6 +218,7 @@ local function BindDebugHotkey()
             end
         end)
     end)
+    Log("Debug dump hotkey bound to: SHIFT + " .. tostring(normalized) .. " (set DebugHotkey=LISTEN in config.txt to rebind interactively)")
 end
 
 local function TickAnchorReturn(now, pawn, combatMagic)
@@ -332,7 +397,12 @@ LoopAsync(50, function()
     if not Config.Enabled then return false end
 
     local pc, pawn, combatMagic = GetPlayerPawnAndComponents()
-    if not pc or not pawn then return false end
+    if not pc then return false end
+    PollHotkeyListener(pc)
+    if not pawn then return false end
+    if not State._InstalledEquipmentHooks then
+        EquipmentRunes.InstallEquipmentSwapHooks(State, combatMagic, Log, DebugLog)
+    end
 
     if (now - State.LastScanTime) >= 3.0 then
         State.LastScanTime = now
@@ -375,5 +445,6 @@ NotifyOnNewObject("/Script/Dominion.DominionSpellData", function()
 end)
 
 ConfigManager.LoadConfigFile(Paths, Config, State, Log, true)
+EquipmentRunes.InstallEquipmentSwapHooks(State, nil, Log, DebugLog)
 BindDebugHotkey()
 Log("v" .. MOD_VERSION .. " initialized cleanly (modular architecture).")

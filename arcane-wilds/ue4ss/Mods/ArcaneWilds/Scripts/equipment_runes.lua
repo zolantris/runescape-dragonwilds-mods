@@ -336,4 +336,91 @@ function EquipmentRunes.ConsumeRunesForSpellEntry(config, state, pawn, entry, de
     return true
 end
 
+
+local function OnEquipmentChangedCallback(selfObj, state, combatMagic, debugLogFn, label)
+    if state and state.Enabled == false then return end
+    local pawn = nil
+    pcall(function()
+        if selfObj and selfObj:IsValid() then
+            if selfObj.GetOwner then
+                pawn = selfObj:GetOwner()
+            elseif selfObj.Pawn then
+                pawn = selfObj.Pawn
+            end
+        end
+    end)
+    local cm = nil
+    pcall(function()
+        if pawn and pawn:IsValid() then
+            cm = pawn.PlayerCombatMagicComponent
+        end
+    end)
+    if not cm then cm = combatMagic end
+    if pawn and pawn:IsValid() and state then
+        state.ActiveMacro = nil
+        state.StageIndex = 1
+        state.StepInStage = 1
+        state.PendingAnchorReturn = false
+        state.StepInFlight = false
+        state.InFlightSpellObj = nil
+        state.LastObservedChainedSpell = nil
+        if cm and cm:IsValid() then
+            pcall(function() cm.LastChainedSpell = nil end)
+        end
+        EquipmentRunes.DetectEquippedCategory(pawn, cm, state, debugLogFn or function() end)
+        if debugLogFn and label then
+            debugLogFn("Hook fired [" .. label .. "] -> Synced anchor to [" .. tostring(state.AnchorElement) .. "]")
+        end
+    end
+end
+
+function EquipmentRunes.InstallEquipmentSwapHooks(state, combatMagic, logFn, debugLogFn)
+    if state._InstalledEquipmentHooks then return end
+    state._InstalledEquipmentHooks = true
+
+    local hookTargets = {
+        "/Script/Dominion.PlayerEquipmentComponent:OnRep_HeldEquipmentActorRight",
+        "/Script/Dominion.PlayerEquipmentComponent:OnRep_HeldEquipmentActorLeft",
+        "/Script/Dominion.PlayerEquipmentComponent:GetHeldEquipmentDataRight",
+        "/Script/Dominion.PlayerEquipmentComponent:GetHeldEquipmentDataLeft",
+        "/Script/Dominion.PlayerEquipmentComponent:GetHeldEquipmentActorRight",
+        "/Script/Dominion.PlayerEquipmentComponent:GetHeldEquipmentActorLeft"
+    }
+
+    for _, fnPath in ipairs(hookTargets) do
+        local okReg, errReg = pcall(function()
+            RegisterHook(fnPath, function(selfObj)
+                OnEquipmentChangedCallback(selfObj, state, combatMagic, debugLogFn, fnPath)
+            end)
+        end)
+        if logFn then
+            logFn("RegisterHook [" .. fnPath .. "] -> " .. tostring(okReg) .. (errReg and (" (" .. tostring(errReg) .. ")") or ""))
+        end
+    end
+
+    pcall(function()
+        local eqComp = FindFirstOf("PlayerEquipmentComponent")
+        if eqComp and eqComp:IsValid() and eqComp.BP_OnHeldEquipmentChanged and eqComp.BP_OnHeldEquipmentChanged.Add then
+            eqComp.BP_OnHeldEquipmentChanged:Add(function()
+                local pawn = nil
+                pcall(function() pawn = eqComp:GetOwner() end)
+                local cm = nil
+                pcall(function()
+                    if pawn and pawn:IsValid() then cm = pawn.PlayerCombatMagicComponent end
+                end)
+                if not cm then cm = combatMagic end
+                state.ActiveMacro = nil
+                state.PendingAnchorReturn = false
+                state.LastObservedChainedSpell = nil
+                if cm and cm:IsValid() then
+                    pcall(function() cm.LastChainedSpell = nil end)
+                end
+                if pawn and pawn:IsValid() then
+                    EquipmentRunes.DetectEquippedCategory(pawn, cm, state, debugLogFn or function() end)
+                end
+            end)
+        end
+    end)
+end
+
 return EquipmentRunes

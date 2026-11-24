@@ -96,8 +96,8 @@ end
 function ConfigManager.CreateDefaultConfig()
     return {
         Enabled = true,
-        DebugMode = false,
-        AllowDebugCommands = false,
+        DebugMode = true,
+        AllowDebugCommands = true,
         DebugHotkey = "OEM_5",
         RequireModifierKey = true,
         ModifierKey = "RMB",
