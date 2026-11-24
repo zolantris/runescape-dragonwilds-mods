@@ -71,6 +71,76 @@ function EquipmentRunes.GetActiveAncientMagicksToggle(pawn, combatMagic)
     return activeHam
 end
 
+
+local RUNE_PROP_CANDIDATES = {
+    "EquippedMagicAmmo", "MagicAmmo", "CurrentMagicAmmo", "EquippedRune", "CurrentRune",
+    "ActiveRune", "SelectedRune", "RuneItem", "RuneItemData", "AmmoItemData", "EquippedAmmo",
+    "CurrentSpell", "SelectedSpell", "ActiveSpell", "EquippedSpell", "CurrentSpellData"
+}
+
+local function ScanObjPropsForRuneElement(obj, safeGetFn, extractShortFn, classifyFn, runeCache)
+    if not obj or not obj:IsValid() then return nil, nil end
+    for _, propName in ipairs(RUNE_PROP_CANDIDATES) do
+        local ok, val = pcall(function() return obj[propName] end)
+        if ok and val ~= nil then
+            if type(val) == "userdata" then
+                local isV = false
+                pcall(function() isV = val:IsValid() end)
+                if isV then
+                    local fullStr = safeGetFn(val)
+                    local itemDataObj = nil
+                    pcall(function()
+                        if val.ItemData and val.ItemData:IsValid() then
+                            itemDataObj = val.ItemData
+                            fullStr = fullStr .. " " .. safeGetFn(itemDataObj)
+                        end
+                    end)
+                    local elem = classifyFn(fullStr)
+                    if elem then
+                        return elem, itemDataObj or val
+                    end
+                    -- If val is an array/collection with ForEach, inspect elements
+                    pcall(function()
+                        if val.ForEach then
+                            val:ForEach(function(_, elemWrapper)
+                                local eObj = nil
+                                pcall(function() eObj = elemWrapper:get() end)
+                                if eObj then
+                                    local eName = ""
+                                    local eItemData = nil
+                                    if type(eObj) == "userdata" then
+                                        pcall(function()
+                                            if eObj:IsValid() then
+                                                eName = safeGetFn(eObj)
+                                                if eObj.ItemData and eObj.ItemData:IsValid() then
+                                                    eItemData = eObj.ItemData
+                                                    eName = eName .. " " .. safeGetFn(eItemData)
+                                                end
+                                            end
+                                        end)
+                                    end
+                                    local eElem = classifyFn(eName)
+                                    if eElem and not elem then
+                                        elem = eElem
+                                        itemDataObj = eItemData or eObj
+                                    end
+                                end
+                            end)
+                        end
+                    end)
+                    if elem then
+                        return elem, itemDataObj
+                    end
+                end
+            elseif type(val) == "string" and val ~= "" then
+                local elem = classifyFn(val)
+                if elem then return elem, nil end
+            end
+        end
+    end
+    return nil, nil
+end
+
 function EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLogFn)
     if not pawn or not pawn:IsValid() then
         return state.LastKnownEquippedElement
@@ -102,26 +172,14 @@ function EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLo
                 end
             end
 
-            local ammoProps = { "EquippedMagicAmmo", "MagicAmmo", "CurrentMagicAmmo" }
-            for _, prop in ipairs(ammoProps) do
-                local itemObj = nil
-                pcall(function() itemObj = equipComp[prop] end)
-                if itemObj and itemObj:IsValid() then
-                    local itemName = SpellScanner.SafeGetName(itemObj)
-                    local itemDataObj = nil
-                    pcall(function() itemDataObj = itemObj.ItemData end)
-                    if itemDataObj and itemDataObj:IsValid() then
-                        itemName = itemName .. " " .. SpellScanner.SafeGetName(itemDataObj)
-                    end
-                    local elem = SpellScanner.ClassifyEquippedName(itemName)
-                    if elem then
-                        detectedElem = elem
-                        hasExplicitRuneEquipped = true
-                        if itemDataObj and itemDataObj:IsValid() then
-                            state.RuneItemDataCache[elem:lower()] = itemDataObj
-                        end
-                        break
-                    end
+            local scanElem, scanItemObj = ScanObjPropsForRuneElement(
+                equipComp, SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName,
+                SpellScanner.ClassifyEquippedName, state.RuneItemDataCache)
+            if scanElem then
+                detectedElem = scanElem
+                hasExplicitRuneEquipped = true
+                if scanItemObj and scanItemObj:IsValid() then
+                    state.RuneItemDataCache[scanElem:lower()] = scanItemObj
                 end
             end
         end
@@ -157,6 +215,37 @@ function EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLo
                             end
                             break
                         end
+                    end
+                end
+            end
+        end)
+    end
+
+    if not detectedElem and combatMagic and combatMagic:IsValid() then
+        local cmElem, cmItemObj = ScanObjPropsForRuneElement(
+            combatMagic, SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName,
+            SpellScanner.ClassifyEquippedName, state.RuneItemDataCache)
+        if cmElem then
+            detectedElem = cmElem
+            hasExplicitRuneEquipped = true
+            if cmItemObj and cmItemObj:IsValid() then
+                state.RuneItemDataCache[cmElem:lower()] = cmItemObj
+            end
+        end
+    end
+
+    if not detectedElem then
+        pcall(function()
+            local invComp = pawn.InventoryComponent
+            if invComp and invComp:IsValid() then
+                local invElem, invItemObj = ScanObjPropsForRuneElement(
+                    invComp, SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName,
+                    SpellScanner.ClassifyEquippedName, state.RuneItemDataCache)
+                if invElem then
+                    detectedElem = invElem
+                    hasExplicitRuneEquipped = true
+                    if invItemObj and invItemObj:IsValid() then
+                        state.RuneItemDataCache[invElem:lower()] = invItemObj
                     end
                 end
             end
