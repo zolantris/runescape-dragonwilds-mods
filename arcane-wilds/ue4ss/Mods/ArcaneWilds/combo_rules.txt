@@ -1,0 +1,60 @@
+# Arcane Wilds Custom Combo Rules (Hot-Reloaded Automatically on Save!)
+# Syntax: Category@spell,spell:speed -> Category@spell,spell:speed :weight;
+# Remove '#' at the start of any example line below to enable it, or add '#' to comment out active rules.
+#
+# NOTE ON FINISHER / CHANNEL SPELLS (e.g., Fire.volcano / Fire.meteor / Water.tsunami / Air.slam):
+#   - Every spell step in a stage is held until its cast/channel finishes (CurrentSpellActor clears)
+#     before advancing to the next spell — bolts will NEVER cut off a finisher/channel!
+#   - Montage playback speed is dynamically enforced on the active playing montage so heavy finishers
+#     speed up cleanly too (adjust KeepGroundSmashAnchored in Mod Menu if you want >1.35x on 4th-hit finishers).
+
+# --- ACTIVE DEFAULT EXAMPLES (Comment out with '#' as needed) ---
+Water@wave,bolt:2.5 -> Fire@bolt,explosion:2.5 :5;
+HAM_BloodBarrage@blood_barrage:2.0 -> HAM_IceBarrage@ice_barrage:2.0 :5;
+HAM_IceBarrage@ice_barrage:2.0 -> HAM_BloodBarrage@blood_barrage:2.0 :5;
+
+# --- ANCIENT MAGICKS (Desert Treasure) TEST TEMPLATES (Uncomment to test) ---
+# Blood <-> Ice Barrage swap with Smoke finisher:
+# HAM_BloodBarrage@blood_barrage:2.2 -> HAM_IceBarrage@ice_barrage:2.2 -> HAM_SmokeBarrage@smoke_barrage:2.2 :5;
+# Ice Barrage -> Blood Barrage sustain loop:
+# HAM_IceBarrage@ice_barrage:2.0 -> HAM_BloodBarrage@blood_barrage:2.0 -> HAM_BloodBarrage@blood_barrage:2.0 :5;
+# Ancient Staff Special Ice Barrage into Blood Barrage:
+# AncientStaff_IceBarrage@ancient_ice:2.0 -> HAM_BloodBarrage@blood_barrage:2.0 :5;
+# Blitz -> Barrage combos (if Blitz variants are installed):
+# HAM_IceBlitz@ice_blitz:2.2 -> HAM_BloodBarrage@blood_barrage:2.0 :5;
+# HAM_BloodBlitz@blood_blitz:2.2 -> HAM_IceBarrage@ice_barrage:2.0 :5;
+
+# --- FIRE TEST TEMPLATES (Uncomment to test) ---
+# Quick Fire bolt into single heavy Volcano/Meteor finisher (no duplicate casts):
+# Fire@bolt_1,bolt_2,volcano:2.2 :5;
+# Full Fire chain into Water Tsunami and Air Vortex/Slam:
+# Fire@bolt_1,bolt_2,burst,explosion:2.0 -> Water@tsunami:2.0 -> Air@bolt,gust,vortex,slam:2.0 :5;
+# Fire Wand combo:
+# Fire_Wand@bolt_1,bolt_2,burst,explosion:2.2 -> Water_Wand@wave:2.2 -> Air_Wand@bolt,vortex:2.2 :5;
+
+# --- WATER TEST TEMPLATES (Uncomment to test) ---
+# Water@bolt,waterfall,wave,tsunami:2.2 :5;
+# Water_Wand@wave,bolt:2.5 -> Fire_Wand@bolt,volcano:2.5 :5;
+
+# --- AIR TEST TEMPLATES (Uncomment to test) ---
+# Air@bolt,vortex:2.2 -> Fire@bolt_1,bolt_2:2.0 :5;
+# Air@bolt,gust,vortex,slam:2.0 :5;
+# Air_Wand@bolt,gust,vortex,slam:2.2 :5;
+
+# --- EARTH TEST TEMPLATES (Uncomment to test) ---
+# Earth@bolt,spike:2.0 -> Water@bolt,wave:2.2 :5;
+# Earth@bolt,spike,shatter,boulder:2.0 :5;
+# Earth_Wand@bolt,spike,shatter,boulder:2.2 :5;
+
+# --- CONJURER MODDED TEST TEMPLATES (Uncomment to test) ---
+# ConjurerFire@bolt,burst,blast,meteor:2.2 -> ConjurerAir@bolt,vortex:2.2 :5;
+# ConjurerLaw@bolt,pulse,wave,nova:2.2 -> ConjurerNature@bolt,thorn,vine,wrath:2.2 :5;
+# --- CLASSIC RS PRESET TEMPLATES (Uncomment to test) ---
+# Storm of Armadyl (Air opener -> rapid Armadyl gusts/vortexes -> slam):
+# Air@gust,vortex,vortex,slam:2.4 :5;
+# Iban Blast (Fire opener -> explosive Iban finisher):
+# Fire@bolt_1,burst,explosion:2.0 :5;
+# Blood Blitz -> Blood Barrage:
+# HAM_BloodBarrage@blood_blitz,blood_barrage:2.0 :5;
+# Entangle -> Ice Barrage (Earth snare into Ancient Ice Barrage):
+# Earth@bolt,spike:2.0 -> HAM_IceBarrage@ice_barrage:2.0 :5;

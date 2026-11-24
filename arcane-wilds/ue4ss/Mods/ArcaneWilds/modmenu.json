@@ -1,0 +1,196 @@
+{
+  "id": "ArcaneWilds",
+  "name": "Arcane Wilds",
+  "version": "1.65.0",
+  "author": "zolantris",
+  "description": "Move-while-casting, Block/Modifier cross-element & Ancient Magicks chaining, notify-safe animation pacing, and rune-accurate casting.",
+  "config_file": "config.txt",
+  "settings": [
+    {
+      "type": "header",
+      "label": "Core Arcane Wilds & Stance Modifier"
+    },
+    {
+      "key": "Enabled",
+      "type": "toggle",
+      "label": "Enable Arcane Wilds",
+      "description": "Master switch for runtime move-casting and combo chaining.",
+      "default": true
+    },
+    {
+      "key": "RequireModifierKey",
+      "type": "toggle",
+      "label": "Require Modifier / Block Stance for Combos",
+      "description": "Only engage custom weighted combo macros while holding the Modifier / Block input.",
+      "default": true
+    },
+    {
+      "key": "ModifierKey",
+      "type": "text",
+      "label": "Combat Stance Modifier Key",
+      "description": "Input held to engage combo chains: RMB (Block / LT / RB), SHIFT, ALT, CTRL, MOUSE4, MOUSE5, MMB.",
+      "default": "RMB"
+    },
+    {
+      "key": "ConsumeRunesOnSwappedCasts",
+      "type": "toggle",
+      "label": "Consume Runes on Swapped/Macro Casts",
+      "description": "Deduct matching element runes/items from inventory when casting swapped elements or Ancient Magicks.",
+      "default": true
+    },
+    {
+      "type": "header",
+      "label": "Weighted Cross-Element Combo Macros (combo_rules.txt)"
+    },
+    {
+      "key": "ActiveComboRulesCount",
+      "type": "text",
+      "label": "Combo Rules File Status (Read-Only)",
+      "description": "Edit ArcaneWilds/combo_rules.txt & spell_names.txt directly (hot-reloads live on save).",
+      "default": "Edit combo_rules.txt in mod folder"
+    },
+    {
+      "key": "DefaultComboCutoff",
+      "type": "slider",
+      "label": "Default Fallback Cutoff (Steps)",
+      "description": "Fallback step count (1-4) for spells with no matching rule.",
+      "min": 1,
+      "max": 4,
+      "step": 1,
+      "default": 2
+    },
+    {
+      "key": "BonusSpeedVariancePct",
+      "type": "slider",
+      "label": "Bonus Speed Variance (%)",
+      "description": "Random variance applied strictly to the speed bonus above 100% (never drops below 1.0x).",
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "default": 25
+    },
+    {
+      "key": "DetectedSpellsSummary",
+      "type": "text",
+      "label": "Detected Categories & Spells",
+      "description": "Auto-populated summary (see detected_spells.txt in mod folder for full [Category] & DA_Spell_* names).",
+      "default": "Auto-detecting on world load..."
+    },
+    {
+      "type": "header",
+      "label": "Hold-to-Auto-Attack"
+    },
+    {
+      "key": "EnableAutoAttackHold",
+      "type": "toggle",
+      "label": "Enable Hold-to-Auto-Attack",
+      "description": "Holding Left-Click (or Right Trigger) automatically chains casts when idle.",
+      "default": true
+    },
+    {
+      "key": "AutoAttackAllCombos",
+      "type": "toggle",
+      "label": "Auto-Attack Without Modifier Key",
+      "description": "Also auto-chain normal attacks when holding Left-Click without holding Block/Modifier.",
+      "default": false
+    },
+    {
+      "key": "AutoAttackIntervalMs",
+      "type": "slider",
+      "label": "Auto-Attack Poll Interval (ms)",
+      "description": "Polling interval in milliseconds when checking if the current cast has cleared.",
+      "min": 30,
+      "max": 250,
+      "step": 5,
+      "default": 65
+    },
+    {
+      "type": "header",
+      "label": "Movement Unlock & Notify-Safe Speed Clamps"
+    },
+    {
+      "key": "UnlockAir",
+      "type": "toggle",
+      "label": "Unlock Air Magic Movement",
+      "description": "Allow full movement while casting Air Staff & Wand spells.",
+      "default": true
+    },
+    {
+      "key": "UnlockFire",
+      "type": "toggle",
+      "label": "Unlock Fire Magic Movement",
+      "description": "Allow full movement while casting Fire Staff & Wand spells.",
+      "default": true
+    },
+    {
+      "key": "UnlockWater",
+      "type": "toggle",
+      "label": "Unlock Water Magic Movement",
+      "description": "Allow full movement while casting Water Staff & Wand spells.",
+      "default": true
+    },
+    {
+      "key": "UnlockEarth",
+      "type": "toggle",
+      "label": "Unlock Earth Magic Movement",
+      "description": "Allow full movement while casting Earth Staff & Wand spells.",
+      "default": true
+    },
+    {
+      "key": "UnlockModdedCombat",
+      "type": "toggle",
+      "label": "Unlock Modded Combat Spells",
+      "description": "Unlock movement on third-party combat spells (HydraAncientMagicks, ConjurerFire, Ancient Staff, etc.).",
+      "default": true
+    },
+    {
+      "key": "UnlockUtilitySpells",
+      "type": "toggle",
+      "label": "Unlock Utility Magic Movement",
+      "description": "Experimental: unlock movement on utility perk spells (USD_*).",
+      "default": false
+    },
+    {
+      "key": "KeepGroundSmashAnchored",
+      "type": "toggle",
+      "label": "Notify-Safe Speed Clamp on Finishers (1.35x)",
+      "description": "Cap playback rate (~1.35x) on delayed/multi-stage finishers (Meteor, Volcano, Air Slam, Boulder) so AnimNotifies never skip.",
+      "default": true
+    },
+    {
+      "key": "MaxMoveSpeed",
+      "type": "slider",
+      "label": "Max Casting Move Speed",
+      "description": "Maximum movement speed during unlocked spell montages.",
+      "min": 200,
+      "max": 1200,
+      "step": 25,
+      "default": 600
+    },
+    {
+      "type": "header",
+      "label": "Diagnostics & Debug"
+    },
+    {
+      "key": "AllowDebugCommands",
+      "type": "toggle",
+      "label": "Allow Debug Commands (SHIFT + Hotkey)",
+      "description": "Enables SHIFT + Debug Hotkey to re-export detected_spells.txt and log rule-to-asset bindings.",
+      "default": false
+    },
+    {
+      "key": "DebugHotkey",
+      "type": "text",
+      "label": "Debug Hotkey",
+      "description": "Key combined with SHIFT when Allow Debug Commands is ON (e.g. OEM_5, PAUSE, INSERT, END).",
+      "default": "OEM_5"
+    },
+    {
+      "key": "DebugMode",
+      "type": "toggle",
+      "label": "Verbose Debug Logging",
+      "description": "Print detailed macro rolls, rune consumption, anchor resets, and matched DA_Spell_* assets to UE4SS.log.",
+      "default": false
+    }
+  ]
+}

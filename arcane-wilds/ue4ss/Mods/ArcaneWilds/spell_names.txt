@@ -1,0 +1,146 @@
+# Arcane Wilds Direct Spell Name -> Asset Map (Hot-Reloaded Automatically on Save!)
+# Bind friendly names directly to the exact Unreal DominionSpellData asset name (no 0..3 numbers!).
+# Format: Category.name = DA_Spell_AssetName   (or *.name = DA_Spell_AssetName)
+# You can also reference ANY DA_Spell_* / HAM_* / DA_AncientStaff_* asset name directly in combo_rules.txt!
+# See detected_spells.txt for every discovered DominionSpellData asset and Montage in the game.
+
+# ==============================================================================
+# ANCIENT MAGICKS (HydraAncientMagicks / Ancient Staff)
+# ==============================================================================
+AncientMagicks.ice_barrage   = HAM_IceBarrage
+AncientMagicks.blood_barrage = HAM_BloodBarrage
+AncientMagicks.smoke_barrage = HAM_SmokeBarrage
+AncientMagicks.shadow_barrage = HAM_ShadowBarrage
+
+AncientMagicks.ice_blitz     = HAM_IceBlitz
+AncientMagicks.blood_blitz   = HAM_BloodBlitz
+AncientMagicks.smoke_blitz   = HAM_SmokeBlitz
+AncientMagicks.shadow_blitz  = HAM_ShadowBlitz
+
+AncientMagicks.ice_burst     = HAM_IceBurst
+AncientMagicks.blood_burst   = HAM_BloodBurst
+AncientMagicks.smoke_burst   = HAM_SmokeBurst
+AncientMagicks.shadow_burst  = HAM_ShadowBurst
+
+AncientMagicks.ice_rush      = HAM_IceRush
+AncientMagicks.blood_rush    = HAM_BloodRush
+AncientMagicks.smoke_rush    = HAM_SmokeRush
+AncientMagicks.shadow_rush   = HAM_ShadowRush
+
+AncientMagicks.ice           = HAM_IceBarrage
+AncientMagicks.blood         = HAM_BloodBarrage
+AncientMagicks.smoke         = HAM_SmokeBarrage
+AncientMagicks.shadow        = HAM_ShadowBarrage
+AncientMagicks.ancient_ice   = DA_AncientStaff_IceBarrage
+
+# Direct category self-aliases so HAM_BloodBarrage@blood_barrage works cleanly
+HAM_IceBarrage.ice_barrage       = HAM_IceBarrage
+HAM_BloodBarrage.blood_barrage   = HAM_BloodBarrage
+HAM_SmokeBarrage.smoke_barrage   = HAM_SmokeBarrage
+HAM_ShadowBarrage.shadow_barrage = HAM_ShadowBarrage
+
+# ==============================================================================
+# WATER (Staff & Wand)
+# ==============================================================================
+Water.bolt      = DA_Spell_Primary_Water_01
+Water.waterfall = DA_Spell_Primary_Water_02
+Water.wave      = DA_Spell_Primary_Water_03
+Water.tsunami   = DA_Spell_Primary_Water_04
+Water.surge     = DA_Spell_Primary_Water_04
+Water.hold      = DA_Spell_Secondary_Water_HOLD
+
+Water_Wand.bolt      = DA_Spell_Primary_Water_Wand_01
+Water_Wand.waterfall = DA_Spell_Primary_Water_Wand_02
+Water_Wand.wave      = DA_Spell_Primary_Water_Wand_03
+Water_Wand.tsunami   = DA_Spell_Primary_Water_Wand_04
+Water_Wand.surge     = DA_Spell_Primary_Water_Wand_04
+
+# ==============================================================================
+# FIRE (Staff & Wand)
+# ==============================================================================
+Fire.bolt           = DA_Spell_Primary_Fire_01
+Fire.bolt_1         = DA_Spell_Primary_Fire_01
+Fire.bolt_2         = DA_Spell_Primary_Fire_02
+Fire.burst          = DA_Spell_Primary_Fire_03
+Fire.explosion      = DA_Spell_Primary_Fire_04
+Fire.bolt_explosive = DA_Spell_Primary_Fire_04
+Fire.volcano        = DA_Spell_Primary_Fire_04
+Fire.meteor         = DA_Spell_Primary_Fire_04
+Fire.hold           = DA_Spell_Secondary_Fire_HOLD
+
+Fire_Wand.bolt           = DA_Spell_Primary_Fire_Wand_01
+Fire_Wand.bolt_1         = DA_Spell_Primary_Fire_Wand_01
+Fire_Wand.bolt_2         = DA_Spell_Primary_Fire_Wand_02
+Fire_Wand.burst          = DA_Spell_Primary_Fire_Wand_03
+Fire_Wand.explosion      = DA_Spell_Primary_Fire_Wand_04
+Fire_Wand.bolt_explosive = DA_Spell_Primary_Fire_Wand_04
+Fire_Wand.volcano        = DA_Spell_Primary_Fire_Wand_04
+Fire_Wand.meteor         = DA_Spell_Primary_Fire_Wand_04
+
+# ==============================================================================
+# AIR (Staff & Wand)
+# ==============================================================================
+Air.bolt         = DA_Spell_Primary_Air_01
+Air.gust         = DA_Spell_Primary_Air_02
+Air.vortex       = DA_Spell_Primary_Air_03
+Air.slam         = DA_Spell_Primary_Air_04
+Air.ground_smash = DA_Spell_Primary_Air_04
+Air.hold         = DA_Spell_Secondary_Air_HOLD
+
+Air_Wand.bolt   = DA_Spell_Primary_Air_Wand_01
+Air_Wand.gust   = DA_Spell_Primary_Air_Wand_02
+Air_Wand.vortex = DA_Spell_Primary_Air_Wand_03
+Air_Wand.slam   = DA_Spell_Primary_Air_Wand_04
+
+# ==============================================================================
+# EARTH (Staff & Wand)
+# ==============================================================================
+Earth.bolt    = DA_Spell_Primary_Earth_01
+Earth.spike   = DA_Spell_Primary_Earth_02
+Earth.shatter = DA_Spell_Primary_Earth_03
+Earth.boulder = DA_Spell_Primary_Earth_04
+Earth.slam    = DA_Spell_Primary_Earth_04
+Earth.hold    = DA_Spell_Secondary_Earth_HOLD
+
+Earth_Wand.bolt    = DA_Spell_Primary_Earth_Wand_01
+Earth_Wand.spike   = DA_Spell_Primary_Earth_Wand_02
+Earth_Wand.shatter = DA_Spell_Primary_Earth_Wand_03
+Earth_Wand.boulder = DA_Spell_Primary_Earth_Wand_04
+
+# ==============================================================================
+# CONJURER MODDED SPELLS
+# ==============================================================================
+ConjurerFire.bolt   = DA_ConjurerFire_01
+ConjurerFire.burst  = DA_ConjurerFire_02
+ConjurerFire.blast  = DA_ConjurerFire_03
+ConjurerFire.meteor = DA_ConjurerFire_04
+
+ConjurerAir.bolt    = DA_ConjurerAir_01
+ConjurerAir.gust    = DA_ConjurerAir_02
+ConjurerAir.vortex  = DA_ConjurerAir_03
+ConjurerAir.slam    = DA_ConjurerAir_04
+
+ConjurerLaw.bolt    = DA_ConjurerLaw_01
+ConjurerLaw.pulse   = DA_ConjurerLaw_02
+ConjurerLaw.wave    = DA_ConjurerLaw_03
+ConjurerLaw.nova    = DA_ConjurerLaw_04
+
+ConjurerNature.bolt   = DA_ConjurerNature_01
+ConjurerNature.thorn  = DA_ConjurerNature_02
+ConjurerNature.vine   = DA_ConjurerNature_03
+ConjurerNature.wrath  = DA_ConjurerNature_04
+# ==============================================================================
+# CLASSIC RS PRESET ALIASES (StormOfArmadyl, IbanBlast, BloodBlitzBarrage, EntangleBarrage)
+# ==============================================================================
+StormOfArmadyl.armadyl_1 = DA_Spell_Primary_Air_02
+StormOfArmadyl.armadyl_2 = DA_Spell_Primary_Air_03
+StormOfArmadyl.armadyl_3 = DA_Spell_Primary_Air_04
+
+IbanBlast.iban_charge = DA_Spell_Primary_Fire_03
+IbanBlast.iban_blast  = DA_Spell_Primary_Fire_04
+
+BloodBlitzBarrage.blitz   = HAM_BloodBlitz
+BloodBlitzBarrage.barrage = HAM_BloodBarrage
+
+EntangleBarrage.entangle = DA_Spell_Primary_Earth_02
+EntangleBarrage.barrage  = HAM_IceBarrage
