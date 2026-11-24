@@ -30,6 +30,7 @@ Place `ue4ss/Mods/ArcaneWilds/` into your `RSDragonwilds/Binaries/Win64/` direct
 <!-- CHANGELOG:START -->
 ### v1.70.0
 
+- **2026-11-24** - attempt to fix flames of zamorak crash for distance modification ([cc28c98](https://github.com/zolantris/runescape-dragonwilds-mods/commit/cc28c98d939dc9a6022a7007bac1ba58ee1d1a35))
 - **2026-11-24** - ensure flames of zamorak works. And ensure runeswap is detected instead of requiring a basic attack to swap the current combo cast ([3789b25](https://github.com/zolantris/runescape-dragonwilds-mods/commit/3789b2597907fe49360558d2dcb5e337f404e98c))
 - **2026-11-24** - Fix combo mismatching end combo with start ([c8176c5](https://github.com/zolantris/runescape-dragonwilds-mods/commit/c8176c55d88cf7670126a46da923f319e016a159))
 - **2026-11-24** - cleanup structure of code. Fix modmenu keys ([34a8a0b](https://github.com/zolantris/runescape-dragonwilds-mods/commit/34a8a0bbb5d786f669cd0f2e71c69051bc5ce355))

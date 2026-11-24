@@ -253,46 +253,20 @@ function CombatEngine.RestoreAnchorElementAndReset(config, state, combatMagic, d
 end
 
 local function TryTriggerSpecialAbility(pawn, spellObj, debugLogFn)
+    if not pawn or not pawn:IsValid() or not spellObj or not spellObj:IsValid() then
+        return false
+    end
     local triggered = false
-
-    -- 1. Try PlayerCombatMagicComponent special/spell activation methods if available
     pcall(function()
-        local cm = pawn.PlayerCombatMagicComponent
-        if cm and cm:IsValid() then
-            local cmMethods = {
-                "Server_ActivateSpecialSpell",
-                "ActivateSpecialSpell",
-                "Server_CastSpell",
-                "CastSpell",
-                "TriggerSpell",
-                "Server_TriggerSpell"
-            }
-            for _, mName in ipairs(cmMethods) do
-                if not triggered and cm[mName] then
-                    local ok = pcall(function() cm[mName](cm, spellObj) end)
-                    if ok then
-                        triggered = true
-                        if debugLogFn then debugLogFn("Triggered special via CombatMagic:" .. mName) end
-                    end
-                end
+        local bpLib = StaticFindObject("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary")
+        if bpLib and bpLib:IsValid() and bpLib.TriggerModularAbilityForPlayer then
+            local ok = pcall(function() bpLib:TriggerModularAbilityForPlayer(pawn, spellObj) end)
+            if ok then
+                triggered = true
+                if debugLogFn then debugLogFn("Triggered special via TriggerModularAbilityForPlayer") end
             end
         end
     end)
-
-    -- 2. Try DominionRuntimeBlueprintLibrary modular ability trigger (bypasses weapon-slot check for DominionSpellData)
-    if not triggered then
-        pcall(function()
-            local bpLib = StaticFindObject("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary")
-            if bpLib and bpLib:IsValid() and bpLib.TriggerModularAbilityForPlayer then
-                local ok = pcall(function() bpLib:TriggerModularAbilityForPlayer(pawn, spellObj) end)
-                if ok then
-                    triggered = true
-                    if debugLogFn then debugLogFn("Triggered special via TriggerModularAbilityForPlayer") end
-                end
-            end
-        end)
-    end
-
     return triggered
 end
 
@@ -300,6 +274,13 @@ function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, deb
     if not pawn or not pawn:IsValid() or not entry or not entry.spellObj or not entry.spellObj:IsValid() then
         return false
     end
+    local now = os.clock()
+    local spKey = tostring(entry.spellObj)
+    if state._LastTriggeredSpellPtr == spKey and (now - (state._LastTriggeredSpellPtrTime or 0)) < 0.60 then
+        return false
+    end
+    state._LastTriggeredSpellPtr = spKey
+    state._LastTriggeredSpellPtrTime = now
 
     if entry.isSpecialSpell then
         local okSpec = TryTriggerSpecialAbility(pawn, entry.spellObj, debugLogFn)

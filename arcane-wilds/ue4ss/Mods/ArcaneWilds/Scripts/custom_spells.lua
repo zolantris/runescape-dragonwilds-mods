@@ -302,15 +302,9 @@ local function FireImpactAtLocation(pawn, pending, loc)
     if not pending then return end
     if pending.aoeSpellObj and pending.aoeSpellObj:IsValid() and pawn and pawn:IsValid() then
         pcall(function()
-            if loc and pawn.K2_SetActorLocation then
-                local origLoc = pawn:K2_GetActorLocation()
-                local bpLib = StaticFindObject("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary")
-                if bpLib and bpLib:IsValid() and bpLib.TriggerModularAbilityForPlayer then
-                    -- Temporarily align cast origin to impact point if supported, then restore player location
-                    pawn:K2_SetActorLocation(loc, false, nil, false)
-                    bpLib:TriggerModularAbilityForPlayer(pawn, pending.aoeSpellObj)
-                    pawn:K2_SetActorLocation(origLoc, false, nil, false)
-                end
+            local bpLib = StaticFindObject("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary")
+            if bpLib and bpLib:IsValid() and bpLib.TriggerModularAbilityForPlayer then
+                bpLib:TriggerModularAbilityForPlayer(pawn, pending.aoeSpellObj)
             end
         end)
     end

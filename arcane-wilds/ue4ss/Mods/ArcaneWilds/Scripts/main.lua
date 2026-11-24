@@ -150,7 +150,7 @@ local CANDIDATE_KEY_NAMES = {
 }
 
 local FRIENDLY_KEY_ALIASES = {
-    ["\"] = "BackSlash",
+    ["\\"] = "BackSlash",
     ["BACKSLASH"] = "BackSlash",
     ["OEM_5"] = "BackSlash",
     ["/"] = "Slash",
