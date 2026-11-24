@@ -64,9 +64,10 @@ local DEFAULT_SPELL_NAMES_CONTENT = table.concat({
 local DEFAULT_COMBO_RULES_CONTENT = table.concat({
     "# ArcaneWilds Custom Combo Rules (Hot-Reloaded Automatically on Save!)",
     "# Syntax: Category@spell,spell:speed -> Category@spell,spell:speed :weight;",
-    "Water@wave,bolt:2.5 -> Fire@bolt,explosion:2.5 :5;",
-    "HAM_BloodBarrage@blood_barrage:2.0 -> HAM_IceBarrage@ice_barrage:2.0 :5;",
-    "HAM_IceBarrage@ice_barrage:2.0 -> HAM_BloodBarrage@blood_barrage:2.0 :5;"
+    "Air@bolt,gust,vortex,slam:2.2 :5;",
+    "Water@bolt,waterfall,wave,tsunami:2.2 :5;",
+    "Fire@bolt_1,bolt_2:2.2 -> Air@gust,vortex:2.2 :5;",
+    "Earth@bolt,spike,shatter:2.0 -> FlamesOfZamorak@FlamesOfZamorak:2.0 :5;"
 }, "\n") .. "\n"
 
 local ORDERED_CONFIG_KEYS = {
@@ -102,7 +103,7 @@ function ConfigManager.CreateDefaultConfig()
         ModifierKey = "RMB",
         ConsumeRunesOnSwappedCasts = true,
         EnableAutoAttackHold = true,
-        AutoAttackAllCombos = false,
+        AutoAttackAllCombos = true,
         AutoAttackIntervalMs = 65,
         DefaultComboCutoff = 2,
         BonusSpeedVariancePct = 25,
@@ -363,7 +364,7 @@ function ConfigManager.LoadConfigFile(paths, config, state, logFn, forceRebuildM
                 elseif k == "ModifierKey" then config.ModifierKey = (v ~= "" and v:upper() or "SHIFT")
                 elseif k == "ConsumeRunesOnSwappedCasts" then config.ConsumeRunesOnSwappedCasts = ConfigManager.ParseBool(v, true)
                 elseif k == "EnableAutoAttackHold" then config.EnableAutoAttackHold = ConfigManager.ParseBool(v, true)
-                elseif k == "AutoAttackAllCombos" then config.AutoAttackAllCombos = ConfigManager.ParseBool(v, false)
+                elseif k == "AutoAttackAllCombos" then config.AutoAttackAllCombos = ConfigManager.ParseBool(v, true)
                 elseif k == "AutoAttackIntervalMs" then config.AutoAttackIntervalMs = tonumber(v) or 65
                 elseif k == "DefaultComboCutoff" then config.DefaultComboCutoff = math.max(1, math.min(4, math.floor(tonumber(v) or 2)))
                 elseif k == "WeightedComboRules" then legacyWeightedRules = v

@@ -1,10 +1,12 @@
 {
   "schema": 1,
-  "id": "ArcaneWilds",
-  "name": "Arcane Wilds",
-  "author": "zolantris",
-  "version": "1.70.0",
-  "description": "Move-while-casting, Block/Modifier cross-element & Ancient Magicks chaining, notify-safe animation pacing, and rune-accurate casting.",
+  "mod": {
+    "id": "ArcaneWilds",
+    "name": "Arcane Wilds",
+    "author": "zolantris",
+    "version": "1.70.0",
+    "description": "Move-while-casting, Block/Modifier cross-element & Ancient Magicks chaining, notify-safe animation pacing, and rune-accurate casting."
+  },
   "config": {
     "file": "config.txt",
     "format": "kv"
@@ -96,7 +98,7 @@
       "type": "toggle",
       "label": "Auto-Attack Without Modifier Key",
       "description": "Also auto-chain normal attacks when holding Left-Click without holding Block/Modifier.",
-      "default": false
+      "default": true
     },
     {
       "key": "AutoAttackIntervalMs",

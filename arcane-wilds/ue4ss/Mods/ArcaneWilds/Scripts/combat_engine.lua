@@ -9,44 +9,100 @@ local EquipmentRunes = require("equipment_runes")
 
 local CombatEngine = {}
 
-local function GetMacroStartKey(macro)
+local function GetMacroStartCategory(macro)
     if not macro or not macro.stages or not macro.stages[1] then return nil end
     local st1 = macro.stages[1]
-    -- If Stage 1 has a named/specific spell token (e.g., FlamesOfZamorak or bolt), treat that as the starting spell key
+    if st1.elementLower and st1.elementLower ~= "" and st1.elementLower ~= "*" then
+        return st1.elementLower
+    end
     local firstStep = st1.steps and st1.steps[1]
     if firstStep and firstStep.token and firstStep.token ~= "" and tonumber(firstStep.token) == nil then
-        -- When written as Element@Spell, match against element/category unless no element prefix was given
-        if st1.elementLower and st1.elementLower ~= "*" then
-            return st1.elementLower
-        end
         return firstStep.token:lower()
     end
-    return st1.elementLower
+    return nil
+end
+
+local function GetMacroStartSpellToken(macro)
+    if not macro or not macro.stages or not macro.stages[1] then return nil end
+    local firstStep = macro.stages[1].steps and macro.stages[1].steps[1]
+    if firstStep and firstStep.token and firstStep.token ~= "" and tonumber(firstStep.token) == nil then
+        return firstStep.token:lower()
+    end
+    return nil
+end
+
+local function DetectActiveStartingSpell(pawn, combatMagic, state)
+    local spellName = nil
+    if combatMagic and combatMagic:IsValid() then
+        pcall(function()
+            if combatMagic.CurrentSpellActor and combatMagic.CurrentSpellActor:IsValid() then
+                local d = combatMagic.CurrentSpellActor.Data
+                if d and d:IsValid() then
+                    spellName = SpellScanner.ExtractShortObjectName(SpellScanner.SafeGetName(d))
+                end
+            end
+        end)
+        if not spellName then
+            pcall(function()
+                if combatMagic.LastChainedSpell and combatMagic.LastChainedSpell:IsValid() then
+                    spellName = SpellScanner.ExtractShortObjectName(SpellScanner.SafeGetName(combatMagic.LastChainedSpell))
+                end
+            end)
+        end
+    end
+    if spellName and state.DiscoveredLookup then
+        local mapped = state.DiscoveredLookup[spellName:lower()]
+        if mapped then return mapped end
+    end
+    return spellName
 end
 
 function CombatEngine.PickWeightedMacroForElement(state, anchorCategory, activeStartingSpell)
     if #state.ParsedMacros == 0 then return nil end
-    local startLower = (activeStartingSpell and activeStartingSpell ~= "" and activeStartingSpell:lower())
-        or (anchorCategory and anchorCategory:lower())
-        or nil
-    if not startLower then return nil end
 
-    local baseLower = startLower:gsub("_wand$", ""):gsub("_hold$", "")
+    local anchorLower = (anchorCategory and anchorCategory ~= "") and anchorCategory:lower() or nil
+    local anchorBase = anchorLower and anchorLower:gsub("_wand$", ""):gsub("_hold$", "") or nil
+    local startSpellLower = (activeStartingSpell and activeStartingSpell ~= "") and activeStartingSpell:lower() or nil
+
+    -- Determine the required starting element/category:
+    -- Equipped/anchor element is authoritative unless no anchor exists and a specific spell/custom-spell is starting.
+    local requiredCat = anchorLower
+    if not requiredCat and startSpellLower then
+        requiredCat = startSpellLower
+    end
+    if not requiredCat then return nil end
+
+    local requiredBase = requiredCat:gsub("_wand$", ""):gsub("_hold$", "")
     local candidates = {}
 
-    -- 1. Strict exact match on starting spell/element (never cross-match Water into Fire or fall back to '*')
-    for _, m in ipairs(state.ParsedMacros) do
-        local mStart = GetMacroStartKey(m)
-        if mStart and mStart == startLower then
-            table.insert(candidates, m)
+    -- Priority 1: If a specific starting spell token is active, check rules whose Stage 1 starts with that exact spell token
+    -- AND matches the active element/category (when an element prefix is specified).
+    if startSpellLower then
+        for _, m in ipairs(state.ParsedMacros) do
+            local mCat = GetMacroStartCategory(m)
+            local mSpell = GetMacroStartSpellToken(m)
+            local catMatches = (not anchorLower) or (mCat == anchorLower) or (mCat == anchorBase)
+            if catMatches and mSpell and mSpell == startSpellLower then
+                table.insert(candidates, m)
+            end
         end
     end
 
-    -- 2. If no exact match (e.g., Fire_Wand vs Fire), only match same base element when neither is a distinct custom spell
-    if #candidates == 0 and baseLower ~= startLower then
+    -- Priority 2: Strict exact element/category match on Stage 1 (e.g. "water" matches ONLY "water@...")
+    if #candidates == 0 then
         for _, m in ipairs(state.ParsedMacros) do
-            local mStart = GetMacroStartKey(m)
-            if mStart and mStart == baseLower then
+            local mCat = GetMacroStartCategory(m)
+            if mCat and mCat == requiredCat then
+                table.insert(candidates, m)
+            end
+        end
+    end
+
+    -- Priority 3: Same base element match (e.g. "water_wand" -> "water"), NEVER crossing into another element
+    if #candidates == 0 and requiredBase ~= requiredCat then
+        for _, m in ipairs(state.ParsedMacros) do
+            local mCat = GetMacroStartCategory(m)
+            if mCat and mCat == requiredBase then
                 table.insert(candidates, m)
             end
         end
@@ -242,32 +298,6 @@ function CombatEngine.IsPrimaryAttackDown(pc)
             or pc:IsInputKeyDown({ KeyName = FName("Gamepad_RightTrigger") })
     end)
     return down
-end
-
-local function DetectActiveStartingSpell(pawn, combatMagic, state)
-    local spellName = nil
-    if combatMagic and combatMagic:IsValid() then
-        pcall(function()
-            if combatMagic.CurrentSpellActor and combatMagic.CurrentSpellActor:IsValid() then
-                local d = combatMagic.CurrentSpellActor.Data
-                if d and d:IsValid() then
-                    spellName = SpellScanner.ExtractShortObjectName(SpellScanner.SafeGetName(d))
-                end
-            end
-        end)
-        if not spellName then
-            pcall(function()
-                if combatMagic.LastChainedSpell and combatMagic.LastChainedSpell:IsValid() then
-                    spellName = SpellScanner.ExtractShortObjectName(SpellScanner.SafeGetName(combatMagic.LastChainedSpell))
-                end
-            end)
-        end
-    end
-    if spellName and state.DiscoveredLookup then
-        local mapped = state.DiscoveredLookup[spellName:lower()]
-        if mapped then return mapped end
-    end
-    return spellName
 end
 
 function CombatEngine.RollAndEngageMacroForAnchor(config, state, pawn, combatMagic, anchor, logFn, debugLogFn, startingSpell)
