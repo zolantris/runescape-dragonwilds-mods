@@ -21,3 +21,7 @@ MaxFinisherSpeedClamp=5.0
 MaxMoveSpeed=600.0
 ActiveComboRulesCount=3 macro(s) active from combo_rules.txt
 DetectedSpellsSummary=Auto-detecting on world load...
+InjectSpecialBarOnSpecials=true
+SpecialBarInjectAmount=100.0
+RequireSpecialEnergyForSpecials=false
+MinSpecialEnergyCost=25.0

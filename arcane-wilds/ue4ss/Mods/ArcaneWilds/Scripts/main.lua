@@ -254,8 +254,9 @@ local function TickAnchorReturn(now, pawn, combatMagic)
             end
         end
     else
-        local returnCastDone = (curActor == nil)
-        local returnTimeout = (now - (State.InFlightStartedTime or now)) >= 3.0
+        local retElapsed = now - (State.InFlightStartedTime or now)
+        local returnCastDone = (curActor == nil) and (retElapsed >= 0.35)
+        local returnTimeout = retElapsed >= 3.0
         if returnCastDone or returnTimeout then
             State.StepInFlight = false
             State.InFlightSpellObj = nil
@@ -287,7 +288,7 @@ local function TickActiveMacro(now, pawn, combatMagic)
     local expectedDesc = curStage.steps[State.StepInStage] or curStage.steps[1]
     local expectedEntry = ConfigManager.ResolveStepEntry(State, curStage, expectedDesc)
 
-    if curActor and (State.ActiveStageTargetSpeed or 1.0) > 1.0 then
+    if curActor and (State.ActiveStageTargetSpeed or 1.0) > 1.0 and not (expectedEntry and expectedEntry.isSpecialSpell) then
         CombatEngine.ApplyMontageRateToInstance(
             Config, pawn, expectedEntry and expectedEntry.montageObj,
             State.ActiveStageTargetSpeed, State.ActiveStageIsAirSmash)

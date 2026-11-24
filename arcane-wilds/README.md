@@ -24,27 +24,3 @@
 ## Folder Layout
 
 Place `ue4ss/Mods/ArcaneWilds/` into your `RSDragonwilds/Binaries/Win64/` directory (or deploy via Vortex).
-
-## Changelog
-
-<!-- CHANGELOG:START -->
-### v1.70.0
-
-- **2026-11-24** - attempt to fix flames of zamorak crash for distance modification ([cc28c98](https://github.com/zolantris/runescape-dragonwilds-mods/commit/cc28c98d939dc9a6022a7007bac1ba58ee1d1a35))
-- **2026-11-24** - ensure flames of zamorak works. And ensure runeswap is detected instead of requiring a basic attack to swap the current combo cast ([3789b25](https://github.com/zolantris/runescape-dragonwilds-mods/commit/3789b2597907fe49360558d2dcb5e337f404e98c))
-- **2026-11-24** - Fix combo mismatching end combo with start ([c8176c5](https://github.com/zolantris/runescape-dragonwilds-mods/commit/c8176c55d88cf7670126a46da923f319e016a159))
-- **2026-11-24** - cleanup structure of code. Fix modmenu keys ([34a8a0b](https://github.com/zolantris/runescape-dragonwilds-mods/commit/34a8a0bbb5d786f669cd0f2e71c69051bc5ce355))
-- **2026-11-24** - - Add support for flames of zamorak - ensure clamp is much higher at 5x speed ([bebde2a](https://github.com/zolantris/runescape-dragonwilds-mods/commit/bebde2a90282647efc6c089d1158790edba3e838))
-- **2026-11-24** - add scaffolding for custom spells/scripts to be aliased as full spells ([fcec123](https://github.com/zolantris/runescape-dragonwilds-mods/commit/fcec1237e9420447e800fe819746d61b7784a985))
-- **2026-11-24** - add arcane-wilds mod ([a9c35dd](https://github.com/zolantris/runescape-dragonwilds-mods/commit/a9c35dd916ec1c539845452cc72236386c9deb38))
-- **2026-11-22** - Fix missing commits issue with stale tag ([122495f](https://github.com/zolantris/runescape-dragonwilds-mods/commit/122495fbe7cc96152d1b7b8b7021c8fd063b6eee))
-- **2026-11-22** - Fix changelog linking ([39366ca](https://github.com/zolantris/runescape-dragonwilds-mods/commit/39366cae242e63c55f17e1a5a194e15bdc702e03))
-- **2026-11-22** - autocommit release readme updates before pushing tag ([7733b20](https://github.com/zolantris/runescape-dragonwilds-mods/commit/7733b20bf5083a9e8a0d174afb3af1f0ff387718))
-- **2026-11-22** - bump to 1.3.6 to test diff again ([9a6f2c8](https://github.com/zolantris/runescape-dragonwilds-mods/commit/9a6f2c8b466785b44fd2e3d1cc637c12ed98d603))
-- **2026-11-22** - bump to 1.3.5 to test diff ([c272bc9](https://github.com/zolantris/runescape-dragonwilds-mods/commit/c272bc95b53e9946a1041cdd043eca5cde3efc29))
-- **2026-11-22** - get publish release script to work and show diff ([57b6884](https://github.com/zolantris/runescape-dragonwilds-mods/commit/57b6884859107241bc15e5fd28685e5300f947f4))
-- **2026-11-22** - Fix release scripts and update readme ([927ad9d](https://github.com/zolantris/runescape-dragonwilds-mods/commit/927ad9da46c48f830c966e3f32b852b933e2975f))
-- **2026-11-22** - reorganize repo ([150120c](https://github.com/zolantris/runescape-dragonwilds-mods/commit/150120cad88104ab9cc93e3671de690898012a0c))
-- **2026-11-22** - 1.2.9 working with both pause menu and inventory alignment and does not interfere with other panels ([76fab60](https://github.com/zolantris/runescape-dragonwilds-mods/commit/76fab605670f4b24d88be91b1935571c0560eb21))
-- **2026-11-22** - Initial commit ([0739035](https://github.com/zolantris/runescape-dragonwilds-mods/commit/0739035e6728071f701375b584fe1cfc1f7b3517))
-<!-- CHANGELOG:END -->

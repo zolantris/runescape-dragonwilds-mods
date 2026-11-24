@@ -76,7 +76,7 @@ local ORDERED_CONFIG_KEYS = {
     "EnableAutoAttackHold", "AutoAttackAllCombos", "AutoAttackIntervalMs",
     "DefaultComboCutoff", "BonusSpeedVariancePct",
     "UnlockAir", "UnlockFire", "UnlockWater", "UnlockEarth",
-    "UnlockModdedCombat", "UnlockUtilitySpells", "KeepGroundSmashAnchored", "MaxFinisherSpeedClamp",
+    "UnlockModdedCombat", "UnlockUtilitySpells", "KeepGroundSmashAnchored", "MaxFinisherSpeedClamp", "InjectSpecialBarOnSpecials", "SpecialBarInjectAmount", "RequireSpecialEnergyForSpecials", "MinSpecialEnergyCost",
     "MaxMoveSpeed", "ActiveComboRulesCount", "DetectedSpellsSummary"
 }
 
@@ -115,6 +115,10 @@ function ConfigManager.CreateDefaultConfig()
         UnlockUtilitySpells = false,
         KeepGroundSmashAnchored = true,
         MaxFinisherSpeedClamp = 5.0,
+        InjectSpecialBarOnSpecials = true,
+        SpecialBarInjectAmount = 100.0,
+        RequireSpecialEnergyForSpecials = false,
+        MinSpecialEnergyCost = 25.0,
         MaxMoveSpeed = 600.0,
         ActiveComboRulesCount = "Loading combo_rules.txt...",
         DetectedSpellsSummary = "Auto-detecting on world load..."
@@ -377,6 +381,10 @@ function ConfigManager.LoadConfigFile(paths, config, state, logFn, forceRebuildM
                 elseif k == "UnlockUtilitySpells" then config.UnlockUtilitySpells = ConfigManager.ParseBool(v, false)
                 elseif k == "KeepGroundSmashAnchored" then config.KeepGroundSmashAnchored = ConfigManager.ParseBool(v, true)
                 elseif k == "MaxFinisherSpeedClamp" then config.MaxFinisherSpeedClamp = math.max(1.0, tonumber(v) or 5.0)
+                elseif k == "InjectSpecialBarOnSpecials" then config.InjectSpecialBarOnSpecials = ConfigManager.ParseBool(v, true)
+                elseif k == "SpecialBarInjectAmount" then config.SpecialBarInjectAmount = tonumber(v) or 100.0
+                elseif k == "RequireSpecialEnergyForSpecials" then config.RequireSpecialEnergyForSpecials = ConfigManager.ParseBool(v, false)
+                elseif k == "MinSpecialEnergyCost" then config.MinSpecialEnergyCost = tonumber(v) or 25.0
                 elseif k == "MaxMoveSpeed" then config.MaxMoveSpeed = tonumber(v) or 600.0
                 elseif k == "ActiveComboRulesCount" then config.ActiveComboRulesCount = v
                 elseif k == "DetectedSpellsSummary" then config.DetectedSpellsSummary = v

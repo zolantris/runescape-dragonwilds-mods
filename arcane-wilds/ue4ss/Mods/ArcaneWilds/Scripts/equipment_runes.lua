@@ -12,7 +12,7 @@ function EquipmentRunes.DiscoverRuneItemAssets(state)
         if item and item:IsValid() then
             local full = SpellScanner.SafeGetName(item):lower()
             local short = SpellScanner.ExtractShortObjectName(full):lower()
-            if full:find("rune") or short:find("rune") or full:find("magicammo") then
+            if full:find("rune") or short:find("rune") then
                 if short:find("fire") then state.RuneItemDataCache["fire"] = item
                 elseif short:find("water") then state.RuneItemDataCache["water"] = item
                 elseif short:find("air") or short:find("wind") then state.RuneItemDataCache["air"] = item

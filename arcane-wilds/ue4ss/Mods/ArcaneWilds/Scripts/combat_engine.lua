@@ -252,6 +252,93 @@ function CombatEngine.RestoreAnchorElementAndReset(config, state, combatMagic, d
     debugLogFn("Restored anchor category: " .. tostring(anchor or "None"))
 end
 
+
+local SPECIAL_ENERGY_PROPS = {
+    "CurrentSpecialCharge", "SpecialCharge", "SpecialEnergy", "CurrentSpecialEnergy",
+    "SpecialAttackCharge", "SpecialPoints", "CurrentSpecialPoints", "Adrenaline", "CurrentAdrenaline"
+}
+local MAX_SPECIAL_ENERGY_PROPS = {
+    "MaxSpecialCharge", "MaxSpecialEnergy", "MaxSpecialPoints", "MaxAdrenaline"
+}
+
+local function FindSpecialEnergyTarget(pawn, combatMagic)
+    local containers = {}
+    if combatMagic and combatMagic:IsValid() then
+        table.insert(containers, combatMagic)
+    end
+    if pawn and pawn:IsValid() then
+        pcall(function()
+            if pawn.PlayerActionPerformerComponent and pawn.PlayerActionPerformerComponent:IsValid() then
+                table.insert(containers, pawn.PlayerActionPerformerComponent)
+            end
+        end)
+        pcall(function()
+            if pawn.AbilitySystemComponent and pawn.AbilitySystemComponent:IsValid() then
+                table.insert(containers, pawn.AbilitySystemComponent)
+            end
+        end)
+        table.insert(containers, pawn)
+    end
+
+    for _, obj in ipairs(containers) do
+        for _, prop in ipairs(SPECIAL_ENERGY_PROPS) do
+            local ok, val = pcall(function() return obj[prop] end)
+            if ok and type(val) == "number" then
+                local maxVal = 100.0
+                for _, mProp in ipairs(MAX_SPECIAL_ENERGY_PROPS) do
+                    local okM, mVal = pcall(function() return obj[mProp] end)
+                    if okM and type(mVal) == "number" and mVal > 0 then
+                        maxVal = mVal
+                        break
+                    end
+                end
+                return obj, prop, val, maxVal
+            end
+        end
+    end
+    return nil, nil, nil, 100.0
+end
+
+function CombatEngine.InjectSpecialEnergy(config, pawn, combatMagic, debugLogFn)
+    if config and config.InjectSpecialBarOnSpecials == false then
+        return false
+    end
+    local targetObj, propName, curVal, maxVal = FindSpecialEnergyTarget(pawn, combatMagic)
+    if not targetObj or not propName then
+        return false
+    end
+    local floorNeeded = tonumber(config and config.MinSpecialEnergyCost) or 25.0
+    local injectAmt = tonumber(config and config.SpecialBarInjectAmount) or 100.0
+    local desiredVal = math.min(maxVal, math.max(curVal + injectAmt, floorNeeded + injectAmt))
+    if desiredVal > curVal then
+        local ok = pcall(function() targetObj[propName] = desiredVal end)
+        if ok and debugLogFn then
+            debugLogFn(string.format("Injected special bar [%s.%s]: %.1f -> %.1f (max=%.1f)",
+                SpellScanner.ExtractShortObjectName(SpellScanner.SafeGetName(targetObj)), propName, curVal, desiredVal, maxVal))
+        end
+        return ok
+    end
+    return true
+end
+
+local function CanTriggerSpecialWithGuards(config, pawn, combatMagic, entry, debugLogFn)
+    if config and config.InjectSpecialBarOnSpecials ~= false then
+        CombatEngine.InjectSpecialEnergy(config, pawn, combatMagic, debugLogFn)
+    end
+    if config and config.RequireSpecialEnergyForSpecials == true then
+        local _, propName, curVal = FindSpecialEnergyTarget(pawn, combatMagic)
+        local reqCost = tonumber(config.MinSpecialEnergyCost) or 25.0
+        if curVal ~= nil and curVal < reqCost then
+            if debugLogFn then
+                debugLogFn(string.format("Blocked special [%s]: %s (%.1f) < required (%.1f)",
+                    tostring(entry and entry.shortName), tostring(propName or "SpecialEnergy"), curVal, reqCost))
+            end
+            return false
+        end
+    end
+    return true
+end
+
 local function TryTriggerSpecialAbility(pawn, spellObj, debugLogFn)
     if not pawn or not pawn:IsValid() or not spellObj or not spellObj:IsValid() then
         return false
@@ -276,11 +363,22 @@ function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, deb
     end
     local now = os.clock()
     local spKey = tostring(entry.spellObj)
-    if state._LastTriggeredSpellPtr == spKey and (now - (state._LastTriggeredSpellPtrTime or 0)) < 0.60 then
+    local minGap = entry.isSpecialSpell and (tonumber(config and config.SpecialCastCooldownSec) or 1.50) or 0.35
+    if state._LastTriggeredSpellPtr == spKey and (now - (state._LastTriggeredSpellPtrTime or 0)) < minGap then
         return false
     end
-    state._LastTriggeredSpellPtr = spKey
-    state._LastTriggeredSpellPtrTime = now
+
+    if entry.isSpecialSpell then
+        if not CanTriggerSpecialWithGuards(config, pawn, combatMagic, entry, debugLogFn) then
+            return false
+        end
+        state._LastTriggeredSpellPtr = spKey
+        state._LastTriggeredSpellPtrTime = now
+        state._LastSpecialCastTime = now
+    else
+        state._LastTriggeredSpellPtr = spKey
+        state._LastTriggeredSpellPtrTime = now
+    end
 
     if entry.isSpecialSpell then
         local okSpec = TryTriggerSpecialAbility(pawn, entry.spellObj, debugLogFn)
