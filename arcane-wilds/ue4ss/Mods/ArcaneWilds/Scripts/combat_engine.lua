@@ -156,6 +156,26 @@ function CombatEngine.IsNotifyClampedEntry(entry)
         or mName:find("slam") ~= nil
 end
 
+
+function CombatEngine.GetActiveMontageObj(pawn)
+    local activeMontage = nil
+    if pawn and pawn:IsValid() then
+        pcall(function()
+            local mesh = pawn.Mesh
+            if mesh and mesh:IsValid() then
+                local animInst = mesh:GetAnimInstance()
+                if animInst and animInst:IsValid() then
+                    local m = animInst:GetCurrentActiveMontage()
+                    if m and m:IsValid() then
+                        activeMontage = m
+                    end
+                end
+            end
+        end)
+    end
+    return activeMontage
+end
+
 function CombatEngine.ApplyMontageRateToInstance(config, pawn, montageObj, targetRate, isAirSmash)
     local effectiveRate = targetRate
     if isAirSmash and config.KeepGroundSmashAnchored then
@@ -205,7 +225,7 @@ function CombatEngine.ApplyStageSpeedAndPriming(config, state, combatMagic, stag
     if entry and entry.montageObj and entry.montageObj:IsValid() then
         CombatEngine.ApplyMontageRateToInstance(config, pawn, entry.montageObj, variedSpeed, isAirSmash)
     end
-    local targetChain = state.SpellChains[stage.elementLower]
+    local targetChain = (entry and entry.isSpecialSpell) and nil or state.SpellChains[stage.elementLower]
     if targetChain then
         for idx, montage in pairs(targetChain.montages) do
             if montage and montage:IsValid() then
@@ -464,13 +484,78 @@ local function SpellBelongsToCategory(state, spellShortName, anchorCategory)
     return false
 end
 
+
+local ELEMENT_WEAPON_DEFAULTS = {
+    fire = {
+        staff = { cat = "fire",      spell = "DA_Spell_Primary_Fire_01" },
+        wand  = { cat = "fire_wand", spell = "DA_Spell_Primary_Fire_Wand_01" }
+    },
+    earth = {
+        staff = { cat = "earth",      spell = "DA_Spell_Primary_Earth_01" },
+        wand  = { cat = "earth_wand", spell = "DA_Spell_Primary_Earth_Wand_01" }
+    },
+    air = {
+        staff = { cat = "air",      spell = "DA_Spell_Primary_Air_01" },
+        wand  = { cat = "air_wand", spell = "DA_Spell_Primary_Air_Wand_01" }
+    },
+    wind = {
+        staff = { cat = "air",      spell = "DA_Spell_Primary_Air_01" },
+        wand  = { cat = "air_wand", spell = "DA_Spell_Primary_Air_Wand_01" }
+    },
+    water = {
+        staff = { cat = "water",      spell = "DA_Spell_Primary_Water_01" },
+        wand  = { cat = "water_wand", spell = "DA_Spell_Primary_Water_Wand_01" }
+    }
+}
+
+function CombatEngine.ResolveClosestElementSpellAndCategory(state, anchorCategory, weaponSuffix)
+    if not anchorCategory or anchorCategory == "" then return nil, nil end
+    local lower = anchorCategory:lower()
+    local isWand = lower:find("_wand$") ~= nil or tostring(weaponSuffix or ""):lower():find("wand") ~= nil
+    local baseElem = lower:gsub("_wand$", ""):gsub("_hold$", "")
+    if baseElem == "wind" then baseElem = "air" end
+
+    local mapEntry = ELEMENT_WEAPON_DEFAULTS[baseElem]
+    if mapEntry then
+        local mode = isWand and mapEntry.wand or mapEntry.staff
+        if mode then
+            local targetCat = mode.cat
+            if isWand and state and state.SpellChains and not state.SpellChains[targetCat] then
+                targetCat = baseElem
+            end
+            local spellName = mode.spell
+            if state and state.SpellRegistry and not state.SpellRegistry[spellName:lower()] then
+                local chain = state.SpellChains and state.SpellChains[targetCat]
+                if chain and chain.stepNames and chain.stepNames[0] then
+                    spellName = chain.stepNames[0]
+                end
+            end
+            return targetCat, spellName
+        end
+    end
+
+    local chain = state and state.SpellChains and state.SpellChains[lower]
+    if chain and chain.stepNames and chain.stepNames[0] then
+        return lower, chain.stepNames[0]
+    end
+    return lower, nil
+end
+
 function CombatEngine.RollAndEngageMacroForAnchor(config, state, pawn, combatMagic, anchor, logFn, debugLogFn, startingSpell)
     local freshAnchor = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLogFn) or anchor
+    local mappedCat, mappedSpell = CombatEngine.ResolveClosestElementSpellAndCategory(
+        state, freshAnchor, state.LastKnownWeaponSuffix)
+    if mappedCat then
+        freshAnchor = mappedCat
+    end
+
     local detectedSpell = startingSpell or DetectActiveStartingSpell(pawn, combatMagic, state)
     -- Ignore detectedSpell if it belongs to a different element than the equipped/anchor element
     local startKey = nil
     if detectedSpell and SpellBelongsToCategory(state, detectedSpell, freshAnchor) then
         startKey = detectedSpell
+    elseif mappedSpell then
+        startKey = mappedSpell
     end
 
     local macro = CombatEngine.PickWeightedMacroForElement(state, freshAnchor, startKey)
@@ -491,6 +576,7 @@ function CombatEngine.RollAndEngageMacroForAnchor(config, state, pawn, combatMag
 end
 
 function CombatEngine.EngageModifierAndRollMacro(config, state, pawn, combatMagic, logFn, debugLogFn)
+    state.LastKnownEquippedElement = nil
     local anchor = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLogFn)
     local startSpell = DetectActiveStartingSpell(pawn, combatMagic, state)
     if startSpell and not SpellBelongsToCategory(state, startSpell, anchor) then

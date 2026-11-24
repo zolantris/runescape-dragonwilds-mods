@@ -76,7 +76,7 @@ local ORDERED_CONFIG_KEYS = {
     "EnableAutoAttackHold", "AutoAttackAllCombos", "AutoAttackIntervalMs",
     "DefaultComboCutoff", "BonusSpeedVariancePct",
     "UnlockAir", "UnlockFire", "UnlockWater", "UnlockEarth",
-    "UnlockModdedCombat", "UnlockUtilitySpells", "KeepGroundSmashAnchored", "MaxFinisherSpeedClamp", "InjectSpecialBarOnSpecials", "SpecialBarInjectAmount", "RequireSpecialEnergyForSpecials", "MinSpecialEnergyCost",
+    "UnlockModdedCombat", "UnlockUtilitySpells", "KeepGroundSmashAnchored", "MaxFinisherSpeedClamp", "InjectSpecialBarOnSpecials", "SpecialBarInjectAmount", "RequireSpecialEnergyForSpecials", "MinSpecialEnergyCost", "AllowFastSpecialCast", "MaxSpecialCastRate", "PostSpecialPauseSec", "AnimRepeatPadSec",
     "MaxMoveSpeed", "ActiveComboRulesCount", "DetectedSpellsSummary"
 }
 
@@ -119,6 +119,10 @@ function ConfigManager.CreateDefaultConfig()
         SpecialBarInjectAmount = 100.0,
         RequireSpecialEnergyForSpecials = false,
         MinSpecialEnergyCost = 25.0,
+        AllowFastSpecialCast = true,
+        MaxSpecialCastRate = 1.8,
+        PostSpecialPauseSec = 0.65,
+        AnimRepeatPadSec = 0.45,
         MaxMoveSpeed = 600.0,
         ActiveComboRulesCount = "Loading combo_rules.txt...",
         DetectedSpellsSummary = "Auto-detecting on world load..."
@@ -385,6 +389,10 @@ function ConfigManager.LoadConfigFile(paths, config, state, logFn, forceRebuildM
                 elseif k == "SpecialBarInjectAmount" then config.SpecialBarInjectAmount = tonumber(v) or 100.0
                 elseif k == "RequireSpecialEnergyForSpecials" then config.RequireSpecialEnergyForSpecials = ConfigManager.ParseBool(v, false)
                 elseif k == "MinSpecialEnergyCost" then config.MinSpecialEnergyCost = tonumber(v) or 25.0
+                elseif k == "AllowFastSpecialCast" then config.AllowFastSpecialCast = ConfigManager.ParseBool(v, true)
+                elseif k == "MaxSpecialCastRate" then config.MaxSpecialCastRate = math.max(1.0, tonumber(v) or 1.8)
+                elseif k == "PostSpecialPauseSec" then config.PostSpecialPauseSec = math.max(0.0, tonumber(v) or 0.65)
+                elseif k == "AnimRepeatPadSec" then config.AnimRepeatPadSec = math.max(0.0, tonumber(v) or 0.45)
                 elseif k == "MaxMoveSpeed" then config.MaxMoveSpeed = tonumber(v) or 600.0
                 elseif k == "ActiveComboRulesCount" then config.ActiveComboRulesCount = v
                 elseif k == "DetectedSpellsSummary" then config.DetectedSpellsSummary = v

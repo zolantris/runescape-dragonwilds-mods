@@ -141,6 +141,42 @@ local function ScanObjPropsForRuneElement(obj, safeGetFn, extractShortFn, classi
     return nil, nil
 end
 
+
+local function DeepScanAllPropsForRune(obj, safeGetFn, classifyFn, runeCache)
+    if not obj or not obj:IsValid() then return nil, nil end
+    local foundElem, foundItem = nil, nil
+    pcall(function()
+        if obj.ForEachProperty then
+            obj:ForEachProperty(function(prop)
+                if foundElem then return end
+                pcall(function()
+                    local pName = prop:GetFName():ToString()
+                    local pLower = pName:lower()
+                    if pLower:find("ammo") or pLower:find("rune") or pLower:find("spell") or pLower:find("equip") or pLower:find("slot") or pLower:find("held") or pLower:find("item") then
+                        local val = obj[pName]
+                        if type(val) == "userdata" and val:IsValid() then
+                            local fullStr = safeGetFn(val)
+                            local itemDataObj = nil
+                            pcall(function()
+                                if val.ItemData and val.ItemData:IsValid() then
+                                    itemDataObj = val.ItemData
+                                    fullStr = fullStr .. " " .. safeGetFn(itemDataObj)
+                                end
+                            end)
+                            local elem = classifyFn(fullStr)
+                            if elem then
+                                foundElem = elem
+                                foundItem = itemDataObj or val
+                            end
+                        end
+                    end
+                end)
+            end)
+        end
+    end)
+    return foundElem, foundItem
+end
+
 function EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLogFn)
     if not pawn or not pawn:IsValid() then
         return state.LastKnownEquippedElement
@@ -232,6 +268,28 @@ function EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLo
                 state.RuneItemDataCache[cmElem:lower()] = cmItemObj
             end
         end
+    end
+
+    if not detectedElem then
+        pcall(function()
+            local targets = { pawn.PlayerEquipmentComponent, combatMagic, pawn.InventoryComponent }
+            if pawn.Controller and pawn.Controller:IsValid() then
+                table.insert(targets, pawn.Controller.LoadoutComponent)
+            end
+            for _, tObj in ipairs(targets) do
+                if not detectedElem and tObj and tObj:IsValid() then
+                    local dElem, dItem = DeepScanAllPropsForRune(
+                        tObj, SpellScanner.SafeGetName, SpellScanner.ClassifyEquippedName, state.RuneItemDataCache)
+                    if dElem then
+                        detectedElem = dElem
+                        hasExplicitRuneEquipped = true
+                        if dItem and dItem:IsValid() then
+                            state.RuneItemDataCache[dElem:lower()] = dItem
+                        end
+                    end
+                end
+            end
+        end)
     end
 
     if not detectedElem then

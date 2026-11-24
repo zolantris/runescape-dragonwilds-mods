@@ -30,6 +30,7 @@ Place `ue4ss/Mods/ArcaneWilds/` into your `RSDragonwilds/Binaries/Win64/` direct
 <!-- CHANGELOG:START -->
 ### v1.70.0
 
+- **2026-11-24** - Attempt to fix firespell -> other spell combo swap without basic. Still not working ([cd86b92](https://github.com/zolantris/runescape-dragonwilds-mods/commit/cd86b9228adacfb19d2d0e8bfa3d6fa588de4e37))
 - **2026-11-24** - attempt to fix FoZ animation crash when overlapping animations or potential deduction of zero special ([fdca3b7](https://github.com/zolantris/runescape-dragonwilds-mods/commit/fdca3b77ef3f24407cf343e639be8b21af19a486))
 - **2026-11-24** - Fix compiler ([e4c3e2a](https://github.com/zolantris/runescape-dragonwilds-mods/commit/e4c3e2a622bc5d840bf9aefa97815bc915ddebfe))
 - **2026-11-24** - attempt to fix flames of zamorak crash for distance modification ([cc28c98](https://github.com/zolantris/runescape-dragonwilds-mods/commit/cc28c98d939dc9a6022a7007bac1ba58ee1d1a35))

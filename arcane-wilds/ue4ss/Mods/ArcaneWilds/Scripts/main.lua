@@ -288,10 +288,48 @@ local function TickActiveMacro(now, pawn, combatMagic)
     local expectedDesc = curStage.steps[State.StepInStage] or curStage.steps[1]
     local expectedEntry = ConfigManager.ResolveStepEntry(State, curStage, expectedDesc)
 
-    if curActor and (State.ActiveStageTargetSpeed or 1.0) > 1.0 and not (expectedEntry and expectedEntry.isSpecialSpell) then
-        CombatEngine.ApplyMontageRateToInstance(
-            Config, pawn, expectedEntry and expectedEntry.montageObj,
-            State.ActiveStageTargetSpeed, State.ActiveStageIsAirSmash)
+    local curMont = CombatEngine.GetActiveMontageObj(pawn)
+    if curMont then
+        State.LastActiveMontageObj = curMont
+        if not State.LastActiveMontageSeenAt then
+            State.LastActiveMontageSeenAt = now
+        end
+    else
+        State.LastActiveMontageSeenAt = nil
+    end
+
+    -- If this step's montage is already running from a previous combo (or just finished within AnimRepeatPadSec),
+    -- pad the wait time before applying fast rate / triggering so the first hit stays fast and repeat hits pad cleanly.
+    local padWindow = math.max(0.0, tonumber(Config.AnimRepeatPadSec) or 0.45)
+    if expectedEntry and expectedEntry.montageObj and padWindow > 0 then
+        local sameMontRunning = (curMont and curMont == expectedEntry.montageObj)
+        local recentSameMont = (State.LastActiveMontageObj == expectedEntry.montageObj)
+            and ((now - (State.LastActiveMontageSeenAt or now)) < padWindow)
+        if (sameMontRunning or recentSameMont) and not State._AppliedPadForCurrentStep then
+            State._AppliedPadForCurrentStep = true
+            State.AnimPadUntil = math.max(State.AnimPadUntil or 0, now + padWindow)
+            DebugLog(string.format("Padding repeat animation [%s] for %.2fs (preventing overlap from previous combo)",
+                tostring(expectedEntry.montageName or "Montage"), padWindow))
+        end
+    end
+
+    if (State.AnimPadUntil or 0) > now then
+        return
+    end
+
+    if curActor and (State.ActiveStageTargetSpeed or 1.0) > 1.0 then
+        if expectedEntry and expectedEntry.isSpecialSpell then
+            if Config.AllowFastSpecialCast ~= false then
+                local capRate = math.max(1.0, tonumber(Config.MaxSpecialCastRate) or 1.8)
+                local fastSpecRate = math.min(State.ActiveStageTargetSpeed, capRate)
+                CombatEngine.ApplyMontageRateToInstance(
+                    Config, pawn, expectedEntry.montageObj, fastSpecRate, false)
+            end
+        else
+            CombatEngine.ApplyMontageRateToInstance(
+                Config, pawn, expectedEntry and expectedEntry.montageObj,
+                State.ActiveStageTargetSpeed, State.ActiveStageIsAirSmash)
+        end
     end
 
     if curActorData and expectedEntry and expectedEntry.spellObj and curActorData == expectedEntry.spellObj then
@@ -308,13 +346,22 @@ local function TickActiveMacro(now, pawn, combatMagic)
         local isSpecialInFlight = expectedEntry and expectedEntry.isSpecialSpell
         -- Special spells (like DA_ZamorakStaff_Special) spawn a persistent AoE actor via SpellModule_SpawnActor;
         -- advance once the initial cast windup (~0.85s) finishes rather than waiting for the persistent AoE puddle to expire.
-        local specialCastReady = isSpecialInFlight and elapsed >= 0.85
+        local stillPlayingMontage = (CombatEngine.GetActiveMontageObj(pawn) ~= nil)
+        local specialCastReady = isSpecialInFlight and (elapsed >= 1.10 or (elapsed >= 0.85 and not stillPlayingMontage))
         local castCompleted = (curActor == nil) or (curActorData ~= nil and curActorData ~= State.InFlightSpellObj) or specialCastReady
         local safetyTimeout = elapsed >= 4.5
         if castCompleted or safetyTimeout then
+            if isSpecialInFlight then
+                local pauseSec = math.max(0.0, tonumber(Config.PostSpecialPauseSec) or 0.65)
+                if pauseSec > 0 then
+                    State.SpecialPostPauseUntil = now + pauseSec
+                    DebugLog(string.format("Pausing %.2fs after special sequence before next step/cycle", pauseSec))
+                end
+            end
             State.StepInFlight = false
             State.InFlightSpellObj = nil
-            CombatEngine.AdvanceLockedMacro(Config, State, pawn, combatMagic, DebugLog)
+            State._AppliedPadForCurrentStep = false
+        CombatEngine.AdvanceLockedMacro(Config, State, pawn, combatMagic, DebugLog)
         end
     else
         local curChained = nil
@@ -322,7 +369,8 @@ local function TickActiveMacro(now, pawn, combatMagic)
         if curChained and curChained:IsValid() and curChained ~= State.LastObservedChainedSpell then
             State.LastObservedChainedSpell = curChained
             if not curActor then
-                CombatEngine.AdvanceLockedMacro(Config, State, pawn, combatMagic, DebugLog)
+                State._AppliedPadForCurrentStep = false
+        CombatEngine.AdvanceLockedMacro(Config, State, pawn, combatMagic, DebugLog)
             end
         end
     end
@@ -334,6 +382,9 @@ local function TickAutoAttack(now, pc, pawn, combatMagic)
     local shouldAuto = atkDown and (State.ModifierHeld or Config.AutoAttackAllCombos)
     local intervalSec = math.max(0.03, (tonumber(Config.AutoAttackIntervalMs) or 65) / 1000.0)
 
+    if (State.SpecialPostPauseUntil or 0) > now or (State.AnimPadUntil or 0) > now then
+        return
+    end
     if not shouldAuto or State.StepInFlight or (now - State.LastAutoAttackTime) < intervalSec then
         return
     end
@@ -346,7 +397,17 @@ local function TickAutoAttack(now, pc, pawn, combatMagic)
         end)
     end
 
-    if isBusy or (now - (State.LastTriggeredSpellTime or 0)) < 0.14 then
+    local minTriggerGap = 0.14
+    if State.ModifierHeld and State.ActiveMacro then
+        local st = State.ActiveMacro.stages[State.StageIndex]
+        local sd = st and (st.steps[State.StepInStage] or st.steps[1])
+        local ent = sd and ConfigManager.ResolveStepEntry(State, st, sd)
+        if ent and ent.isSpecialSpell then
+            minTriggerGap = 0.28
+        end
+    end
+
+    if isBusy or (now - (State.LastTriggeredSpellTime or 0)) < minTriggerGap then
         return
     end
 
@@ -417,13 +478,15 @@ LoopAsync(50, function()
     local modDown = CombatEngine.IsModifierDown(Config, pc)
     if modDown and not State.ModifierHeld then
         State.ModifierHeld = true
+        State._AppliedPadForCurrentStep = false
         CombatEngine.EngageModifierAndRollMacro(Config, State, pawn, combatMagic, Log, DebugLog)
     elseif not modDown and State.ModifierHeld then
         State.ModifierHeld = false
         CombatEngine.ReleaseModifierAndRevert(Config, State, pawn, combatMagic, Log, DebugLog)
     end
 
-    if State.PendingAnchorReturn and not State.ActiveMacro and combatMagic and combatMagic:IsValid() then
+    local inPostSpecialPause = (State.SpecialPostPauseUntil or 0) > now
+    if State.PendingAnchorReturn and not State.ActiveMacro and not inPostSpecialPause and combatMagic and combatMagic:IsValid() then
         TickAnchorReturn(now, pawn, combatMagic)
     end
 
