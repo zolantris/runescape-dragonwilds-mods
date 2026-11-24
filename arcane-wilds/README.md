@@ -15,7 +15,7 @@
 * **Direct Spell-Name Combo System (`combo_rules.txt` & `spell_names.txt`)**:
   * Edit `combo_rules.txt` and `spell_names.txt` directly in any text editor and save (`Ctrl+S`)—changes hot-reload live in-game without Mod Menu text clipping.
 * **Notify-Safe Animation Speed Clamps**:
-  * Caps playback speed (`1.35x` by default when `KeepGroundSmashAnchored=true`) on delayed/multi-stage finishers (`Meteor`, `Volcano`, `Air Slam`, `Boulder`, or `ClampSpeed=true` custom spells) so `AnimNotify` damage and projectile spawn triggers are not skipped.
+  * Caps playback speed via `MaxFinisherSpeedClamp` (`5.0x` by default when `KeepGroundSmashAnchored=true`) on delayed/multi-stage finishers (`Meteor`, `Volcano`, `Air Slam`, `Boulder`, or `Clamp=true` custom spells) so `AnimNotify` damage and projectile spawn triggers are not skipped.
 * **Air 4th-Hit Finisher Tip**:
   * Flick aim slightly downwards then immediately upwards when firing the 4th Air finisher on the move so the projectile renders and tracks cleanly.
 * **Multiplayer**:

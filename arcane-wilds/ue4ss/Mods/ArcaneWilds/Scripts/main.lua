@@ -1,7 +1,7 @@
--- ArcaneWilds v1.67.0
+-- ArcaneWilds v1.68.0
 -- Move-While-Casting + Cross-Element & Ancient Magicks Chaining + Rune Consumption + Montage Pacing
 
-local MOD_VERSION = "1.67.0"
+local MOD_VERSION = "1.68.0"
 local MOD_DIR = debug.getinfo(1, "S").source:match("^@?(.*[\\/])Scripts[\\/]") or "ue4ss\\Mods\\ArcaneWilds\\"
 local SCRIPTS_DIR = MOD_DIR .. "Scripts\\"
 local CONFIG_PATH = MOD_DIR .. "config.txt"
@@ -100,6 +100,7 @@ local Config = {
     UnlockModdedCombat = true,
     UnlockUtilitySpells = false,
     KeepGroundSmashAnchored = true,
+    MaxFinisherSpeedClamp = 5.0,
     MaxMoveSpeed = 600.0,
     ActiveComboRulesCount = "Loading combo_rules.txt...",
     DetectedSpellsSummary = "Auto-detecting on world load..."
@@ -175,7 +176,7 @@ local function SaveConfigFile()
         "EnableAutoAttackHold", "AutoAttackAllCombos", "AutoAttackIntervalMs",
         "DefaultComboCutoff", "BonusSpeedVariancePct",
         "UnlockAir", "UnlockFire", "UnlockWater", "UnlockEarth",
-        "UnlockModdedCombat", "UnlockUtilitySpells", "KeepGroundSmashAnchored",
+        "UnlockModdedCombat", "UnlockUtilitySpells", "KeepGroundSmashAnchored", "MaxFinisherSpeedClamp",
         "MaxMoveSpeed", "ActiveComboRulesCount", "DetectedSpellsSummary"
     }
     for _, k in ipairs(orderedKeys) do
@@ -427,6 +428,7 @@ local function LoadConfigFile(forceRebuildMacros)
                 elseif k == "UnlockModdedCombat" then Config.UnlockModdedCombat = ParseBool(v, true)
                 elseif k == "UnlockUtilitySpells" then Config.UnlockUtilitySpells = ParseBool(v, false)
                 elseif k == "KeepGroundSmashAnchored" then Config.KeepGroundSmashAnchored = ParseBool(v, true)
+                elseif k == "MaxFinisherSpeedClamp" then Config.MaxFinisherSpeedClamp = math.max(1.0, tonumber(v) or 5.0)
                 elseif k == "MaxMoveSpeed" then Config.MaxMoveSpeed = tonumber(v) or 600.0
                 elseif k == "ActiveComboRulesCount" then Config.ActiveComboRulesCount = v
                 elseif k == "DetectedSpellsSummary" then Config.DetectedSpellsSummary = v
@@ -873,10 +875,11 @@ local function SetAllComboMontageRates(targetRate)
     for _, entry in pairs(State.SpellRegistry) do
         local montage = entry.montageObj
         if montage and montage:IsValid() then
-            if not (entry.isSmash and Config.KeepGroundSmashAnchored and targetRate > 1.5) then
-                pcall(function() montage.RateScale = targetRate end)
+            local clampMax = math.max(1.0, tonumber(Config.MaxFinisherSpeedClamp) or 5.0)
+            if entry.isSmash and Config.KeepGroundSmashAnchored then
+                pcall(function() montage.RateScale = math.min(targetRate, clampMax) end)
             else
-                pcall(function() montage.RateScale = math.min(targetRate, 1.35) end)
+                pcall(function() montage.RateScale = targetRate end)
             end
         end
     end
@@ -897,7 +900,8 @@ end
 local function ApplyMontageRateToInstance(pawn, montageObj, targetRate, isAirSmash)
     local effectiveRate = targetRate
     if isAirSmash and Config.KeepGroundSmashAnchored then
-        effectiveRate = math.min(targetRate, 1.35)
+        local clampMax = math.max(1.0, tonumber(Config.MaxFinisherSpeedClamp) or 5.0)
+        effectiveRate = math.min(targetRate, clampMax)
     end
     if montageObj and montageObj:IsValid() then
         pcall(function() montageObj.RateScale = effectiveRate end)

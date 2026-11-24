@@ -17,6 +17,7 @@ UnlockEarth=true
 UnlockModdedCombat=true
 UnlockUtilitySpells=false
 KeepGroundSmashAnchored=true
+MaxFinisherSpeedClamp=5.0
 MaxMoveSpeed=600.0
 ActiveComboRulesCount=3 macro(s) active from combo_rules.txt
 DetectedSpellsSummary=Auto-detecting on world load...

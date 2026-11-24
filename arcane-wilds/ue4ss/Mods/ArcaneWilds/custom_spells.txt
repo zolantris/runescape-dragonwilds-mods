@@ -11,7 +11,7 @@
 #   SFX       = <Optional SoundWave / SoundCue object name>
 #   Montage   = <Optional AnimMontage object name>
 #   Speed     = <Optional speed multiplier >= 1.0, e.g. 2.0>
-#   Clamp     = <Optional true/false; true caps high speeds at ~1.35x so AnimNotifies aren't skipped>
+#   Clamp     = <Optional true/false; true caps high speeds at MaxFinisherSpeedClamp (default 5.0x) so AnimNotifies aren't skipped>
 #   RuneCost  = <Optional rune alias or item name, e.g. fire, air, blood, ice>
 #   RuneCount = <Optional integer quantity >= 1, default 1>
 #

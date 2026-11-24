@@ -6,7 +6,7 @@
 #   - Every spell step in a stage is held until its cast/channel finishes (CurrentSpellActor clears)
 #     before advancing to the next spell — bolts will NEVER cut off a finisher/channel!
 #   - Montage playback speed is dynamically enforced on the active playing montage so heavy finishers
-#     speed up cleanly too (adjust KeepGroundSmashAnchored in Mod Menu if you want >1.35x on 4th-hit finishers).
+#     speed up cleanly too (adjust MaxFinisherSpeedClamp or KeepGroundSmashAnchored in Mod Menu / config.txt; default clamp is 5.0x).
 
 # --- ACTIVE DEFAULT EXAMPLES (Comment out with '#' as needed) ---
 Water@wave,bolt:2.5 -> Fire@bolt,explosion:2.5 :5;

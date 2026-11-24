@@ -1,4 +1,4 @@
--- Arcane Wilds v1.67.0 - Custom Spell Scaffolding Module
+-- Arcane Wilds v1.68.0 - Custom Spell Scaffolding Module
 -- Parses custom_spells.txt definitions (e.g., FlamesOfZamorak, StormOfArmadyl) and resolves
 -- base DominionSpellData + optional VFX/SFX/Montage overrides at runtime.
 
