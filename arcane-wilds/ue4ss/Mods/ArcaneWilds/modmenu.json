@@ -1,10 +1,14 @@
 {
+  "schema": 1,
   "id": "ArcaneWilds",
   "name": "Arcane Wilds",
-  "version": "1.68.0",
   "author": "zolantris",
+  "version": "1.70.0",
   "description": "Move-while-casting, Block/Modifier cross-element & Ancient Magicks chaining, notify-safe animation pacing, and rune-accurate casting.",
-  "config_file": "config.txt",
+  "config": {
+    "file": "config.txt",
+    "format": "kv"
+  },
   "settings": [
     {
       "type": "header",

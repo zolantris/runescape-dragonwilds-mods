@@ -78,19 +78,32 @@ $stagedModDir = Join-Path $stageRoot "ue4ss\Mods\$modName"
 Get-ChildItem -Path $stageRoot -Recurse -Include "snapshots","*.log","panel_layouts.lua" |
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
-# Sync version into staged modmenu.json
+# Sync version into staged modmenu.json (updates top-level version and/or nested mod.version if present)
 $stagedMenu = Join-Path $stagedModDir "modmenu.json"
 if (Test-Path $stagedMenu) {
     $menuObj = Get-Content $stagedMenu -Raw | ConvertFrom-Json
-    $menuObj.mod.version = $fullVersion
+    $updatedMenuVersion = $false
+
+    if ($menuObj.PSObject.Properties.Match("version").Count -gt 0) {
+        $menuObj.version = $fullVersion
+        $updatedMenuVersion = $true
+    }
+    if ($menuObj.PSObject.Properties.Match("mod").Count -gt 0 -and $menuObj.mod) {
+        $menuObj.mod.version = $fullVersion
+        $updatedMenuVersion = $true
+    }
+    if (-not $updatedMenuVersion) {
+        $menuObj | Add-Member -NotePropertyName "version" -NotePropertyValue $fullVersion
+    }
+
     $menuObj | ConvertTo-Json -Depth 10 | Set-Content -Path $stagedMenu -Encoding UTF8
 }
 
-# Sync VERSION constant into staged Scripts/main.lua
+# Sync VERSION / MOD_VERSION constant into staged Scripts/main.lua
 $stagedMain = Join-Path $stagedModDir "Scripts\main.lua"
 if (Test-Path $stagedMain) {
     $luaText = Get-Content $stagedMain -Raw
-    $luaText = $luaText -replace '(local\s+VERSION\s*=\s*")[^"]*(")', "`${1}$fullVersion`${2}"
+    $luaText = $luaText -replace '(local\s+(?:MOD_)?VERSION\s*=\s*")[^"]*(")', "`${1}$fullVersion`${2}"
     Set-Content -Path $stagedMain -Value $luaText -Encoding UTF8 -NoNewline
 }
 

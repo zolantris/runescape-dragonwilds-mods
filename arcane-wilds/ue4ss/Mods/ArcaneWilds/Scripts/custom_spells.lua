@@ -1,8 +1,9 @@
--- Arcane Wilds v1.68.0 - Custom Spell Scaffolding Module
+-- Arcane Wilds v1.70.0 - Custom Spell Scaffolding Module
 -- Parses custom_spells.txt definitions (e.g., FlamesOfZamorak, StormOfArmadyl) and resolves
--- base DominionSpellData + optional VFX/SFX/Montage overrides at runtime.
+-- base DominionSpellData + optional VFX/SFX/Montage overrides safely without scanning all UObjects.
 
 local CustomSpells = {}
+local ObjectLookupCache = {}
 
 local function Trim(s)
     if not s then return "" end
@@ -15,6 +16,10 @@ local function ParseBool(v, defaultVal)
     if l == "true" or l == "1" or l == "yes" or l == "on" then return true end
     if l == "false" or l == "0" or l == "no" or l == "off" then return false end
     return defaultVal
+end
+
+function CustomSpells.ClearCache()
+    ObjectLookupCache = {}
 end
 
 function CustomSpells.ParseDefinitions(rawText)
@@ -85,72 +90,80 @@ function CustomSpells.ParseDefinitions(rawText)
     return defs
 end
 
--- Find a live UObject by short name or full path (supports NiagaraSystem, SoundWave/SoundCue, AnimMontage, etc.)
-local function FindObjectByNameOrHint(nameStr, safeGetNameFn, extractShortFn)
-    if not nameStr or nameStr == "" then return nil end
-    local targetLower = nameStr:lower()
-
-    -- First check loaded candidate classes in Unreal object space
-    local classesToSearch = {
-        "NiagaraSystem",
-        "SoundWave",
-        "SoundCue",
-        "AnimMontage",
-        "DominionSpellData",
-        "BlueprintGeneratedClass",
-        "Object"
-    }
-
-    for _, clsName in ipairs(classesToSearch) do
-        local ok, objs = pcall(function() return FindAllOf(clsName) end)
-        if ok and objs then
-            for _, obj in ipairs(objs) do
-                if obj then
-                    local full = safeGetNameFn(obj)
-                    if full ~= "" then
-                        local short = extractShortFn(full):lower()
-                        local fLower = full:lower()
-                        if short == targetLower or fLower:find(targetLower, 1, true) then
-                            return obj, full, extractShortFn(full)
-                        end
-                    end
+-- Search ONLY specific lightweight asset classes (NEVER FindAllOf("Object") or "BlueprintGeneratedClass",
+-- which enumerates hundreds of thousands of engine UObjects and freezes startup!).
+local function FindAssetInClass(clsName, targetLower, safeGetNameFn, extractShortFn)
+    local ok, objs = pcall(function() return FindAllOf(clsName) end)
+    if not ok or not objs then return nil, nil, nil end
+    for _, obj in ipairs(objs) do
+        if obj and obj:IsValid() then
+            local full = safeGetNameFn(obj)
+            if full ~= "" then
+                local short = extractShortFn(full)
+                local sLower = short:lower()
+                if sLower == targetLower or full:lower():find(targetLower, 1, true) then
+                    return obj, full, short
                 end
             end
         end
     end
-
     return nil, nil, nil
 end
 
--- Build resolved custom spell entries on top of spellRegistry and register them so combo_rules.txt
--- and spell_names.txt can reference custom spells directly.
+local function FindObjectByNameOrHint(nameStr, preferredClasses, safeGetNameFn, extractShortFn)
+    if not nameStr or nameStr == "" then return nil, nil, nil end
+    local targetLower = nameStr:lower()
+
+    local cached = ObjectLookupCache[targetLower]
+    if cached ~= nil then
+        if cached == false then return nil, nil, nil end
+        if cached.obj and cached.obj:IsValid() then
+            return cached.obj, cached.full, cached.short
+        end
+        ObjectLookupCache[targetLower] = nil
+    end
+
+    for _, clsName in ipairs(preferredClasses) do
+        local obj, full, short = FindAssetInClass(clsName, targetLower, safeGetNameFn, extractShortFn)
+        if obj then
+            ObjectLookupCache[targetLower] = { obj = obj, full = full, short = short }
+            return obj, full, short
+        end
+    end
+
+    -- Cache negative result so startup doesn't re-scan missing assets on every config poll
+    ObjectLookupCache[targetLower] = false
+    return nil, nil, nil
+end
+
 function CustomSpells.BuildCustomRegistryEntries(defs, spellRegistry, spellChains, runeCache, safeGetNameFn, extractShortFn)
     local customEntries = {}
-    if not defs then return customEntries end
+    if not defs or next(defs) == nil then return customEntries end
 
     for keyLower, def in pairs(defs) do
         local baseKey = def.baseSpell and def.baseSpell:lower() or nil
         local baseEntry = baseKey and spellRegistry[baseKey] or nil
 
-        -- Fallback: if baseSpell wasn't in spellRegistry directly, try finding it via FindObjectByNameOrHint
         local resolvedBaseSpellObj = baseEntry and baseEntry.spellObj or nil
         if not resolvedBaseSpellObj and def.baseSpell then
-            local foundObj = FindObjectByNameOrHint(def.baseSpell, safeGetNameFn, extractShortFn)
+            local foundObj = FindObjectByNameOrHint(def.baseSpell, { "DominionSpellData" }, safeGetNameFn, extractShortFn)
             if foundObj then
                 resolvedBaseSpellObj = foundObj
             end
         end
 
-        if resolvedBaseSpellObj then
-            local vfxObj, vfxFull, vfxShort = FindObjectByNameOrHint(def.vfx, safeGetNameFn, extractShortFn)
-            local sfxObj, sfxFull, sfxShort = FindObjectByNameOrHint(def.sfx, safeGetNameFn, extractShortFn)
-            local montObj, montFull, montShort = FindObjectByNameOrHint(def.montage, safeGetNameFn, extractShortFn)
+        if resolvedBaseSpellObj and resolvedBaseSpellObj:IsValid() then
+            local vfxObj, _, vfxShort = FindObjectByNameOrHint(
+                def.vfx, { "NiagaraSystem", "DominionSpellData" }, safeGetNameFn, extractShortFn)
+            local sfxObj, _, sfxShort = FindObjectByNameOrHint(
+                def.sfx, { "SoundWave", "SoundCue" }, safeGetNameFn, extractShortFn)
+            local montObj, _, montShort = FindObjectByNameOrHint(
+                def.montage, { "AnimMontage" }, safeGetNameFn, extractShortFn)
 
             local effectiveMontage = (montObj and montObj:IsValid() and montObj) or (baseEntry and baseEntry.montageObj) or nil
             local effectiveMontageName = montShort or (baseEntry and baseEntry.montageName) or nil
             local effectiveCategory = def.category or (baseEntry and baseEntry.categoryTag) or "Custom"
 
-            -- Build merged costItems if custom RuneCost / RuneCount is specified
             local mergedCosts = {}
             if def.runeCost and runeCache and runeCache[def.runeCost] then
                 local rObj = runeCache[def.runeCost]
@@ -192,11 +205,10 @@ function CustomSpells.BuildCustomRegistryEntries(defs, spellRegistry, spellChain
     return customEntries
 end
 
--- Trigger optional custom SFX / VFX hooks when a custom spell fires
 function CustomSpells.TriggerCustomPresentation(pawn, entry, safeGetNameFn)
     if not entry or not entry.isCustomSpell then return end
     if pawn and pawn:IsValid() then
-        if entry.customSfxObj then
+        if entry.customSfxObj and entry.customSfxObj:IsValid() then
             pcall(function()
                 local gpStatics = StaticFindObject("/Script/Engine.Default__GameplayStatics")
                 if gpStatics and gpStatics:IsValid() and gpStatics.PlaySoundAtLocation then
@@ -205,7 +217,7 @@ function CustomSpells.TriggerCustomPresentation(pawn, entry, safeGetNameFn)
                 end
             end)
         end
-        if entry.customVfxObj then
+        if entry.customVfxObj and entry.customVfxObj:IsValid() then
             pcall(function()
                 local nsFuncLib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
                 if nsFuncLib and nsFuncLib:IsValid() and nsFuncLib.SpawnSystemAtLocation then
