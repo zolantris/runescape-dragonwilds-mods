@@ -31,15 +31,16 @@ function SpellScanner.ClassifySpellAsset(fullName, shortName)
     local lowerShort = (shortName or SpellScanner.ExtractShortObjectName(fullName)):lower()
 
     if lowerFull:find("/spells/fishing/") or lowerFull:find("/spells/farming/")
-        or lowerFull:find("/spells/weapons/") or lowerFull:find("/spells/specials/") then
+        or lowerFull:find("/spells/weapons/") then
         return nil, nil, false
     end
 
+    local isSpecialSpell = lowerFull:find("/spells/specials/") ~= nil or lowerShort:find("_special") ~= nil
     local isModded = lowerFull:find("/game/mods/") ~= nil or lowerShort:find("^da_conjurer") ~= nil
         or lowerShort:find("ham_") ~= nil or lowerShort:find("ancientstaff") ~= nil
     local isPlayerCombat = lowerFull:find("/spells/combat/") ~= nil
 
-    if not isPlayerCombat and not isModded then
+    if not isPlayerCombat and not isModded and not isSpecialSpell then
         return nil, nil, false
     end
 
@@ -93,6 +94,12 @@ function SpellScanner.ClassifySpellAsset(fullName, shortName)
             return "AncientStaff_" .. ancTag, stepIdx, true
         end
         return "AncientStaff", stepIdx, true
+    end
+
+    if isSpecialSpell then
+        local specTag = shortName:match("^[Dd][Aa]_([%w_]+)_Special") or shortName:gsub("^[Dd][Aa]_", ""):gsub("_[Ss]pecial.*$", "")
+        if not specTag or specTag == "" then specTag = "Special" end
+        return "Special_" .. specTag, 0, true
     end
 
     return nil, nil, false
@@ -271,8 +278,12 @@ function SpellScanner.ScanAndPatchSpells(cfg, modVersion, detectedPath, nameMapB
                         newChains[key].stepNames[idx] = shortName
                     end
 
-                    local montageObj, montageName, costItems = PatchSpellModules(sp, cfg,
-                        (not isNewVariant or not newChains[key].montages[idx]) and newChains[key] or nil, idx, lower)
+                    local isSpecialCat = key:find("^special_") ~= nil
+                    local montageObj, montageName, costItems = nil, nil, {}
+                    if not isSpecialCat then
+                        montageObj, montageName, costItems = PatchSpellModules(sp, cfg,
+                            (not isNewVariant or not newChains[key].montages[idx]) and newChains[key] or nil, idx, lower)
+                    end
 
                     local isSmash = (idx == 3 and (key:find("^air") or lower:find("slam") or lower:find("smash")))
                     local entry = {
@@ -285,16 +296,19 @@ function SpellScanner.ScanAndPatchSpells(cfg, modVersion, detectedPath, nameMapB
                         shortName = shortName,
                         fullName = full,
                         montageName = montageName,
-                        isSmash = isSmash
+                        isSmash = isSmash,
+                        isSpecialSpell = isSpecialCat
                     }
                     spellRegistry[shortName:lower()] = entry
                     discoveredLookup[shortName:lower()] = shortName
                     if montageName and montageName ~= "" then
                         discoveredLookup[montageName:lower()] = shortName
                     end
-                    local strippedPrefix = shortName:lower():gsub("^ham_", ""):gsub("^da_ancientstaff_", ""):gsub("^da_spell_", "")
-                    if strippedPrefix ~= "" and not discoveredLookup[strippedPrefix] then
-                        discoveredLookup[strippedPrefix] = shortName
+                    -- Only register unique mod prefixes (ham_*, da_ancientstaff_*) in global discoveredLookup;
+                    -- never strip da_spell_ into generic suffixes that could collide across elements.
+                    local modStripped = shortName:lower():gsub("^ham_", ""):gsub("^da_ancientstaff_", "")
+                    if modStripped ~= shortName:lower() and modStripped ~= "" and not discoveredLookup[modStripped] then
+                        discoveredLookup[modStripped] = shortName
                     end
                 end
             end

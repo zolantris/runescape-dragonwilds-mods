@@ -213,11 +213,28 @@ function EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLo
         local isBaseFour = (detectedElem == "Fire" or detectedElem == "Water" or detectedElem == "Air" or detectedElem == "Earth")
         local fullCat = isBaseFour and (detectedElem .. weaponSuffix) or detectedElem
 
-        if not state.ActiveMacro and not state.PendingAnchorReturn and state.LastKnownEquippedElement and state.LastKnownEquippedElement ~= fullCat then
-            debugLogFn("Equipped element changed: " .. tostring(state.LastKnownEquippedElement) .. " -> " .. tostring(fullCat))
-            state.AnchorElement = fullCat
+        local changedFromLast = (state.LastKnownEquippedElement ~= nil and state.LastKnownEquippedElement ~= fullCat)
+        if not state.ActiveMacro then
+            if state.LastKnownEquippedElement ~= fullCat or state.AnchorElement ~= fullCat then
+                debugLogFn("Equipped element synced: " .. tostring(state.LastKnownEquippedElement) .. " -> " .. tostring(fullCat))
+                state.AnchorElement = fullCat
+                state.PendingAnchorReturn = false
+                state.LastObservedChainedSpell = nil
+                if combatMagic and combatMagic:IsValid() then
+                    pcall(function() combatMagic.LastChainedSpell = nil end)
+                end
+            end
+        elseif changedFromLast then
+            -- Rune swapped even while an old macro was lingering: clear stale macro & LastChainedSpell immediately
+            debugLogFn("Rune swapped mid-state -> Clearing stale macro & syncing to [" .. tostring(fullCat) .. "]")
+            state.ActiveMacro = nil
+            state.StageIndex = 1
+            state.StepInStage = 1
             state.PendingAnchorReturn = false
+            state.StepInFlight = false
+            state.InFlightSpellObj = nil
             state.LastObservedChainedSpell = nil
+            state.AnchorElement = fullCat
             if combatMagic and combatMagic:IsValid() then
                 pcall(function() combatMagic.LastChainedSpell = nil end)
             end

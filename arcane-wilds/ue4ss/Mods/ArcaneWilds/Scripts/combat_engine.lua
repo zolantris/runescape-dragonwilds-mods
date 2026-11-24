@@ -50,10 +50,7 @@ local function DetectActiveStartingSpell(pawn, combatMagic, state)
             end)
         end
     end
-    if spellName and state.DiscoveredLookup then
-        local mapped = state.DiscoveredLookup[spellName:lower()]
-        if mapped then return mapped end
-    end
+    -- Keep canonical asset shortName (e.g. "DA_Spell_Primary_Earth_01") so element identity is never lost
     return spellName
 end
 
@@ -64,25 +61,33 @@ function CombatEngine.PickWeightedMacroForElement(state, anchorCategory, activeS
     local anchorBase = anchorLower and anchorLower:gsub("_wand$", ""):gsub("_hold$", "") or nil
     local startSpellLower = (activeStartingSpell and activeStartingSpell ~= "") and activeStartingSpell:lower() or nil
 
-    -- Determine the required starting element/category:
-    -- Equipped/anchor element is authoritative unless no anchor exists and a specific spell/custom-spell is starting.
-    local requiredCat = anchorLower
-    if not requiredCat and startSpellLower then
-        requiredCat = startSpellLower
+    -- Derive element/category from activeStartingSpell if anchorCategory is missing or stale
+    local derivedFromSpell = nil
+    if startSpellLower and state.SpellRegistry and state.SpellRegistry[startSpellLower] then
+        local regEntry = state.SpellRegistry[startSpellLower]
+        if regEntry.categoryTag and regEntry.categoryTag ~= "" then
+            derivedFromSpell = regEntry.categoryTag:lower()
+        end
     end
+
+    -- Equipped/anchor element is authoritative; fall back to spell's category if no anchor is set.
+    local requiredCat = anchorLower or derivedFromSpell or startSpellLower
     if not requiredCat then return nil end
 
     local requiredBase = requiredCat:gsub("_wand$", ""):gsub("_hold$", "")
     local candidates = {}
 
-    -- Priority 1: If a specific starting spell token is active, check rules whose Stage 1 starts with that exact spell token
-    -- AND matches the active element/category (when an element prefix is specified).
+    -- Priority 1: If a specific starting spell asset is active, match rules whose Stage 1 category matches
+    -- AND whose Stage 1 first step resolves to that exact starting spell asset.
     if startSpellLower then
         for _, m in ipairs(state.ParsedMacros) do
             local mCat = GetMacroStartCategory(m)
-            local mSpell = GetMacroStartSpellToken(m)
-            local catMatches = (not anchorLower) or (mCat == anchorLower) or (mCat == anchorBase)
-            if catMatches and mSpell and mSpell == startSpellLower then
+            local st1 = m.stages and m.stages[1]
+            local firstStep = st1 and st1.steps and st1.steps[1]
+            local resolvedFirst = firstStep and ConfigManager.ResolveStepEntry(state, st1, firstStep)
+            local resolvedShort = resolvedFirst and resolvedFirst.shortName and resolvedFirst.shortName:lower() or nil
+            local catMatches = (mCat == requiredCat) or (mCat == requiredBase)
+            if catMatches and resolvedShort and resolvedShort == startSpellLower then
                 table.insert(candidates, m)
             end
         end
@@ -211,7 +216,11 @@ function CombatEngine.ApplyStageSpeedAndPriming(config, state, combatMagic, stag
     end
 
     if combatMagic and combatMagic:IsValid() then
-        if entry and entry.prevSpellObj and entry.prevSpellObj:IsValid() then
+        -- Only prime LastChainedSpell when the step matches the player's currently equipped element;
+        -- never leave a cross-element spell (e.g. Air) in LastChainedSpell where normal LMB attacks can inherit it!
+        local equippedLower = (state.LastKnownEquippedElement or ""):lower():gsub("_wand$", ""):gsub("_hold$", "")
+        local entryCatLower = (entry and entry.categoryTag or ""):lower():gsub("_wand$", ""):gsub("_hold$", "")
+        if entry and entry.prevSpellObj and entry.prevSpellObj:IsValid() and equippedLower ~= "" and entryCatLower == equippedLower then
             pcall(function() combatMagic.LastChainedSpell = entry.prevSpellObj end)
             state.LastObservedChainedSpell = entry.prevSpellObj
         else
@@ -243,10 +252,64 @@ function CombatEngine.RestoreAnchorElementAndReset(config, state, combatMagic, d
     debugLogFn("Restored anchor category: " .. tostring(anchor or "None"))
 end
 
+local function TryTriggerSpecialAbility(pawn, spellObj, debugLogFn)
+    local triggered = false
+
+    -- 1. Try PlayerCombatMagicComponent special/spell activation methods if available
+    pcall(function()
+        local cm = pawn.PlayerCombatMagicComponent
+        if cm and cm:IsValid() then
+            local cmMethods = {
+                "Server_ActivateSpecialSpell",
+                "ActivateSpecialSpell",
+                "Server_CastSpell",
+                "CastSpell",
+                "TriggerSpell",
+                "Server_TriggerSpell"
+            }
+            for _, mName in ipairs(cmMethods) do
+                if not triggered and cm[mName] then
+                    local ok = pcall(function() cm[mName](cm, spellObj) end)
+                    if ok then
+                        triggered = true
+                        if debugLogFn then debugLogFn("Triggered special via CombatMagic:" .. mName) end
+                    end
+                end
+            end
+        end
+    end)
+
+    -- 2. Try DominionRuntimeBlueprintLibrary modular ability trigger (bypasses weapon-slot check for DominionSpellData)
+    if not triggered then
+        pcall(function()
+            local bpLib = StaticFindObject("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary")
+            if bpLib and bpLib:IsValid() and bpLib.TriggerModularAbilityForPlayer then
+                local ok = pcall(function() bpLib:TriggerModularAbilityForPlayer(pawn, spellObj) end)
+                if ok then
+                    triggered = true
+                    if debugLogFn then debugLogFn("Triggered special via TriggerModularAbilityForPlayer") end
+                end
+            end
+        end)
+    end
+
+    return triggered
+end
+
 function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, debugLogFn)
     if not pawn or not pawn:IsValid() or not entry or not entry.spellObj or not entry.spellObj:IsValid() then
         return false
     end
+
+    if entry.isSpecialSpell then
+        local okSpec = TryTriggerSpecialAbility(pawn, entry.spellObj, debugLogFn)
+        if okSpec then
+            EquipmentRunes.ConsumeRunesForSpellEntry(config, state, pawn, entry, debugLogFn)
+            CustomSpells.TriggerCustomPresentation(pawn, entry, SpellScanner.SafeGetName)
+            return true
+        end
+    end
+
     local bpLib = StaticFindObject("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary")
     if bpLib and bpLib:IsValid() then
         local ok = pcall(function()
@@ -254,7 +317,11 @@ function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, deb
         end)
         if ok then
             EquipmentRunes.ConsumeRunesForSpellEntry(config, state, pawn, entry, debugLogFn)
-            CustomSpells.TriggerCustomPresentation(pawn, entry, SpellScanner.SafeGetName)
+            if entry.impactAoEName and entry.impactAoEName ~= "" then
+                CustomSpells.ArmProjectileImpactAoE(state, pawn, entry, SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName)
+            else
+                CustomSpells.TriggerCustomPresentation(pawn, entry, SpellScanner.SafeGetName)
+            end
             return true
         end
     end
@@ -300,9 +367,34 @@ function CombatEngine.IsPrimaryAttackDown(pc)
     return down
 end
 
+local function SpellBelongsToCategory(state, spellShortName, anchorCategory)
+    if not spellShortName or spellShortName == "" or not anchorCategory or anchorCategory == "" then
+        return false
+    end
+    local anchorBase = anchorCategory:lower():gsub("_wand$", ""):gsub("_hold$", "")
+    local regEntry = state.SpellRegistry and state.SpellRegistry[spellShortName:lower()]
+    if regEntry and regEntry.categoryTag then
+        local catBase = regEntry.categoryTag:lower():gsub("_wand$", ""):gsub("_hold$", "")
+        if catBase == anchorBase then return true end
+    end
+    local sLower = spellShortName:lower()
+    if anchorBase == "fire" and (sLower:find("fire") or sLower:find("flame")) then return true end
+    if anchorBase == "water" and (sLower:find("water") or sLower:find("ice")) then return true end
+    if anchorBase == "air" and (sLower:find("air") or sLower:find("wind")) then return true end
+    if anchorBase == "earth" and sLower:find("earth") then return true end
+    return false
+end
+
 function CombatEngine.RollAndEngageMacroForAnchor(config, state, pawn, combatMagic, anchor, logFn, debugLogFn, startingSpell)
-    local startKey = startingSpell or DetectActiveStartingSpell(pawn, combatMagic, state)
-    local macro = CombatEngine.PickWeightedMacroForElement(state, anchor, startKey)
+    local freshAnchor = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLogFn) or anchor
+    local detectedSpell = startingSpell or DetectActiveStartingSpell(pawn, combatMagic, state)
+    -- Ignore detectedSpell if it belongs to a different element than the equipped/anchor element
+    local startKey = nil
+    if detectedSpell and SpellBelongsToCategory(state, detectedSpell, freshAnchor) then
+        startKey = detectedSpell
+    end
+
+    local macro = CombatEngine.PickWeightedMacroForElement(state, freshAnchor, startKey)
     state.ActiveMacro = macro
     state.StageIndex = 1
     state.StepInStage = 1
@@ -311,35 +403,38 @@ function CombatEngine.RollAndEngageMacroForAnchor(config, state, pawn, combatMag
 
     if macro then
         logFn(string.format("Start [%s] (Anchor [%s]) -> Locked macro (%d stages): %s",
-            tostring(startKey or anchor or "None"), tostring(anchor or "None"), #macro.stages, macro.raw))
+            tostring(startKey or freshAnchor or "None"), tostring(freshAnchor or "None"), #macro.stages, macro.raw))
         CombatEngine.ApplyStageSpeedAndPriming(config, state, combatMagic, macro.stages[1], 1, pawn, debugLogFn)
     else
         logFn(string.format("Start [%s] (Anchor [%s]) -> No matching rule for same starting spell in combo_rules.txt",
-            tostring(startKey or anchor or "None"), tostring(anchor or "None")))
+            tostring(startKey or freshAnchor or "None"), tostring(freshAnchor or "None")))
     end
 end
 
 function CombatEngine.EngageModifierAndRollMacro(config, state, pawn, combatMagic, logFn, debugLogFn)
     local anchor = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLogFn)
     local startSpell = DetectActiveStartingSpell(pawn, combatMagic, state)
+    if startSpell and not SpellBelongsToCategory(state, startSpell, anchor) then
+        startSpell = nil
+        if combatMagic and combatMagic:IsValid() then
+            pcall(function() combatMagic.LastChainedSpell = nil end)
+        end
+    end
     state.AnchorElement = anchor
     CombatEngine.RollAndEngageMacroForAnchor(config, state, pawn, combatMagic, anchor, logFn, debugLogFn, startSpell)
 end
 
 function CombatEngine.ReleaseModifierAndRevert(config, state, pawn, combatMagic, logFn, debugLogFn)
     local originalAnchor = state.AnchorElement
-    local hadSwappedStage = (state.ActiveMacro ~= nil and state.StageIndex > 1)
     CombatEngine.RestoreAnchorElementAndReset(config, state, combatMagic, debugLogFn)
     CombatEngine.SetAllComboMontageRates(config, state, 1.0)
-    if hadSwappedStage and originalAnchor then
-        state.AnchorElement = originalAnchor
-        state.PendingAnchorReturn = true
-        logFn("Modifier RELEASED mid-swap -> Returning to original spell [" .. tostring(originalAnchor) .. "] & 100% base speed")
-    else
-        local currentEquipped = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLogFn) or originalAnchor
-        state.AnchorElement = currentEquipped
-        logFn("Modifier RELEASED -> Restored anchor [" .. tostring(currentEquipped or "None") .. "] & 100% base speed")
+    state.PendingAnchorReturn = false
+    local currentEquipped = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLogFn) or originalAnchor
+    state.AnchorElement = currentEquipped
+    if combatMagic and combatMagic:IsValid() then
+        pcall(function() combatMagic.LastChainedSpell = nil end)
     end
+    logFn("Modifier RELEASED -> Cleanly reset combo & restored equipped element [" .. tostring(currentEquipped or "None") .. "]")
 end
 
 function CombatEngine.AdvanceLockedMacro(config, state, pawn, combatMagic, debugLogFn)
@@ -360,12 +455,13 @@ function CombatEngine.AdvanceLockedMacro(config, state, pawn, combatMagic, debug
         state.StepInStage = 1
         CombatEngine.ApplyStageSpeedAndPriming(config, state, combatMagic, macro.stages[state.StageIndex], 1, pawn, debugLogFn)
     else
-        local lockedAnchor = state.AnchorElement or state.LastKnownEquippedElement
+        local lockedAnchor = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLogFn)
+            or state.AnchorElement or state.LastKnownEquippedElement
         state.AnchorElement = lockedAnchor
         state.ActiveMacro = nil
         state.StageIndex = 1
         state.StepInStage = 1
-        state.PendingAnchorReturn = true
+        state.PendingAnchorReturn = state.ModifierHeld and true or false
         state.StepInFlight = false
         state.InFlightSpellObj = nil
         state.LastObservedChainedSpell = nil
@@ -376,7 +472,7 @@ function CombatEngine.AdvanceLockedMacro(config, state, pawn, combatMagic, debug
         end
 
         CombatEngine.SetAllComboMontageRates(config, state, 1.0)
-        debugLogFn("Macro finished -> Returning to original anchor [" .. tostring(lockedAnchor or "None") .. "] before next roll")
+        debugLogFn("Macro finished -> Reset cleanly to [" .. tostring(lockedAnchor or "None") .. "]")
     end
 end
 

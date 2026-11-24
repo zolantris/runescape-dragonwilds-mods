@@ -238,8 +238,13 @@ local function TickActiveMacro(now, pawn, combatMagic)
     end
 
     if State.StepInFlight then
-        local castCompleted = (curActor == nil) or (curActorData ~= nil and curActorData ~= State.InFlightSpellObj)
-        local safetyTimeout = (now - (State.InFlightStartedTime or now)) >= 4.5
+        local elapsed = now - (State.InFlightStartedTime or now)
+        local isSpecialInFlight = expectedEntry and expectedEntry.isSpecialSpell
+        -- Special spells (like DA_ZamorakStaff_Special) spawn a persistent AoE actor via SpellModule_SpawnActor;
+        -- advance once the initial cast windup (~0.85s) finishes rather than waiting for the persistent AoE puddle to expire.
+        local specialCastReady = isSpecialInFlight and elapsed >= 0.85
+        local castCompleted = (curActor == nil) or (curActorData ~= nil and curActorData ~= State.InFlightSpellObj) or specialCastReady
+        local safetyTimeout = elapsed >= 4.5
         if castCompleted or safetyTimeout then
             State.StepInFlight = false
             State.InFlightSpellObj = nil
@@ -294,7 +299,19 @@ local function TickAutoAttack(now, pc, pawn, combatMagic)
             end
         end
     elseif Config.AutoAttackAllCombos then
+        State.PendingAnchorReturn = false
         local anchor = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, State, DebugLog) or State.AnchorElement
+        if combatMagic and combatMagic:IsValid() then
+            pcall(function()
+                if combatMagic.LastChainedSpell and combatMagic.LastChainedSpell:IsValid() then
+                    local chainedName = SpellScanner.SafeGetName(combatMagic.LastChainedSpell):lower()
+                    local baseAnchor = (anchor or ""):lower():gsub("_wand$", ""):gsub("_hold$", "")
+                    if baseAnchor ~= "" and not chainedName:find(baseAnchor, 1, true) then
+                        combatMagic.LastChainedSpell = nil
+                    end
+                end
+            end)
+        end
         local chain = anchor and State.SpellChains[anchor:lower()]
         local starterName = chain and chain.stepNames and chain.stepNames[0]
         local starterEntry = starterName and State.SpellRegistry[starterName:lower()]
@@ -343,6 +360,7 @@ LoopAsync(50, function()
         TickActiveMacro(now, pawn, combatMagic)
     end
 
+    CustomSpells.TickProjectileImpactAoE(State, pawn, combatMagic)
     TickAutoAttack(now, pc, pawn, combatMagic)
     return false
 end)

@@ -1,0 +1,69 @@
+# ==============================================================================
+# ArcaneWilds - Reference Combo Rules Examples (Testing & Copy-Paste Templates)
+# ==============================================================================
+# Copy any lines you want to test into 'combo_rules.txt' and press Ctrl+S.
+# ArcaneWilds hot-reloads 'combo_rules.txt' automatically in-game!
+#
+# Syntax:
+#   Category@spell1,spell2:speed -> NextCategory@spell3,spell4:speed :weight;
+#
+# Notes:
+#   - Only Stage 1 (before the first '->') determines which equipped element
+#     or starting spell triggers the rule.
+#   - Higher ':weight;' values increase roll probability when multiple rules
+#     share the same starting element/category.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. SINGLE-ELEMENT FULL CHAINS (Staff & Wand)
+# ------------------------------------------------------------------------------
+Air@bolt,gust,vortex,slam:2.2 :5;
+Water@bolt,waterfall,wave,tsunami:2.2 :5;
+Fire@bolt_1,bolt_2,burst,explosion:2.0 :5;
+Earth@bolt,spike,shatter,boulder:2.0 :5;
+
+# Wand-specific variants (optional; falls back to base element rules if omitted)
+Air_Wand@bolt,gust,vortex,slam:2.4 :5;
+Water_Wand@bolt,waterfall,wave,tsunami:2.4 :5;
+Fire_Wand@bolt_1,bolt_2,burst,explosion:2.2 :5;
+Earth_Wand@bolt,spike,shatter,boulder:2.2 :5;
+
+# ------------------------------------------------------------------------------
+# 2. CROSS-ELEMENT COMBOS
+# ------------------------------------------------------------------------------
+# Fire opener -> Air finisher
+Fire@bolt_1,bolt_2:2.2 -> Air@gust,vortex:2.2 :5;
+
+# Air opener -> Water wave/tsunami burst
+Air@bolt,gust:2.3 -> Water@wave,tsunami:2.1 :4;
+
+# Water opener -> Earth shatter/boulder slam
+Water@bolt,waterfall:2.2 -> Earth@shatter,boulder:2.0 :4;
+
+# Multi-stage 3-element chain (Fire -> Water -> Air)
+Fire@bolt_1,bolt_2:2.3 -> Water@wave:2.2 -> Air@vortex,slam:2.0 :3;
+
+# ------------------------------------------------------------------------------
+# 3. CUSTOM SPELL ALIASES (Defined in custom_spells.txt)
+# ------------------------------------------------------------------------------
+# Earth opener -> Flames of Zamorak finisher
+Earth@bolt,spike,shatter:2.0 -> FlamesOfZamorak@FlamesOfZamorak:2.0 :5;
+
+# Fire opener -> Flames of Zamorak finisher
+Fire@bolt_1,bolt_2:2.2 -> FlamesOfZamorak@FlamesOfZamorak:1.8 :4;
+
+# Air opener -> Storm of Armadyl finisher
+Air@bolt,gust,vortex:2.2 -> StormOfArmadyl@StormOfArmadyl:2.0 :4;
+
+# ------------------------------------------------------------------------------
+# 4. ANCIENT MAGICKS (HydraAncientMagicks)
+# ------------------------------------------------------------------------------
+HAM_BloodBarrage@blood_barrage:2.0 -> HAM_IceBarrage@ice_barrage:2.0 :5;
+HAM_IceBarrage@ice_barrage:2.0 -> HAM_BloodBarrage@blood_barrage:2.0 :5;
+HAM_SmokeBarrage@smoke_barrage:2.0 -> HAM_ShadowBarrage@shadow_barrage:2.0 :4;
+HAM_ShadowBarrage@shadow_barrage:2.0 -> HAM_BloodBarrage@blood_barrage:2.0 :4;
+
+# ------------------------------------------------------------------------------
+# 5. DIRECT ASSET NAME OVERRIDES (Bypassing spell_names.txt)
+# ------------------------------------------------------------------------------
+Fire@DA_Spell_Primary_Fire_01,DA_Spell_Primary_Fire_02:2.2 -> Water@DA_Spell_Primary_Water_04:2.0 :2;

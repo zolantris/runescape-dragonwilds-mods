@@ -19,10 +19,8 @@
 # Example: Fire@bolt_1,bolt_2:2.0 -> FlamesOfZamorak@FlamesOfZamorak:1.8 :5;
 
 [FlamesOfZamorak]
-BaseSpell = DA_Spell_Primary_Fire_04
+BaseSpell = DA_ZamorakStaff_Special
 Category  = Fire
-VFX       = NS_Attack_Fire_Magic_BurningGround
-SFX       = SW_HAM_BloodBarrage
 Speed     = 1.8
 Clamp     = true
 RuneCost  = fire
