@@ -71,10 +71,22 @@ local DEFAULT_COMBO_RULES_CONTENT = table.concat({
     "Earth@bolt,spike,shatter:2.0 -> FlamesOfZamorak@FlamesOfZamorak:2.0 :5;"
 }, "\n") .. "\n"
 
+local DEFAULT_QUICK_CAST_CONTENT = table.concat({
+    "# ArcaneWilds Quick-Cast Hotkeys (Hot-Reloaded Automatically on Save!)",
+    "# Syntax: [Modifier +] Key1, Key2 = SpellName (or Category@spell:speed -> ...)",
+    "# Modifiers: Block (RMB / LT / RB), Shift, Alt, Ctrl, None",
+    "# Controller Aliases: GP_X, GP_Y, GP_B, GP_A, GP_LB, GP_RB, GP_LT, GP_RT",
+    "Block + 1, GP_X = SaradominGodsword",
+    "Block + 2, GP_Y = FlamesOfZamorak",
+    "Block + 3, GP_B = StormOfArmadyl",
+    "Block + 4, GP_A = SaradominStrike"
+}, "\n") .. "\n"
+
 local ORDERED_CONFIG_KEYS = {
     "Enabled", "DebugMode", "AllowDebugCommands", "DebugHotkey",
     "RequireModifierKey", "ModifierKey", "ConsumeRunesOnSwappedCasts",
     "EnableQuickCastHotkeys", "QuickCastRequireModifier", "QuickCastSuppressGameActions",
+    "ActiveQuickCastCount",
     "QuickCastHotkey1", "QuickCastSpell1",
     "QuickCastHotkey2", "QuickCastSpell2",
     "QuickCastHotkey3", "QuickCastSpell3",
@@ -111,6 +123,7 @@ function ConfigManager.CreateDefaultConfig()
         EnableQuickCastHotkeys = true,
         QuickCastRequireModifier = true,
         QuickCastSuppressGameActions = true,
+        ActiveQuickCastCount = "Loading quick_cast.txt...",
         QuickCastHotkey1 = "1,GP_X",
         QuickCastSpell1 = "SaradominGodsword",
         QuickCastHotkey2 = "2,GP_Y",
@@ -375,6 +388,149 @@ function ConfigManager.LoadComboRulesFile(paths, config, state, logFn, forceRebu
     end
 end
 
+local function ParseQuickCastBindings(rawText, defaultRequireMod)
+    local bindings = {}
+    if not rawText or rawText == "" then return bindings end
+    for line in rawText:gmatch("[^\r\n]+") do
+        local clean = ConfigManager.Trim(line)
+        if clean ~= "" and not clean:match("^#") and not clean:match("^;") then
+            local hashPos = clean:find("#", 1, true)
+            if hashPos then
+                clean = ConfigManager.Trim(clean:sub(1, hashPos - 1))
+            end
+            if clean ~= "" then
+                local lhs, rhs = clean:match("^([^=]+)=(.+)$")
+                if lhs and rhs then
+                    lhs = ConfigManager.Trim(lhs)
+                    rhs = ConfigManager.Trim(rhs)
+                    if lhs ~= "" and rhs ~= "" then
+                        local modifier = nil
+                        local keysPart = lhs
+                        local plusMod, rest = lhs:match("^([%w_]+)%s*%+%s*(.+)$")
+                        if plusMod and rest then
+                            modifier = ConfigManager.Trim(plusMod):upper()
+                            keysPart = ConfigManager.Trim(rest)
+                        else
+                            modifier = defaultRequireMod and "BLOCK" or "NONE"
+                        end
+                        if modifier == "RMB" or modifier == "MODIFIER" or modifier == "MOD" then
+                            modifier = "BLOCK"
+                        elseif modifier == "OFF" or modifier == "FALSE" or modifier == "" then
+                            modifier = "NONE"
+                        end
+                        local rawKeys = {}
+                        for tok in keysPart:gmatch("[^,|;]+") do
+                            local tk = ConfigManager.Trim(tok)
+                            if tk ~= "" then table.insert(rawKeys, tk) end
+                        end
+                        if #rawKeys > 0 then
+                            table.insert(bindings, {
+                                modifier = modifier,
+                                keysRaw = keysPart,
+                                rawKeys = rawKeys,
+                                target = rhs,
+                                isCombo = (rhs:find("@", 1, true) ~= nil) or (rhs:find("->", 1, true) ~= nil),
+                                raw = clean
+                            })
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return bindings
+end
+
+local function SerializeQuickCastFromConfig(config)
+    local prefix = (config.QuickCastRequireModifier ~= false) and "Block + " or ""
+    local lines = {
+        "# ArcaneWilds Quick-Cast Hotkeys (Hot-Reloaded Automatically on Save!)",
+        "# Syntax: [Modifier +] Key1, Key2 = SpellName (or Category@spell:speed -> ...)",
+        "# Modifiers: Block (RMB / LT / RB), Shift, Alt, Ctrl, None",
+        "# Controller Aliases: GP_X, GP_Y, GP_B, GP_A, GP_LB, GP_RB, GP_LT, GP_RT"
+    }
+    for i = 1, 4 do
+        local k = ConfigManager.Trim(config["QuickCastHotkey" .. i] or "")
+        local sp = ConfigManager.Trim(config["QuickCastSpell" .. i] or "")
+        if k ~= "" and sp ~= "" then
+            table.insert(lines, prefix .. k .. " = " .. sp)
+        end
+    end
+    return table.concat(lines, "\n") .. "\n"
+end
+
+function ConfigManager.LoadQuickCastFile(paths, config, state, logFn, forceReload, modMenuSlotsChanged)
+    if not paths.QUICK_CAST_PATH then return end
+
+    if modMenuSlotsChanged then
+        local newRaw = SerializeQuickCastFromConfig(config)
+        local wf = io.open(paths.QUICK_CAST_PATH, "w")
+        if wf then
+            wf:write(newRaw)
+            wf:close()
+        end
+    end
+
+    local f = io.open(paths.QUICK_CAST_PATH, "r")
+    if not f then
+        local wf = io.open(paths.QUICK_CAST_PATH, "w")
+        if wf then
+            wf:write(DEFAULT_QUICK_CAST_CONTENT)
+            wf:close()
+        end
+        f = io.open(paths.QUICK_CAST_PATH, "r")
+        if not f then return end
+    end
+    local raw = f:read("*a") or ""
+    f:close()
+
+    if forceReload or state.LastQuickCastRaw ~= raw then
+        local isInitial = (state.LastQuickCastRaw == nil)
+        state.LastQuickCastRaw = raw
+        state.QuickCastBindings = ParseQuickCastBindings(raw, config.QuickCastRequireModifier ~= false)
+
+        -- Sync first 4 entries back into config.txt so Mod Menu reflects quick_cast.txt edits
+        local changedCfg = false
+        for i = 1, 4 do
+            local b = state.QuickCastBindings[i]
+            local newK = b and b.keysRaw or ""
+            local newS = b and b.target or ""
+            if config["QuickCastHotkey" .. i] ~= newK then
+                config["QuickCastHotkey" .. i] = newK
+                changedCfg = true
+            end
+            if config["QuickCastSpell" .. i] ~= newS then
+                config["QuickCastSpell" .. i] = newS
+                changedCfg = true
+            end
+        end
+
+        local statusStr = string.format("%d binding(s) active from quick_cast.txt", #state.QuickCastBindings)
+        config.ActiveQuickCastCount = statusStr
+        if changedCfg or statusStr ~= state.LastQuickCastStatusWritten then
+            state.LastQuickCastStatusWritten = statusStr
+            ConfigManager.SaveConfigFile(paths, config)
+        end
+
+        -- Snapshot synced Mod Menu slot signature so we detect future Mod Menu edits
+        state._LastModMenuQuickCastSig = table.concat({
+            tostring(config.QuickCastHotkey1 or ""), tostring(config.QuickCastSpell1 or ""),
+            tostring(config.QuickCastHotkey2 or ""), tostring(config.QuickCastSpell2 or ""),
+            tostring(config.QuickCastHotkey3 or ""), tostring(config.QuickCastSpell3 or ""),
+            tostring(config.QuickCastHotkey4 or ""), tostring(config.QuickCastSpell4 or "")
+        }, "|")
+
+        if isInitial then
+            logFn("Loaded " .. tostring(#state.QuickCastBindings) .. " quick-cast binding(s) from quick_cast.txt")
+        else
+            logFn("Hot-reloaded quick_cast.txt -> " .. tostring(#state.QuickCastBindings) .. " binding(s) active!")
+            for idx, b in ipairs(state.QuickCastBindings) do
+                logFn(string.format("  QuickCast #%d [%s + %s] => %s", idx, tostring(b.modifier), tostring(b.keysRaw), tostring(b.target)))
+            end
+        end
+    end
+end
+
 function ConfigManager.LoadConfigFile(paths, config, state, logFn, forceRebuildMacros)
     local legacyWeightedRules = nil
     local f = io.open(paths.CONFIG_PATH, "r")
@@ -403,6 +559,7 @@ function ConfigManager.LoadConfigFile(paths, config, state, logFn, forceRebuildM
                 elseif k == "EnableQuickCastHotkeys" then config.EnableQuickCastHotkeys = ConfigManager.ParseBool(v, true)
                 elseif k == "QuickCastRequireModifier" then config.QuickCastRequireModifier = ConfigManager.ParseBool(v, true)
                 elseif k == "QuickCastSuppressGameActions" then config.QuickCastSuppressGameActions = ConfigManager.ParseBool(v, true)
+                elseif k == "ActiveQuickCastCount" then config.ActiveQuickCastCount = v
                 elseif k == "QuickCastHotkey1" then config.QuickCastHotkey1 = v
                 elseif k == "QuickCastSpell1" then config.QuickCastSpell1 = v
                 elseif k == "QuickCastHotkey2" then config.QuickCastHotkey2 = v
@@ -451,7 +608,16 @@ function ConfigManager.LoadConfigFile(paths, config, state, logFn, forceRebuildM
         end
     end
 
+    local curModMenuQuickCastSig = table.concat({
+        tostring(config.QuickCastHotkey1 or ""), tostring(config.QuickCastSpell1 or ""),
+        tostring(config.QuickCastHotkey2 or ""), tostring(config.QuickCastSpell2 or ""),
+        tostring(config.QuickCastHotkey3 or ""), tostring(config.QuickCastSpell3 or ""),
+        tostring(config.QuickCastHotkey4 or ""), tostring(config.QuickCastSpell4 or "")
+    }, "|")
+    local modMenuQuickCastChanged = (state._LastModMenuQuickCastSig ~= nil) and (state._LastModMenuQuickCastSig ~= curModMenuQuickCastSig)
+
     ConfigManager.LoadComboRulesFile(paths, config, state, logFn, forceRebuildMacros, legacyWeightedRules)
+    ConfigManager.LoadQuickCastFile(paths, config, state, logFn, forceRebuildMacros, modMenuQuickCastChanged)
 end
 
 return ConfigManager

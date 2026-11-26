@@ -281,7 +281,7 @@ function CombatEngine.ResetAllState(config, state, combatMagic, pawn, debugLogFn
     end
 end
 
-function CombatEngine.RestoreAnchorElementAndReset(config, state, combatMagic, debugLogFn)
+function CombatEngine.RestoreAnchorElementAndReset(config, state, combatMagic, debugLogFn, pawn)
     local anchor = state.AnchorElement or state.LastKnownEquippedElement
     state.ActiveMacro = nil
     state.StageIndex = 1
@@ -605,20 +605,35 @@ function CombatEngine.ResolveClosestElementSpellAndCategory(state, anchorCategor
 end
 
 function CombatEngine.RollAndEngageMacroForAnchor(config, state, pawn, combatMagic, anchor, logFn, debugLogFn, startingSpell)
-    local freshAnchor = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLogFn) or anchor
+    local freshAnchor = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLogFn)
+    if not freshAnchor then
+        state.ActiveMacro = nil
+        state.StageIndex = 1
+        state.StepInStage = 1
+        state.PendingAnchorReturn = false
+        state.LastCastSpellData = nil
+        if debugLogFn then
+            if not state.HasMagicWeaponEquipped then
+                debugLogFn("Combo skipped: no staff/wand equipped (holding: " .. tostring(state.LastKnownWeaponName or "None") .. ")")
+            else
+                debugLogFn("Combo skipped: staff/wand equipped (" .. tostring(state.LastKnownWeaponName or "Staff") .. ") but no elemental runes equipped in MagicAmmo1")
+            end
+        end
+        return
+    end
+
     local mappedCat, mappedSpell = CombatEngine.ResolveClosestElementSpellAndCategory(
         state, freshAnchor, state.LastKnownWeaponSuffix)
     if mappedCat then
         freshAnchor = mappedCat
     end
 
+    -- Prefer the equipped rune/weapon's starter spell directly so combos engage cleanly from idle
+    -- without requiring a spell to already be mid-cast. If a same-element spell is explicitly active, allow it too.
     local detectedSpell = startingSpell or DetectActiveStartingSpell(pawn, combatMagic, state)
-    -- Ignore detectedSpell if it belongs to a different element than the equipped/anchor element
-    local startKey = nil
+    local startKey = mappedSpell
     if detectedSpell and SpellBelongsToCategory(state, detectedSpell, freshAnchor) then
         startKey = detectedSpell
-    elseif mappedSpell then
-        startKey = mappedSpell
     end
 
     local macro = CombatEngine.PickWeightedMacroForElement(state, freshAnchor, startKey)
@@ -629,8 +644,10 @@ function CombatEngine.RollAndEngageMacroForAnchor(config, state, pawn, combatMag
     state.LastCastSpellData = nil
 
     if macro then
-        logFn(string.format("Start [%s] (Anchor [%s]) -> Locked macro (%d stages): %s",
-            tostring(startKey or freshAnchor or "None"), tostring(freshAnchor or "None"), #macro.stages, macro.raw))
+        logFn(string.format("Start [%s] (Anchor [%s], Weapon [%s], Rune [%s]) -> Locked macro (%d stages): %s",
+            tostring(startKey or freshAnchor or "None"), tostring(freshAnchor or "None"),
+            tostring(state.LastKnownWeaponName or "Staff"), tostring(state.LastKnownRuneName or freshAnchor or "None"),
+            #macro.stages, macro.raw))
         CombatEngine.ApplyStageSpeedAndPriming(config, state, combatMagic, macro.stages[1], 1, pawn, debugLogFn)
         local st1 = macro.stages[1]
         if st1 and st1.elementLower then
@@ -645,14 +662,31 @@ function CombatEngine.RollAndEngageMacroForAnchor(config, state, pawn, combatMag
             end
         end
     else
-        logFn(string.format("Start [%s] (Anchor [%s]) -> No matching rule for same starting spell in combo_rules.txt",
-            tostring(startKey or freshAnchor or "None"), tostring(freshAnchor or "None")))
+        logFn(string.format("Start [%s] (Anchor [%s], Rune [%s]) -> No matching rule for equipped element in combo_rules.txt",
+            tostring(startKey or freshAnchor or "None"), tostring(freshAnchor or "None"),
+            tostring(state.LastKnownRuneName or "None")))
     end
 end
 
 function CombatEngine.EngageModifierAndRollMacro(config, state, pawn, combatMagic, logFn, debugLogFn)
-    state.LastKnownEquippedElement = nil
     local anchor = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLogFn)
+    state.AnchorElement = anchor
+    if not anchor then
+        state.ActiveMacro = nil
+        state.StageIndex = 1
+        state.StepInStage = 1
+        state.PendingAnchorReturn = false
+        state.LastCastSpellData = nil
+        if debugLogFn then
+            if not state.HasMagicWeaponEquipped then
+                debugLogFn("Modifier held without staff/wand equipped (holding: " .. tostring(state.LastKnownWeaponName or "None") .. ") -> Ignoring magic combo")
+            else
+                debugLogFn("Modifier held with staff/wand (" .. tostring(state.LastKnownWeaponName or "Staff") .. ") but no elemental runes equipped -> Ignoring magic combo")
+            end
+        end
+        return
+    end
+
     local startSpell = DetectActiveStartingSpell(pawn, combatMagic, state)
     if startSpell and not SpellBelongsToCategory(state, startSpell, anchor) then
         startSpell = nil
@@ -660,30 +694,35 @@ function CombatEngine.EngageModifierAndRollMacro(config, state, pawn, combatMagi
             pcall(function() combatMagic.LastChainedSpell = nil end)
         end
     end
-    state.AnchorElement = anchor
     CombatEngine.RollAndEngageMacroForAnchor(config, state, pawn, combatMagic, anchor, logFn, debugLogFn, startSpell)
 end
 
 function CombatEngine.ReleaseModifierAndRevert(config, state, pawn, combatMagic, logFn, debugLogFn)
-    local originalAnchor = state.AnchorElement
-    local relPawn = nil
+    local hadActiveOrMagic = (state.ActiveMacro ~= nil) or (state.HasMagicWeaponEquipped == true)
+    local relPawn = pawn
     pcall(function()
-        if combatMagic and combatMagic:IsValid() then relPawn = combatMagic:GetOwner() end
+        if not relPawn or not relPawn:IsValid() then
+            if combatMagic and combatMagic:IsValid() then relPawn = combatMagic:GetOwner() end
+        end
         if not relPawn or not relPawn:IsValid() then
             local pc = FindFirstOf("DominionPlayerController") or FindFirstOf("PlayerController")
             if pc and pc:IsValid() then relPawn = pc.Pawn end
         end
     end)
     CustomSpells.StopForcedMontage(state, relPawn)
-    CombatEngine.RestoreAnchorElementAndReset(config, state, combatMagic, debugLogFn)
+    CombatEngine.RestoreAnchorElementAndReset(config, state, combatMagic, debugLogFn, relPawn)
     CombatEngine.SetAllComboMontageRates(config, state, 1.0)
     state.PendingAnchorReturn = false
-    local currentEquipped = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLogFn) or originalAnchor
+    local currentEquipped = EquipmentRunes.DetectEquippedCategory(relPawn, combatMagic, state, debugLogFn)
     state.AnchorElement = currentEquipped
     if combatMagic and combatMagic:IsValid() then
         pcall(function() combatMagic.LastChainedSpell = nil end)
     end
-    logFn("Modifier RELEASED -> Cleanly reset combo & restored equipped element [" .. tostring(currentEquipped or "None") .. "]")
+    if hadActiveOrMagic then
+        logFn("Modifier RELEASED -> Cleanly reset combo & restored equipped element [" .. tostring(currentEquipped or "None") .. "]")
+    elseif debugLogFn then
+        debugLogFn("Modifier RELEASED (no magic weapon/combo active)")
+    end
 end
 
 function CombatEngine.AdvanceLockedMacro(config, state, pawn, combatMagic, debugLogFn)
@@ -692,7 +731,7 @@ function CombatEngine.AdvanceLockedMacro(config, state, pawn, combatMagic, debug
 
     local curStage = macro.stages[state.StageIndex]
     if not curStage then
-        CombatEngine.RestoreAnchorElementAndReset(config, state, combatMagic, debugLogFn)
+        CombatEngine.RestoreAnchorElementAndReset(config, state, combatMagic, debugLogFn, pawn)
         return
     end
 
@@ -705,12 +744,11 @@ function CombatEngine.AdvanceLockedMacro(config, state, pawn, combatMagic, debug
         CombatEngine.ApplyStageSpeedAndPriming(config, state, combatMagic, macro.stages[state.StageIndex], 1, pawn, debugLogFn)
     else
         local lockedAnchor = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLogFn)
-            or state.AnchorElement or state.LastKnownEquippedElement
         state.AnchorElement = lockedAnchor
         state.ActiveMacro = nil
         state.StageIndex = 1
         state.StepInStage = 1
-        state.PendingAnchorReturn = state.ModifierHeld and true or false
+        state.PendingAnchorReturn = (state.ModifierHeld and lockedAnchor ~= nil) and true or false
         state.StepInFlight = false
         state.InFlightSpellObj = nil
         state.LastObservedChainedSpell = nil

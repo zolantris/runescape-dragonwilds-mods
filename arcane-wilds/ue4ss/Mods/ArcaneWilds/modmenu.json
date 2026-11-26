@@ -70,6 +70,13 @@
       "default": true
     },
     {
+      "key": "ActiveQuickCastCount",
+      "type": "text",
+      "label": "Quick-Cast File Status (quick_cast.txt)",
+      "description": "Edit ArcaneWilds/quick_cast.txt directly for unlimited bindings (hot-reloads live on save) or edit Slots #1-#4 below.",
+      "default": "Edit quick_cast.txt in mod folder"
+    },
+    {
       "key": "QuickCastHotkey1",
       "type": "text",
       "label": "Quick-Cast Hotkey #1 (Keyboard,Controller)",

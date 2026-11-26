@@ -1,0 +1,24 @@
+# ArcaneWilds Quick-Cast Hotkeys (Hot-Reloaded Automatically on Save!)
+#
+# Syntax:
+#   [Modifier +] Key1, Key2 = SpellName
+#   [Modifier +] Key1, Key2 = Category@spell:speed -> Category@spell:speed
+#
+# Modifiers:
+#   Block    -> Hold Block / RMB / Gamepad LT / Gamepad RB (default ModifierKey)
+#   Shift    -> Hold Shift
+#   Alt      -> Hold Alt
+#   Ctrl     -> Hold Ctrl
+#   None     -> Standalone keypress (or omit the modifier completely)
+#
+# Key Aliases:
+#   Keyboard:   1-9, 0, A-Z, F1-F12, Num0-Num9, Mouse4, Mouse5, MMB
+#   Controller: GP_X (Left), GP_Y (Top), GP_B (Right), GP_A (Bottom), GP_LB, GP_RB, GP_LT, GP_RT
+#
+# Any keys bound under "Block + ..." are automatically suppressed in EnhancedInput
+# while holding Block so Hotbar 1-4 and controller X/Y/B/A game actions do not fire.
+
+Block + 1, GP_X = SaradominGodsword
+Block + 2, GP_Y = FlamesOfZamorak
+Block + 3, GP_B = StormOfArmadyl
+Block + 4, GP_A = SaradominStrike

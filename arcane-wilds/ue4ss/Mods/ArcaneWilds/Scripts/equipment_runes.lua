@@ -5,26 +5,53 @@ local SpellScanner = require("spell_scanner")
 
 local EquipmentRunes = {}
 
+-- ELoadoutSlot (UHTHeaderDump/Dominion/Public/ELoadoutSlot.h)
+local LOADOUT_SLOT_MAGIC_AMMO_1 = 6
+local LOADOUT_SLOT_HELD_RIGHT   = 7
+local LOADOUT_SLOT_HELD_LEFT    = 8
+
+-- EHeldEquipmentAmmoType (UHTHeaderDump/Dominion/Public/EHeldEquipmentAmmoType.h)
+local AMMO_TYPE_RUNES = 5
+
+-- EMagicAmmoVfxElement (UHTHeaderDump/Dominion/Public/EMagicAmmoVfxElement.h)
+local MAGIC_AMMO_VFX_TO_ELEM = {
+    [1] = "Air",
+    [2] = "Fire",
+    [3] = "Water",
+    [4] = "Earth"
+}
+
 function EquipmentRunes.DiscoverRuneItemAssets(state)
-    local items = FindAllOf("DominionItemData") or FindAllOf("ItemData")
-    if not items then return end
-    for _, item in ipairs(items) do
-        if item and item:IsValid() then
-            local full = SpellScanner.SafeGetName(item):lower()
-            local short = SpellScanner.ExtractShortObjectName(full):lower()
-            if full:find("rune") or short:find("rune") then
-                if short:find("fire") then state.RuneItemDataCache["fire"] = item
-                elseif short:find("water") then state.RuneItemDataCache["water"] = item
-                elseif short:find("air") or short:find("wind") then state.RuneItemDataCache["air"] = item
-                elseif short:find("earth") then state.RuneItemDataCache["earth"] = item
-                elseif short:find("blood") then state.RuneItemDataCache["blood"] = item
-                elseif short:find("ice") or short:find("frost") then state.RuneItemDataCache["ice"] = item
-                elseif short:find("smoke") then state.RuneItemDataCache["smoke"] = item
-                elseif short:find("shadow") then state.RuneItemDataCache["shadow"] = item
-                elseif short:find("death") then state.RuneItemDataCache["death"] = item
-                elseif short:find("chaos") then state.RuneItemDataCache["chaos"] = item
-                elseif short:find("nature") then state.RuneItemDataCache["nature"] = item
-                elseif short:find("law") then state.RuneItemDataCache["law"] = item
+    local pools = {}
+    local magicAmmos = nil
+    pcall(function() magicAmmos = FindAllOf("MagicAmmoData") end)
+    if magicAmmos and #magicAmmos > 0 then
+        table.insert(pools, magicAmmos)
+    end
+    local items = nil
+    pcall(function() items = FindAllOf("ItemData") end)
+    if items and #items > 0 then
+        table.insert(pools, items)
+    end
+    for _, list in ipairs(pools) do
+        for _, item in ipairs(list) do
+            if item and item:IsValid() then
+                local full = SpellScanner.SafeGetName(item):lower()
+                local short = SpellScanner.ExtractShortObjectName(full):lower()
+                if full:find("rune") or short:find("rune") then
+                    if short:find("fire") then state.RuneItemDataCache["fire"] = item
+                    elseif short:find("water") then state.RuneItemDataCache["water"] = item
+                    elseif short:find("air") or short:find("wind") then state.RuneItemDataCache["air"] = item
+                    elseif short:find("earth") then state.RuneItemDataCache["earth"] = item
+                    elseif short:find("blood") then state.RuneItemDataCache["blood"] = item
+                    elseif short:find("ice") or short:find("frost") then state.RuneItemDataCache["ice"] = item
+                    elseif short:find("smoke") then state.RuneItemDataCache["smoke"] = item
+                    elseif short:find("shadow") then state.RuneItemDataCache["shadow"] = item
+                    elseif short:find("death") then state.RuneItemDataCache["death"] = item
+                    elseif short:find("chaos") then state.RuneItemDataCache["chaos"] = item
+                    elseif short:find("nature") then state.RuneItemDataCache["nature"] = item
+                    elseif short:find("law") then state.RuneItemDataCache["law"] = item
+                    end
                 end
             end
         end
@@ -72,282 +99,386 @@ function EquipmentRunes.GetActiveAncientMagicksToggle(pawn, combatMagic)
 end
 
 
-local RUNE_PROP_CANDIDATES = {
-    "EquippedMagicAmmo", "MagicAmmo", "CurrentMagicAmmo", "EquippedRune", "CurrentRune",
-    "ActiveRune", "SelectedRune", "RuneItem", "RuneItemData", "AmmoItemData", "EquippedAmmo",
-    "CurrentSpell", "SelectedSpell", "ActiveSpell", "EquippedSpell", "CurrentSpellData"
-}
-
-local function ScanObjPropsForRuneElement(obj, safeGetFn, extractShortFn, classifyFn, runeCache)
-    if not obj or not obj:IsValid() then return nil, nil end
-    for _, propName in ipairs(RUNE_PROP_CANDIDATES) do
-        local ok, val = pcall(function() return obj[propName] end)
-        if ok and val ~= nil then
-            if type(val) == "userdata" then
-                local isV = false
-                pcall(function() isV = val:IsValid() end)
-                if isV then
-                    local fullStr = safeGetFn(val)
-                    local itemDataObj = nil
-                    pcall(function()
-                        if val.ItemData and val.ItemData:IsValid() then
-                            itemDataObj = val.ItemData
-                            fullStr = fullStr .. " " .. safeGetFn(itemDataObj)
-                        end
-                    end)
-                    local elem = classifyFn(fullStr)
-                    if elem then
-                        return elem, itemDataObj or val
-                    end
-                    -- If val is an array/collection with ForEach, inspect elements
-                    pcall(function()
-                        if val.ForEach then
-                            val:ForEach(function(_, elemWrapper)
-                                local eObj = nil
-                                pcall(function() eObj = elemWrapper:get() end)
-                                if eObj then
-                                    local eName = ""
-                                    local eItemData = nil
-                                    if type(eObj) == "userdata" then
-                                        pcall(function()
-                                            if eObj:IsValid() then
-                                                eName = safeGetFn(eObj)
-                                                if eObj.ItemData and eObj.ItemData:IsValid() then
-                                                    eItemData = eObj.ItemData
-                                                    eName = eName .. " " .. safeGetFn(eItemData)
-                                                end
-                                            end
-                                        end)
-                                    end
-                                    local eElem = classifyFn(eName)
-                                    if eElem and not elem then
-                                        elem = eElem
-                                        itemDataObj = eItemData or eObj
-                                    end
-                                end
-                            end)
-                        end
-                    end)
-                    if elem then
-                        return elem, itemDataObj
-                    end
-                end
-            elseif type(val) == "string" and val ~= "" then
-                local elem = classifyFn(val)
-                if elem then return elem, nil end
-            end
-        end
-    end
-    return nil, nil
+local function IsValidUObj(obj)
+    if not obj or type(obj) ~= "userdata" then return false end
+    local ok, valid = pcall(function() return obj:IsValid() end)
+    return ok and valid == true
 end
 
+local function ResolveLoadoutComponent(pawn)
+    local pc = nil
+    if IsValidUObj(pawn) then
+        pcall(function()
+            if IsValidUObj(pawn.Controller) then pc = pawn.Controller end
+        end)
+    end
+    if not IsValidUObj(pc) then
+        pcall(function() pc = FindFirstOf("DominionPlayerController") end)
+    end
+    if IsValidUObj(pc) then
+        local loadout = nil
+        pcall(function()
+            if pc.GetLoadout then loadout = pc:GetLoadout() end
+        end)
+        if IsValidUObj(loadout) then return loadout end
+        pcall(function() loadout = pc.LoadoutComponent end)
+        if IsValidUObj(loadout) then return loadout end
+    end
+    local fallback = nil
+    pcall(function() fallback = FindFirstOf("LoadoutComponent") end)
+    if IsValidUObj(fallback) then return fallback end
+    return nil
+end
 
-local function DeepScanAllPropsForRune(obj, safeGetFn, classifyFn, runeCache)
-    if not obj or not obj:IsValid() then return nil, nil end
-    local foundElem, foundItem = nil, nil
+local function ExtractItemDataFromItem(itemObj)
+    if not IsValidUObj(itemObj) then return nil end
+    local dataObj = nil
     pcall(function()
-        if obj.ForEachProperty then
-            obj:ForEachProperty(function(prop)
-                if foundElem then return end
-                pcall(function()
-                    local pName = prop:GetFName():ToString()
-                    local pLower = pName:lower()
-                    if pLower:find("ammo") or pLower:find("rune") or pLower:find("spell") or pLower:find("equip") or pLower:find("slot") or pLower:find("held") or pLower:find("item") then
-                        local val = obj[pName]
-                        if type(val) == "userdata" and val:IsValid() then
-                            local fullStr = safeGetFn(val)
-                            local itemDataObj = nil
-                            pcall(function()
-                                if val.ItemData and val.ItemData:IsValid() then
-                                    itemDataObj = val.ItemData
-                                    fullStr = fullStr .. " " .. safeGetFn(itemDataObj)
-                                end
-                            end)
-                            local elem = classifyFn(fullStr)
-                            if elem then
-                                foundElem = elem
-                                foundItem = itemDataObj or val
-                            end
-                        end
-                    end
-                end)
-            end)
+        if itemObj.BP_GetMagicAmmoData then
+            local d = itemObj:BP_GetMagicAmmoData()
+            if IsValidUObj(d) then dataObj = d end
         end
     end)
-    return foundElem, foundItem
+    if IsValidUObj(dataObj) then return dataObj end
+    pcall(function()
+        if itemObj.BP_GetItemData then
+            local d = itemObj:BP_GetItemData()
+            if IsValidUObj(d) then dataObj = d end
+        end
+    end)
+    if IsValidUObj(dataObj) then return dataObj end
+    pcall(function()
+        if IsValidUObj(itemObj.ItemData) then dataObj = itemObj.ItemData end
+    end)
+    if IsValidUObj(dataObj) then return dataObj end
+    return nil
+end
+
+local function ReadGameplayTagString(tag)
+    if not tag then return "" end
+    local out = ""
+    pcall(function()
+        if tag.TagName then
+            if type(tag.TagName) == "userdata" and tag.TagName.ToString then
+                out = tag.TagName:ToString() or ""
+            else
+                out = tostring(tag.TagName or "")
+            end
+        end
+    end)
+    if out == "None" then return "" end
+    return out
+end
+
+local function InspectHeldWeaponData(heldData, handCategoryTagStr)
+    if not IsValidUObj(heldData) then
+        return false, false, nil
+    end
+
+    local fullName = SpellScanner.SafeGetName(heldData)
+    local shortName = SpellScanner.ExtractShortObjectName(fullName)
+    local lowerName = fullName:lower()
+
+    local catTagStr = tostring(handCategoryTagStr or "")
+    pcall(function()
+        local itemCat = ReadGameplayTagString(heldData.Category)
+        if itemCat ~= "" then
+            catTagStr = catTagStr .. " " .. itemCat
+        end
+    end)
+    local catTagLower = catTagStr:lower()
+
+    local ammoType = nil
+    pcall(function() ammoType = tonumber(heldData.AmmoType) end)
+
+    local hasMagicAttackCollection = false
+    pcall(function()
+        local mac = heldData.MagicAttackCollection
+        if IsValidUObj(mac) then
+            hasMagicAttackCollection = true
+        end
+    end)
+
+    local isMagicWeapon = false
+    if ammoType == AMMO_TYPE_RUNES or hasMagicAttackCollection then
+        isMagicWeapon = true
+    elseif ammoType ~= 2 and ammoType ~= 3 and ammoType ~= 4 then
+        -- Fallback for modded staves/wands without standard AmmoType
+        if lowerName:find("staff") or lowerName:find("wand")
+            or lowerName:find("sceptre") or lowerName:find("scepter")
+            or lowerName:find("grimoire") or lowerName:find("ancientstaff")
+            or lowerName:find("conjurer")
+            or catTagLower:find("staff") or catTagLower:find("wand") or catTagLower:find("magic") then
+            isMagicWeapon = true
+        end
+    end
+
+    local isWand = (lowerName:find("wand") ~= nil) or (catTagLower:find("wand") ~= nil)
+    return isMagicWeapon, isWand, shortName
+end
+
+function EquipmentRunes.GetEquippedMagicWeaponInfo(pawn, loadout)
+    local info = {
+        hasMagicWeapon = false,
+        weaponSuffix = "",
+        weaponName = nil,
+        heldData = nil,
+        hand = nil,
+        checked = false
+    }
+    if not IsValidUObj(pawn) then return info end
+
+    local equipComp = nil
+    pcall(function()
+        if pawn.GetPlayerEquipmentComponent then
+            equipComp = pawn:GetPlayerEquipmentComponent()
+        end
+    end)
+    if not IsValidUObj(equipComp) then
+        pcall(function() equipComp = pawn.PlayerEquipmentComponent end)
+    end
+
+    local rData, lData = nil, nil
+    local rTagStr, lTagStr = "", ""
+
+    if IsValidUObj(equipComp) then
+        info.checked = true
+        pcall(function()
+            if equipComp.GetHeldEquipmentDataRight then
+                local d = equipComp:GetHeldEquipmentDataRight()
+                if IsValidUObj(d) then rData = d end
+            end
+        end)
+        if not IsValidUObj(rData) then
+            pcall(function()
+                local actor = equipComp.HeldEquipmentActorRight
+                if IsValidUObj(actor) then
+                    local d = (actor.GetHeldEquipmentData and actor:GetHeldEquipmentData()) or actor.HeldEquipmentData
+                    if IsValidUObj(d) then rData = d end
+                end
+            end)
+        end
+        pcall(function()
+            if equipComp.GetRightHandEquipmentCategory then
+                rTagStr = ReadGameplayTagString(equipComp:GetRightHandEquipmentCategory())
+            end
+        end)
+
+        pcall(function()
+            if equipComp.GetHeldEquipmentDataLeft then
+                local d = equipComp:GetHeldEquipmentDataLeft()
+                if IsValidUObj(d) then lData = d end
+            end
+        end)
+        if not IsValidUObj(lData) then
+            pcall(function()
+                local actor = equipComp.HeldEquipmentActorLeft
+                if IsValidUObj(actor) then
+                    local d = (actor.GetHeldEquipmentData and actor:GetHeldEquipmentData()) or actor.HeldEquipmentData
+                    if IsValidUObj(d) then lData = d end
+                end
+            end)
+        end
+        pcall(function()
+            if equipComp.GetLeftHandEquipmentCategory then
+                lTagStr = ReadGameplayTagString(equipComp:GetLeftHandEquipmentCategory())
+            end
+        end)
+    end
+
+    if IsValidUObj(loadout) then
+        info.checked = true
+        if not IsValidUObj(rData) then
+            pcall(function()
+                local eq = loadout:GetEquipmentFromSlot(LOADOUT_SLOT_HELD_RIGHT)
+                local d = ExtractItemDataFromItem(eq)
+                if IsValidUObj(d) then rData = d end
+            end)
+        end
+        if not IsValidUObj(lData) then
+            pcall(function()
+                local eq = loadout:GetEquipmentFromSlot(LOADOUT_SLOT_HELD_LEFT)
+                local d = ExtractItemDataFromItem(eq)
+                if IsValidUObj(d) then lData = d end
+            end)
+        end
+    end
+
+    local rIsMagic, rIsWand, rName = InspectHeldWeaponData(rData, rTagStr)
+    if rIsMagic then
+        info.hasMagicWeapon = true
+        info.weaponSuffix = rIsWand and "_Wand" or ""
+        info.weaponName = rName
+        info.heldData = rData
+        info.hand = "Right"
+        return info
+    end
+
+    local lIsMagic, lIsWand, lName = InspectHeldWeaponData(lData, lTagStr)
+    if lIsMagic then
+        info.hasMagicWeapon = true
+        info.weaponSuffix = lIsWand and "_Wand" or ""
+        info.weaponName = lName
+        info.heldData = lData
+        info.hand = "Left"
+        return info
+    end
+
+    info.weaponName = rName or lName
+    info.heldData = rData or lData
+    return info
+end
+
+function EquipmentRunes.GetEquippedMagicRuneInfo(pawn, loadout, state)
+    if not IsValidUObj(loadout) then
+        return nil, nil, 0, nil
+    end
+
+    local ammoItem = nil
+    pcall(function()
+        if loadout.GetEquipmentFromSlot then
+            local eq = loadout:GetEquipmentFromSlot(LOADOUT_SLOT_MAGIC_AMMO_1)
+            if IsValidUObj(eq) then ammoItem = eq end
+        end
+    end)
+
+    if not IsValidUObj(ammoItem) then
+        pcall(function()
+            if loadout.GetSlotIndexForSlot and loadout.GetItemFromSlot then
+                local slotIdx = tonumber(loadout:GetSlotIndexForSlot(LOADOUT_SLOT_MAGIC_AMMO_1))
+                if slotIdx and slotIdx >= 0 then
+                    local it = loadout:GetItemFromSlot(slotIdx)
+                    if IsValidUObj(it) then ammoItem = it end
+                end
+            end
+        end)
+    end
+
+    if not IsValidUObj(ammoItem) then
+        pcall(function()
+            if loadout.GetSlotIndexForSlot and loadout.ItemSlots and loadout.ItemSlots.ForEach then
+                local slotIdx = tonumber(loadout:GetSlotIndexForSlot(LOADOUT_SLOT_MAGIC_AMMO_1))
+                if slotIdx and slotIdx >= 0 then
+                    loadout.ItemSlots:ForEach(function(luaIdx, elemWrapper)
+                        if IsValidUObj(ammoItem) then return end
+                        if (luaIdx - 1) == slotIdx then
+                            local it = nil
+                            pcall(function() it = elemWrapper:get() end)
+                            if IsValidUObj(it) then ammoItem = it end
+                        end
+                    end)
+                end
+            end
+        end)
+    end
+
+    if not IsValidUObj(ammoItem) then
+        return nil, nil, 0, nil
+    end
+
+    local stackCount = nil
+    pcall(function()
+        if ammoItem.GetStackSize then
+            stackCount = tonumber(ammoItem:GetStackSize())
+        end
+    end)
+    if stackCount == nil then
+        pcall(function() stackCount = tonumber(ammoItem.Count) end)
+    end
+    if stackCount ~= nil and stackCount <= 0 then
+        return nil, nil, 0, nil
+    end
+
+    local ammoData = ExtractItemDataFromItem(ammoItem)
+    local fullStr = SpellScanner.SafeGetName(ammoItem)
+    if IsValidUObj(ammoData) then
+        fullStr = fullStr .. " " .. SpellScanner.SafeGetName(ammoData)
+    end
+    local lowerStr = fullStr:lower()
+    local shortName = SpellScanner.ExtractShortObjectName(SpellScanner.SafeGetName(ammoData or ammoItem))
+
+    local elem = nil
+    -- Check specific modded rune/ammo tags first (e.g. Conjurer / Ancient Magicks)
+    if lowerStr:find("conjurer") or lowerStr:find("ham_") or lowerStr:find("ancientstaff") then
+        elem = SpellScanner.ClassifyEquippedName(fullStr)
+    end
+
+    -- Authoritative C++ enum on UMagicAmmoData (EMagicAmmoVfxElement: 1=Air, 2=Fire, 3=Water, 4=Earth)
+    if not elem and IsValidUObj(ammoData) then
+        local vfxEnum = nil
+        pcall(function()
+            if ammoData.GetAmmoFVXElementValue then
+                vfxEnum = tonumber(ammoData:GetAmmoFVXElementValue())
+            end
+        end)
+        if vfxEnum == nil or vfxEnum == 0 then
+            pcall(function() vfxEnum = tonumber(ammoData.AmmoVfxElementValue) end)
+        end
+        if vfxEnum and MAGIC_AMMO_VFX_TO_ELEM[vfxEnum] then
+            elem = MAGIC_AMMO_VFX_TO_ELEM[vfxEnum]
+        end
+    end
+
+    -- Fallback: classify by rune asset name (e.g. ITEM_Rune_Fire -> Fire)
+    if not elem then
+        elem = SpellScanner.ClassifyEquippedName(fullStr)
+    end
+
+    if elem and state and state.RuneItemDataCache and IsValidUObj(ammoData) then
+        state.RuneItemDataCache[elem:lower()] = ammoData
+    end
+
+    return elem, ammoData, stackCount or 1, shortName
 end
 
 function EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLogFn)
-    if not pawn or not pawn:IsValid() then
-        return state.LastKnownEquippedElement
+    if not IsValidUObj(pawn) then
+        return nil
     end
 
-    local detectedElem = nil
-    local weaponSuffix = state.LastKnownWeaponSuffix
-    local hasExplicitRuneEquipped = false
+    local loadout = ResolveLoadoutComponent(pawn)
+    local weaponInfo = EquipmentRunes.GetEquippedMagicWeaponInfo(pawn, loadout)
+    state.HasMagicWeaponEquipped = weaponInfo.hasMagicWeapon
+    state.LastKnownWeaponName = weaponInfo.weaponName
+    state.LastKnownWeaponSuffix = weaponInfo.weaponSuffix or ""
 
-    pcall(function()
-        local equipComp = pawn.PlayerEquipmentComponent
-        if equipComp and equipComp:IsValid() then
-            local weaponProps = { "RightHandEquipment", "HeldRightEquipment", "MainHandEquipment" }
-            for _, prop in ipairs(weaponProps) do
-                local wObj = nil
-                pcall(function() wObj = equipComp[prop] end)
-                if wObj and wObj:IsValid() then
-                    local wName = SpellScanner.SafeGetName(wObj):lower()
-                    pcall(function()
-                        if wObj.ItemData and wObj.ItemData:IsValid() then
-                            wName = wName .. " " .. SpellScanner.SafeGetName(wObj.ItemData):lower()
-                        end
-                    end)
-                    if wName:find("wand") then
-                        weaponSuffix = "_Wand"
-                    elseif wName:find("staff") then
-                        weaponSuffix = ""
-                    end
-                end
+    -- Must have a magic weapon (staff / wand) equipped to enable magic combos.
+    if weaponInfo.checked and not weaponInfo.hasMagicWeapon then
+        if state.LastKnownEquippedElement ~= nil or state.AnchorElement ~= nil then
+            if debugLogFn then
+                debugLogFn("No staff/wand equipped (holding: " .. tostring(weaponInfo.weaponName or "None") .. ") -> Cleared equipped magic element")
             end
-
-            local scanElem, scanItemObj = ScanObjPropsForRuneElement(
-                equipComp, SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName,
-                SpellScanner.ClassifyEquippedName, state.RuneItemDataCache)
-            if scanElem then
-                detectedElem = scanElem
-                hasExplicitRuneEquipped = true
-                if scanItemObj and scanItemObj:IsValid() then
-                    state.RuneItemDataCache[scanElem:lower()] = scanItemObj
-                end
+            state.LastKnownEquippedElement = nil
+            state.AnchorElement = nil
+            state.LastKnownRuneName = nil
+            if not state.ActiveMacro then
+                state.PendingAnchorReturn = false
+                state.LastObservedChainedSpell = nil
             end
         end
-    end)
-
-    if not detectedElem then
-        pcall(function()
-            local pc = pawn.Controller
-            if pc and pc:IsValid() and pc.LoadoutComponent and pc.LoadoutComponent:IsValid() then
-                local loadout = pc.LoadoutComponent
-                local loadoutProps = { "MagicAmmo1", "MagicAmmo", "HeldRight", "EquippedItems" }
-                for _, prop in ipairs(loadoutProps) do
-                    local val = nil
-                    pcall(function() val = loadout[prop] end)
-                    if val and type(val) == "userdata" and val:IsValid() then
-                        local itemName = SpellScanner.SafeGetName(val)
-                        local itemDataObj = nil
-                        pcall(function() itemDataObj = val.ItemData end)
-                        if itemDataObj and itemDataObj:IsValid() then
-                            itemName = itemName .. " " .. SpellScanner.SafeGetName(itemDataObj)
-                        end
-                        if itemName:lower():find("wand") then
-                            weaponSuffix = "_Wand"
-                        elseif itemName:lower():find("staff") then
-                            weaponSuffix = ""
-                        end
-                        local elem = SpellScanner.ClassifyEquippedName(itemName)
-                        if elem then
-                            detectedElem = elem
-                            hasExplicitRuneEquipped = true
-                            if itemDataObj and itemDataObj:IsValid() then
-                                state.RuneItemDataCache[elem:lower()] = itemDataObj
-                            end
-                            break
-                        end
-                    end
-                end
-            end
-        end)
+        return nil
     end
 
-    if not detectedElem and combatMagic and combatMagic:IsValid() then
-        local cmElem, cmItemObj = ScanObjPropsForRuneElement(
-            combatMagic, SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName,
-            SpellScanner.ClassifyEquippedName, state.RuneItemDataCache)
-        if cmElem then
-            detectedElem = cmElem
-            hasExplicitRuneEquipped = true
-            if cmItemObj and cmItemObj:IsValid() then
-                state.RuneItemDataCache[cmElem:lower()] = cmItemObj
-            end
-        end
+    -- Detect the player's actually equipped elemental rune from LoadoutComponent (ELoadoutSlot::MagicAmmo1).
+    local detectedElem, _, _, runeShortName = nil, nil, 0, nil
+    if IsValidUObj(loadout) then
+        detectedElem, _, _, runeShortName = EquipmentRunes.GetEquippedMagicRuneInfo(pawn, loadout, state)
     end
-
-    if not detectedElem then
-        pcall(function()
-            local targets = { pawn.PlayerEquipmentComponent, combatMagic, pawn.InventoryComponent }
-            if pawn.Controller and pawn.Controller:IsValid() then
-                table.insert(targets, pawn.Controller.LoadoutComponent)
-            end
-            for _, tObj in ipairs(targets) do
-                if not detectedElem and tObj and tObj:IsValid() then
-                    local dElem, dItem = DeepScanAllPropsForRune(
-                        tObj, SpellScanner.SafeGetName, SpellScanner.ClassifyEquippedName, state.RuneItemDataCache)
-                    if dElem then
-                        detectedElem = dElem
-                        hasExplicitRuneEquipped = true
-                        if dItem and dItem:IsValid() then
-                            state.RuneItemDataCache[dElem:lower()] = dItem
-                        end
-                    end
-                end
-            end
-        end)
-    end
-
-    if not detectedElem then
-        pcall(function()
-            local invComp = pawn.InventoryComponent
-            if invComp and invComp:IsValid() then
-                local invElem, invItemObj = ScanObjPropsForRuneElement(
-                    invComp, SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName,
-                    SpellScanner.ClassifyEquippedName, state.RuneItemDataCache)
-                if invElem then
-                    detectedElem = invElem
-                    hasExplicitRuneEquipped = true
-                    if invItemObj and invItemObj:IsValid() then
-                        state.RuneItemDataCache[invElem:lower()] = invItemObj
-                    end
-                end
-            end
-        end)
-    end
+    state.LastKnownRuneName = runeShortName
+    local hasExplicitRuneEquipped = (detectedElem ~= nil)
 
     local activeHam = EquipmentRunes.GetActiveAncientMagicksToggle(pawn, combatMagic)
     if activeHam and not hasExplicitRuneEquipped then
         detectedElem = activeHam
     elseif activeHam and hasExplicitRuneEquipped then
-        if combatMagic and combatMagic:IsValid() and not state.ActiveMacro then
+        if IsValidUObj(combatMagic) and not state.ActiveMacro then
             pcall(function()
-                if combatMagic.LastChainedSpell and combatMagic.LastChainedSpell:IsValid() then
+                if IsValidUObj(combatMagic.LastChainedSpell) then
                     local chainedName = SpellScanner.SafeGetName(combatMagic.LastChainedSpell):lower()
                     if chainedName:find("ham_") or chainedName:find("ancientstaff") then
                         combatMagic.LastChainedSpell = nil
-                        debugLogFn("Cleared stale Ancient Magicks LastChainedSpell after rune swap to " .. tostring(detectedElem))
-                    end
-                end
-            end)
-        end
-    end
-
-    if not detectedElem and combatMagic and combatMagic:IsValid() and not state.ActiveMacro then
-        pcall(function()
-            if combatMagic.LastChainedSpell and combatMagic.LastChainedSpell:IsValid() then
-                local full = SpellScanner.SafeGetName(combatMagic.LastChainedSpell)
-                local cat = SpellScanner.ClassifySpellAsset(full, SpellScanner.ExtractShortObjectName(full))
-                if cat and not cat:lower():find("^ham_") then
-                    detectedElem = cat:gsub("_Wand$", ""):gsub("_Hold$", "")
-                    weaponSuffix = cat:find("_Wand$") and "_Wand" or ""
-                end
-            end
-        end)
-        if not detectedElem then
-            pcall(function()
-                if combatMagic.CurrentSpellActor and combatMagic.CurrentSpellActor:IsValid() then
-                    local spellData = combatMagic.CurrentSpellActor.Data
-                    if spellData and spellData:IsValid() then
-                        local full = SpellScanner.SafeGetName(spellData)
-                        local cat = SpellScanner.ClassifySpellAsset(full, SpellScanner.ExtractShortObjectName(full))
-                        if cat and not cat:lower():find("^ham_") then
-                            detectedElem = cat:gsub("_Wand$", ""):gsub("_Hold$", "")
-                            weaponSuffix = cat:find("_Wand$") and "_Wand" or ""
+                        if debugLogFn then
+                            debugLogFn("Cleared stale Ancient Magicks LastChainedSpell after rune swap to " .. tostring(detectedElem))
                         end
                     end
                 end
@@ -355,25 +486,29 @@ function EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLo
         end
     end
 
-    state.LastKnownWeaponSuffix = weaponSuffix
     if detectedElem then
         local isBaseFour = (detectedElem == "Fire" or detectedElem == "Water" or detectedElem == "Air" or detectedElem == "Earth")
-        local fullCat = isBaseFour and (detectedElem .. weaponSuffix) or detectedElem
+        local fullCat = isBaseFour and (detectedElem .. (weaponInfo.weaponSuffix or "")) or detectedElem
 
         local changedFromLast = (state.LastKnownEquippedElement ~= nil and state.LastKnownEquippedElement ~= fullCat)
         if not state.ActiveMacro then
             if state.LastKnownEquippedElement ~= fullCat or state.AnchorElement ~= fullCat then
-                debugLogFn("Equipped element synced: " .. tostring(state.LastKnownEquippedElement) .. " -> " .. tostring(fullCat))
+                if debugLogFn then
+                    debugLogFn(string.format("Equipped element synced: %s -> %s (Weapon=%s, Rune=%s)",
+                        tostring(state.LastKnownEquippedElement), tostring(fullCat),
+                        tostring(weaponInfo.weaponName or "Unknown"), tostring(runeShortName or activeHam or "None")))
+                end
                 state.AnchorElement = fullCat
                 state.PendingAnchorReturn = false
                 state.LastObservedChainedSpell = nil
-                if combatMagic and combatMagic:IsValid() then
+                if IsValidUObj(combatMagic) then
                     pcall(function() combatMagic.LastChainedSpell = nil end)
                 end
             end
         elseif changedFromLast then
-            -- Rune swapped even while an old macro was lingering: clear stale macro & LastChainedSpell immediately
-            debugLogFn("Rune swapped mid-state -> Clearing stale macro & syncing to [" .. tostring(fullCat) .. "]")
+            if debugLogFn then
+                debugLogFn("Rune/weapon swapped mid-state -> Clearing stale macro & syncing to [" .. tostring(fullCat) .. "]")
+            end
             state.ActiveMacro = nil
             state.StageIndex = 1
             state.StepInStage = 1
@@ -382,7 +517,7 @@ function EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLo
             state.InFlightSpellObj = nil
             state.LastObservedChainedSpell = nil
             state.AnchorElement = fullCat
-            if combatMagic and combatMagic:IsValid() then
+            if IsValidUObj(combatMagic) then
                 pcall(function() combatMagic.LastChainedSpell = nil end)
             end
         end
@@ -390,6 +525,22 @@ function EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLo
         state.LastKnownEquippedElement = fullCat
         return fullCat
     end
+
+    -- If loadout was valid and MagicAmmo1 has no elemental rune equipped (and no Ancient Magicks toggle),
+    -- do NOT fall back to stale LastKnownEquippedElement or active/previous spell actors.
+    if IsValidUObj(loadout) then
+        if state.LastKnownEquippedElement ~= nil or state.AnchorElement ~= nil then
+            if debugLogFn then
+                debugLogFn("No elemental runes equipped in MagicAmmo1 -> Cleared equipped magic element")
+            end
+            state.LastKnownEquippedElement = nil
+            state.AnchorElement = nil
+            state.PendingAnchorReturn = false
+            state.LastObservedChainedSpell = nil
+        end
+        return nil
+    end
+
     return state.LastKnownEquippedElement
 end
 
@@ -484,54 +635,135 @@ function EquipmentRunes.ConsumeRunesForSpellEntry(config, state, pawn, entry, de
 end
 
 
-local function OnEquipmentChangedCallback(selfObj, state, combatMagic, debugLogFn, label)
+local function HandleEquipmentOrRuneChange(pawn, combatMagic, state, debugLogFn, label)
     if state and state.Enabled == false then return end
-    local pawn = nil
-    pcall(function()
-        if selfObj and selfObj:IsValid() then
-            if selfObj.GetOwner then
-                pawn = selfObj:GetOwner()
-            elseif selfObj.Pawn then
-                pawn = selfObj.Pawn
-            end
-        end
-    end)
-    local cm = nil
-    pcall(function()
-        if pawn and pawn:IsValid() then
-            cm = pawn.PlayerCombatMagicComponent
-        end
-    end)
-    if not cm then cm = combatMagic end
-    if pawn and pawn:IsValid() and state then
+    if not IsValidUObj(pawn) or not state then return end
+
+    local cm = combatMagic
+    if not IsValidUObj(cm) then
+        pcall(function() cm = pawn.PlayerCombatMagicComponent end)
+    end
+
+    local prevElem = state.LastKnownEquippedElement
+    local prevMagic = state.HasMagicWeaponEquipped
+    local newElem = EquipmentRunes.DetectEquippedCategory(pawn, cm, state, debugLogFn or function() end)
+    local changed = (prevElem ~= newElem) or (prevMagic ~= state.HasMagicWeaponEquipped)
+
+    -- Only interrupt an active combo if the equipped weapon/element actually changed (not when rune count merely decrements on cast).
+    if changed then
         state.ActiveMacro = nil
         state.StageIndex = 1
         state.StepInStage = 1
         state.PendingAnchorReturn = false
         state.StepInFlight = false
         state.InFlightSpellObj = nil
+        state.SpecialPostPauseUntil = 0
+        state.AnimPadUntil = 0
+        state._LastTriggeredSpellPtr = nil
         state.LastObservedChainedSpell = nil
-        if cm and cm:IsValid() then
+        pcall(function()
+            local cs = require("custom_spells")
+            if cs and cs.StopForcedMontage then cs.StopForcedMontage(state, pawn) end
+        end)
+        if IsValidUObj(cm) then
             pcall(function() cm.LastChainedSpell = nil end)
         end
-        EquipmentRunes.DetectEquippedCategory(pawn, cm, state, debugLogFn or function() end)
         if debugLogFn and label then
-            debugLogFn("Hook fired [" .. label .. "] -> Synced anchor to [" .. tostring(state.AnchorElement) .. "]")
+            debugLogFn("Hook fired [" .. label .. "] -> Synced equipped element [" .. tostring(prevElem) .. " -> " .. tostring(newElem) .. "]")
         end
     end
+end
+
+local function OnEquipmentChangedCallback(selfParam, state, combatMagic, debugLogFn, label)
+    if state and state.Enabled == false then return end
+    local selfObj = selfParam
+    pcall(function()
+        if selfParam and type(selfParam) == "userdata" and selfParam.get then
+            local unwrapped = selfParam:get()
+            if unwrapped ~= nil then selfObj = unwrapped end
+        end
+    end)
+    if not IsValidUObj(selfObj) then return end
+
+    local pawn = nil
+    pcall(function()
+        local cmCheck = selfObj.PlayerCombatMagicComponent
+        if IsValidUObj(cmCheck) then pawn = selfObj end
+    end)
+    if not IsValidUObj(pawn) then
+        pcall(function()
+            if selfObj.GetOwner then
+                local owner = selfObj:GetOwner()
+                if IsValidUObj(owner) then pawn = owner end
+            end
+        end)
+    end
+    if not IsValidUObj(pawn) then
+        pcall(function()
+            local p = selfObj.Pawn
+            if IsValidUObj(p) then pawn = p end
+        end)
+    end
+    if IsValidUObj(pawn) then
+        HandleEquipmentOrRuneChange(pawn, combatMagic, state, debugLogFn, label)
+    end
+end
+
+function EquipmentRunes.EnsureEquipmentDelegates(pawn, combatMagic, state, debugLogFn)
+    if not IsValidUObj(pawn) or not state then return end
+
+    pcall(function()
+        local eqComp = nil
+        if pawn.GetPlayerEquipmentComponent then
+            eqComp = pawn:GetPlayerEquipmentComponent()
+        end
+        if not IsValidUObj(eqComp) then eqComp = pawn.PlayerEquipmentComponent end
+        if IsValidUObj(eqComp) and state._BoundEquipCompPtr ~= tostring(eqComp) then
+            state._BoundEquipCompPtr = tostring(eqComp)
+            if eqComp.BP_OnHeldEquipmentChanged and eqComp.BP_OnHeldEquipmentChanged.Add then
+                eqComp.BP_OnHeldEquipmentChanged:Add(function()
+                    local ownerPawn = nil
+                    pcall(function() ownerPawn = eqComp:GetOwner() end)
+                    HandleEquipmentOrRuneChange(ownerPawn or pawn, combatMagic, state, debugLogFn, "BP_OnHeldEquipmentChanged")
+                end)
+            end
+        end
+    end)
+
+    pcall(function()
+        local loadout = ResolveLoadoutComponent(pawn)
+        if IsValidUObj(loadout) and state._BoundLoadoutCompPtr ~= tostring(loadout) then
+            state._BoundLoadoutCompPtr = tostring(loadout)
+            if loadout.OnMagicAmmo1Changed and loadout.OnMagicAmmo1Changed.Add then
+                loadout.OnMagicAmmo1Changed:Add(function()
+                    HandleEquipmentOrRuneChange(pawn, combatMagic, state, debugLogFn, "OnMagicAmmo1Changed")
+                end)
+            end
+            if loadout.OnHeldRightItemChanged and loadout.OnHeldRightItemChanged.Add then
+                loadout.OnHeldRightItemChanged:Add(function()
+                    HandleEquipmentOrRuneChange(pawn, combatMagic, state, debugLogFn, "OnHeldRightItemChanged")
+                end)
+            end
+            if loadout.OnHeldLeftItemChanged and loadout.OnHeldLeftItemChanged.Add then
+                loadout.OnHeldLeftItemChanged:Add(function()
+                    HandleEquipmentOrRuneChange(pawn, combatMagic, state, debugLogFn, "OnHeldLeftItemChanged")
+                end)
+            end
+        end
+    end)
 end
 
 function EquipmentRunes.InstallEquipmentSwapHooks(state, combatMagic, logFn, debugLogFn)
     if state._InstalledEquipmentHooks then return end
     state._InstalledEquipmentHooks = true
 
+    -- Hook real change events only (never pure getters like GetHeldEquipmentDataRight!)
     local hookTargets = {
+        "/Script/Dominion.DominionPlayerCharacter:OnMagicAmmoItemChanged",
+        "/Script/Dominion.DominionPlayerCharacter:OnHeldRightItemChanged",
+        "/Script/Dominion.DominionPlayerCharacter:OnHeldLeftItemChanged",
         "/Script/Dominion.PlayerEquipmentComponent:OnRep_HeldEquipmentActorRight",
-        "/Script/Dominion.PlayerEquipmentComponent:OnRep_HeldEquipmentActorLeft",
-        "/Script/Dominion.PlayerEquipmentComponent:GetHeldEquipmentDataRight",
-        "/Script/Dominion.PlayerEquipmentComponent:GetHeldEquipmentDataLeft",
-        "/Script/Dominion.PlayerEquipmentComponent:GetHeldEquipmentActorRight",
-        "/Script/Dominion.PlayerEquipmentComponent:GetHeldEquipmentActorLeft"
+        "/Script/Dominion.PlayerEquipmentComponent:OnRep_HeldEquipmentActorLeft"
     }
 
     for _, fnPath in ipairs(hookTargets) do
@@ -544,39 +776,6 @@ function EquipmentRunes.InstallEquipmentSwapHooks(state, combatMagic, logFn, deb
             logFn("RegisterHook [" .. fnPath .. "] -> " .. tostring(okReg) .. (errReg and (" (" .. tostring(errReg) .. ")") or ""))
         end
     end
-
-    pcall(function()
-        local eqComp = FindFirstOf("PlayerEquipmentComponent")
-        if eqComp and eqComp:IsValid() and eqComp.BP_OnHeldEquipmentChanged and eqComp.BP_OnHeldEquipmentChanged.Add then
-            eqComp.BP_OnHeldEquipmentChanged:Add(function()
-                local pawn = nil
-                pcall(function() pawn = eqComp:GetOwner() end)
-                local cm = nil
-                pcall(function()
-                    if pawn and pawn:IsValid() then cm = pawn.PlayerCombatMagicComponent end
-                end)
-                if not cm then cm = combatMagic end
-                state.ActiveMacro = nil
-                state.PendingAnchorReturn = false
-                state.StepInFlight = false
-                state.InFlightSpellObj = nil
-                state.SpecialPostPauseUntil = 0
-                state.AnimPadUntil = 0
-                state._LastTriggeredSpellPtr = nil
-                state.LastObservedChainedSpell = nil
-                pcall(function()
-                    local cs = require("custom_spells")
-                    if cs and cs.StopForcedMontage then cs.StopForcedMontage(state, pawn) end
-                end)
-                if cm and cm:IsValid() then
-                    pcall(function() cm.LastChainedSpell = nil end)
-                end
-                if pawn and pawn:IsValid() then
-                    EquipmentRunes.DetectEquippedCategory(pawn, cm, state, debugLogFn or function() end)
-                end
-            end)
-        end
-    end)
 end
 
 return EquipmentRunes

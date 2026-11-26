@@ -16,11 +16,12 @@ if not package.path:find(SCRIPTS_DIR, 1, true) then
 end
 
 local Paths = {
-    CONFIG_PATH       = MOD_DIR .. "config.txt",
-    COMBO_RULES_PATH  = MOD_DIR .. "combo_rules.txt",
-    SPELL_NAMES_PATH  = MOD_DIR .. "spell_names.txt",
+    CONFIG_PATH        = MOD_DIR .. "config.txt",
+    COMBO_RULES_PATH   = MOD_DIR .. "combo_rules.txt",
+    SPELL_NAMES_PATH   = MOD_DIR .. "spell_names.txt",
     CUSTOM_SPELLS_PATH = MOD_DIR .. "custom_spells.txt",
-    DETECTED_PATH     = MOD_DIR .. "detected_spells.txt"
+    QUICK_CAST_PATH    = MOD_DIR .. "quick_cast.txt",
+    DETECTED_PATH      = MOD_DIR .. "detected_spells.txt"
 }
 
 local SpellScanner   = require("spell_scanner")
@@ -36,6 +37,9 @@ local State = {
     AnchorElement = nil,
     LastKnownEquippedElement = nil,
     LastKnownWeaponSuffix = "",
+    HasMagicWeaponEquipped = false,
+    LastKnownWeaponName = nil,
+    LastKnownRuneName = nil,
     ActiveMacro = nil,
     StageIndex = 1,
     StepInStage = 1,
@@ -54,7 +58,9 @@ local State = {
     LastSpellNamesRaw = nil,
     LastCustomSpellsRaw = nil,
     LastComboRulesRaw = nil,
+    LastQuickCastRaw = nil,
     LastRulesStatusWritten = "",
+    LastQuickCastStatusWritten = "",
     LastDetectedSummaryWritten = "",
     BoundDebugKey = nil,
     SpellChains = {},
@@ -66,7 +72,8 @@ local State = {
     RuneItemDataCache = {},
     NameMapByCat = {},
     GlobalNameMap = {},
-    ParsedMacros = {}
+    ParsedMacros = {},
+    QuickCastBindings = {}
 }
 
 local function Log(msg)
@@ -126,7 +133,13 @@ local function RunDebugInspection()
     RefreshSpells()
     Log("=== DEBUG DUMP (combo_rules.txt & spell_names.txt reloaded; detected_spells.txt updated) ===")
     local _, pawn, combatMagic, actionPerformer = GetPlayerPawnAndComponents()
-    Log("AnchorCategory=" .. tostring(State.AnchorElement)
+    if pawn and pawn:IsValid() then
+        EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, State, DebugLog)
+    end
+    Log("HasMagicWeapon=" .. tostring(State.HasMagicWeaponEquipped)
+        .. " (" .. tostring(State.LastKnownWeaponName or "None") .. ")"
+        .. " | EquippedRune=" .. tostring(State.LastKnownRuneName or "None")
+        .. " | AnchorCategory=" .. tostring(State.AnchorElement)
         .. " | LastKnownEquipped=" .. tostring(State.LastKnownEquippedElement)
         .. " | LoadedRules=" .. tostring(#State.ParsedMacros))
     ConfigManager.LogParsedMacrosSpellMapping(Config, State, Log, "SHIFT+DebugHotkey: Combo Rules -> Direct Spell Asset Mapping")
@@ -225,13 +238,49 @@ local function ParseKeyList(rawStr)
     return keys
 end
 
-local function GetQuickCastSlots()
-    return {
-        { key = Config.QuickCastHotkey1, spell = Config.QuickCastSpell1 },
-        { key = Config.QuickCastHotkey2, spell = Config.QuickCastSpell2 },
-        { key = Config.QuickCastHotkey3, spell = Config.QuickCastSpell3 },
-        { key = Config.QuickCastHotkey4, spell = Config.QuickCastSpell4 }
-    }
+local function GetQuickCastBindingsList()
+    if State.QuickCastBindings and #State.QuickCastBindings > 0 then
+        return State.QuickCastBindings
+    end
+    local fallback = {}
+    local defaultMod = (Config.QuickCastRequireModifier ~= false) and "BLOCK" or "NONE"
+    for i = 1, 4 do
+        local kStr = tostring(Config["QuickCastHotkey" .. i] or ""):gsub("^%s*(.-)%s*$", "%1")
+        local spStr = tostring(Config["QuickCastSpell" .. i] or ""):gsub("^%s*(.-)%s*$", "%1")
+        if kStr ~= "" and spStr ~= "" then
+            table.insert(fallback, {
+                modifier = defaultMod,
+                keysRaw = kStr,
+                target = spStr,
+                isCombo = (spStr:find("@", 1, true) ~= nil) or (spStr:find("->", 1, true) ~= nil)
+            })
+        end
+    end
+    return fallback
+end
+
+local function IsQuickCastModifierSatisfied(pc, modName)
+    local m = tostring(modName or "NONE"):upper()
+    if m == "NONE" or m == "" then return true end
+    if m == "BLOCK" or m == "RMB" or m == "MODIFIER" then
+        return State.ModifierHeld == true
+    end
+    local down = false
+    pcall(function()
+        if m == "SHIFT" then
+            down = pc:IsInputKeyDown({ KeyName = FName("LeftShift") }) or pc:IsInputKeyDown({ KeyName = FName("RightShift") })
+        elseif m == "ALT" then
+            down = pc:IsInputKeyDown({ KeyName = FName("LeftAlt") }) or pc:IsInputKeyDown({ KeyName = FName("RightAlt") })
+        elseif m == "CTRL" or m == "CONTROL" then
+            down = pc:IsInputKeyDown({ KeyName = FName("LeftControl") }) or pc:IsInputKeyDown({ KeyName = FName("RightControl") })
+        else
+            local norm = NormalizeKeyName(m)
+            if norm ~= "" then
+                down = pc:IsInputKeyDown({ KeyName = FName(norm) })
+            end
+        end
+    end)
+    return down
 end
 
 local function ResolveQuickCastBlockerAssets()
@@ -269,10 +318,10 @@ end
 local function SyncQuickCastBlockerMappings(imc, ia)
     local allKeys = {}
     local seen = {}
-    for _, slot in ipairs(GetQuickCastSlots()) do
-        local spellName = tostring(slot.spell or ""):gsub("^%s*(.-)%s*$", "%1")
-        if spellName ~= "" then
-            for _, k in ipairs(ParseKeyList(slot.key)) do
+    for _, binding in ipairs(GetQuickCastBindingsList()) do
+        local m = tostring(binding.modifier or "NONE"):upper()
+        if m == "BLOCK" or m == "RMB" or m == "MODIFIER" then
+            for _, k in ipairs(ParseKeyList(binding.keysRaw)) do
                 if not seen[k] then
                     seen[k] = true
                     table.insert(allKeys, k)
@@ -283,7 +332,6 @@ local function SyncQuickCastBlockerMappings(imc, ia)
     local sig = table.concat(allKeys, ",")
     if State._QuickCastBlockerSig == sig then return end
 
-    -- Default cooked IMC already contains 1-4 + Gamepad X/Y/B/A; only remap via MapKeySafe if customized
     local defaultSig = "One,Gamepad_FaceButton_Left,Two,Gamepad_FaceButton_Top,Three,Gamepad_FaceButton_Right,Four,Gamepad_FaceButton_Bottom"
     if sig == defaultSig and State._QuickCastBlockerSig == nil then
         State._QuickCastBlockerSig = sig
@@ -305,7 +353,7 @@ local function SyncQuickCastBlockerMappings(imc, ia)
                 bridgeCDO:MapKeySafe(imc, ia, { KeyName = FName(k) })
             end
             State._QuickCastBlockerSig = sig
-            DebugLog("Updated Quick-Cast input blocker keys: " .. sig)
+            DebugLog("Updated Quick-Cast input blocker keys from quick_cast.txt: " .. sig)
         end)
     end
 end
@@ -386,18 +434,24 @@ local function PollQuickCastHotkeys(now, pc, pawn, combatMagic)
     end
     if not pc or not pc:IsValid() or not pawn or not pawn:IsValid() then return false end
 
-    local shouldSuppress = (Config.QuickCastRequireModifier ~= false) and State.ModifierHeld
-    SetQuickCastInputSuppressed(shouldSuppress)
+    local bindings = GetQuickCastBindingsList()
+    local hasBlockBinding = false
+    for _, b in ipairs(bindings) do
+        local m = tostring(b.modifier or "NONE"):upper()
+        if m == "BLOCK" or m == "RMB" or m == "MODIFIER" then
+            hasBlockBinding = true
+            break
+        end
+    end
+    SetQuickCastInputSuppressed(hasBlockBinding and State.ModifierHeld)
 
     State._QuickCastPrevDown = State._QuickCastPrevDown or {}
-    local slots = GetQuickCastSlots()
-    local modReqOk = (Config.QuickCastRequireModifier == false) or State.ModifierHeld
     local firedAny = false
 
-    for idx, slot in ipairs(slots) do
-        local keyList = ParseKeyList(slot.key)
-        local spellName = tostring(slot.spell or ""):gsub("^%s*(.-)%s*$", "%1")
-        if #keyList > 0 and spellName ~= "" then
+    for idx, binding in ipairs(bindings) do
+        local keyList = ParseKeyList(binding.keysRaw)
+        local targetStr = tostring(binding.target or ""):gsub("^%s*(.-)%s*$", "%1")
+        if #keyList > 0 and targetStr ~= "" then
             local anyDown = false
             local triggeredKey = nil
             for _, keyName in ipairs(keyList) do
@@ -414,22 +468,59 @@ local function PollQuickCastHotkeys(now, pc, pawn, combatMagic)
             local wasDown = State._QuickCastPrevDown[idx] == true
             State._QuickCastPrevDown[idx] = anyDown
 
-            if anyDown and not wasDown and modReqOk and not firedAny then
+            local effMod = binding.modifier
+            if Config.QuickCastRequireModifier == false and (effMod == "BLOCK" or effMod == "RMB" or effMod == "MODIFIER") then
+                effMod = "NONE"
+            end
+            local modOk = IsQuickCastModifierSatisfied(pc, effMod)
+
+            if anyDown and not wasDown and modOk and not firedAny then
                 if (now - (State._LastQuickCastTime or 0)) >= 0.35 then
-                    local entry = ResolveQuickCastEntry(spellName)
-                    if entry then
-                        State._LastQuickCastTime = now
-                        State.LastAutoAttackTime = now
-                        State.LastTriggeredSpellTime = now
-                        State._LastTriggeredSpellPtr = nil
-                        State.StepInFlight = false
-                        State.InFlightSpellObj = nil
-                        local prefix = (Config.QuickCastRequireModifier ~= false) and (tostring(Config.ModifierKey or "RMB") .. "+") or ""
-                        Log(string.format("QuickCast #%d [%s%s] -> %s", idx, prefix, tostring(triggeredKey), tostring(entry.shortName or spellName)))
-                        CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, entry, DebugLog, combatMagic)
-                        firedAny = true
+                    local prefix = (effMod and effMod ~= "NONE") and (effMod .. "+") or ""
+                    if binding.isCombo then
+                        local RuleParser = require("rule_parser")
+                        local ruleStr = targetStr:match(";$") and targetStr or (targetStr .. ";")
+                        local parsed = RuleParser.ParseWeightedMacros(ruleStr, State.NameMapByCat, State.GlobalNameMap, State.DiscoveredLookup)
+                        if parsed and parsed[1] then
+                            State._LastQuickCastTime = now
+                            State.ActiveMacro = parsed[1]
+                            State.StageIndex = 1
+                            State.StepInStage = 1
+                            State.StepInFlight = false
+                            State.InFlightSpellObj = nil
+                            State._LastTriggeredSpellPtr = nil
+                            Log(string.format("QuickCast #%d [%s%s] -> Combo: %s", idx, prefix, tostring(triggeredKey), targetStr))
+                            local st1 = parsed[1].stages[1]
+                            local sd1 = st1 and st1.steps[1]
+                            local ent1 = sd1 and ConfigManager.ResolveStepEntry(State, st1, sd1)
+                            CombatEngine.ApplyStageSpeedAndPriming(Config, State, combatMagic, st1, 1, pawn, DebugLog)
+                            if ent1 then
+                                State.LastAutoAttackTime = now
+                                State.LastTriggeredSpellTime = now
+                                State.StepInFlight = true
+                                State.InFlightSpellObj = ent1.spellObj
+                                State.InFlightStartedTime = now
+                                CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, ent1, DebugLog, combatMagic)
+                            end
+                            firedAny = true
+                        else
+                            Log(string.format("QuickCast #%d [%s%s]: combo '%s' failed to parse", idx, prefix, tostring(triggeredKey), targetStr))
+                        end
                     else
-                        Log(string.format("QuickCast #%d [%s]: spell '%s' not found in loaded/custom spells", idx, tostring(triggeredKey), spellName))
+                        local entry = ResolveQuickCastEntry(targetStr)
+                        if entry then
+                            State._LastQuickCastTime = now
+                            State.LastAutoAttackTime = now
+                            State.LastTriggeredSpellTime = now
+                            State._LastTriggeredSpellPtr = nil
+                            State.StepInFlight = false
+                            State.InFlightSpellObj = nil
+                            Log(string.format("QuickCast #%d [%s%s] -> %s", idx, prefix, tostring(triggeredKey), tostring(entry.shortName or targetStr)))
+                            CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, entry, DebugLog, combatMagic)
+                            firedAny = true
+                        else
+                            Log(string.format("QuickCast #%d [%s%s]: spell '%s' not found in loaded/custom spells", idx, prefix, tostring(triggeredKey), targetStr))
+                        end
                     end
                 end
             end
@@ -494,8 +585,14 @@ local function BindDebugHotkey()
 end
 
 local function TickAnchorReturn(now, pawn, combatMagic)
-    local anchor = State.AnchorElement or State.LastKnownEquippedElement
-    local anchorChain = anchor and State.SpellChains[anchor:lower()]
+    local anchor = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, State, DebugLog)
+    if not anchor then
+        State.PendingAnchorReturn = false
+        State.StepInFlight = false
+        State.InFlightSpellObj = nil
+        return
+    end
+    local anchorChain = State.SpellChains[anchor:lower()]
     local starterName = anchorChain and anchorChain.stepNames and anchorChain.stepNames[0]
     local starterEntry = starterName and State.SpellRegistry[starterName:lower()]
 
@@ -651,12 +748,21 @@ local function TickActiveMacro(now, pawn, combatMagic)
 end
 
 local function TickAutoAttack(now, pc, pawn, combatMagic)
-    if not Config.EnableAutoAttackHold and Config.TriggerComboOnModifierHold == false then return end
     local atkDown = CombatEngine.IsPrimaryAttackDown(pc)
     local modAutoTrigger = (Config.TriggerComboOnModifierHold ~= false) and State.ModifierHeld and (State.ActiveMacro ~= nil)
+    local modAtkTrigger = State.ModifierHeld and atkDown
     local holdAtkTrigger = Config.EnableAutoAttackHold and atkDown and (State.ModifierHeld or Config.AutoAttackAllCombos)
-    if not modAutoTrigger and not holdAtkTrigger then
+    if not modAutoTrigger and not modAtkTrigger and not holdAtkTrigger then
         return
+    end
+
+    -- If holding Block/Modifier and pressing Attack while no macro is currently locked,
+    -- roll a fresh macro immediately from equipped staff/wand + equipped runes (no prior cast needed).
+    if State.ModifierHeld and not State.ActiveMacro and not State.PendingAnchorReturn and atkDown then
+        if (now - (State._LastIdleComboReRollTime or 0)) >= 0.20 then
+            State._LastIdleComboReRollTime = now
+            CombatEngine.EngageModifierAndRollMacro(Config, State, pawn, combatMagic, Log, DebugLog)
+        end
     end
 
     local intervalSec = math.max(0.10, (tonumber(Config.AutoAttackIntervalMs) or 65) / 1000.0)
@@ -684,29 +790,32 @@ local function TickAutoAttack(now, pc, pawn, combatMagic)
         if isBusy or (now - (State.LastTriggeredSpellTime or 0)) < minTriggerGap then
             return
         end
-        State.LastAutoAttackTime = now
-        State.LastTriggeredSpellTime = now
-        State.StepInFlight = true
-        State.InFlightSpellObj = entry.spellObj
-        State.InFlightStartedTime = now
-        CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, entry, DebugLog, combatMagic)
+        if CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, entry, DebugLog, combatMagic) then
+            State.LastAutoAttackTime = now
+            State.LastTriggeredSpellTime = now
+            State.StepInFlight = true
+            State.InFlightSpellObj = entry.spellObj
+            State.InFlightStartedTime = now
+        end
     elseif holdAtkTrigger then
         if isBusy or (now - (State.LastTriggeredSpellTime or 0)) < 0.35 then
             return
         end
-        local anchor = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, State, DebugLog) or State.AnchorElement
-        local _, mappedSpell = CombatEngine.ResolveClosestElementSpellAndCategory(state or State, anchor, State.LastKnownWeaponSuffix)
+        local anchor = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, State, DebugLog)
+        if not anchor then return end
+        local _, mappedSpell = CombatEngine.ResolveClosestElementSpellAndCategory(State, anchor, State.LastKnownWeaponSuffix)
         local chain = anchor and State.SpellChains[anchor:lower()]
         local starterName = (mappedSpell) or (chain and chain.stepNames and chain.stepNames[0])
         local starterEntry = starterName and State.SpellRegistry[starterName:lower()]
         if starterEntry and starterEntry.spellObj and starterEntry.spellObj:IsValid() then
-            State.PendingAnchorReturn = false
-            State.LastAutoAttackTime = now
-            State.LastTriggeredSpellTime = now
-            State.StepInFlight = true
-            State.InFlightSpellObj = starterEntry.spellObj
-            State.InFlightStartedTime = now
-            CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, starterEntry, DebugLog, combatMagic)
+            if CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, starterEntry, DebugLog, combatMagic) then
+                State.PendingAnchorReturn = false
+                State.LastAutoAttackTime = now
+                State.LastTriggeredSpellTime = now
+                State.StepInFlight = true
+                State.InFlightSpellObj = starterEntry.spellObj
+                State.InFlightStartedTime = now
+            end
         end
     end
 end
@@ -733,6 +842,7 @@ LoopAsync(50, function()
     if not State._InstalledEquipmentHooks then
         EquipmentRunes.InstallEquipmentSwapHooks(State, combatMagic, Log, DebugLog)
     end
+    EquipmentRunes.EnsureEquipmentDelegates(pawn, combatMagic, State, DebugLog)
 
     if (now - State.LastScanTime) >= 3.0 then
         State.LastScanTime = now
@@ -752,20 +862,14 @@ LoopAsync(50, function()
             local st1 = State.ActiveMacro.stages[1]
             local sd1 = st1 and (st1.steps[1])
             local ent1 = sd1 and ConfigManager.ResolveStepEntry(State, st1, sd1)
-            local busyNow = false
-            if combatMagic and combatMagic:IsValid() then
-                pcall(function()
-                    local a = combatMagic.CurrentSpellActor
-                    if a and a:IsValid() then busyNow = true end
-                end)
-            end
-            if ent1 and ent1.spellObj and ent1.spellObj:IsValid() then
-                State.LastAutoAttackTime = now
-                State.LastTriggeredSpellTime = now
-                State.StepInFlight = true
-                State.InFlightSpellObj = ent1.spellObj
-                State.InFlightStartedTime = now
-                CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, ent1, DebugLog, combatMagic)
+            if ent1 and ((ent1.spellObj and ent1.spellObj:IsValid()) or ent1.suppressBaseSpell) then
+                if CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, ent1, DebugLog, combatMagic) then
+                    State.LastAutoAttackTime = now
+                    State.LastTriggeredSpellTime = now
+                    State.StepInFlight = true
+                    State.InFlightSpellObj = ent1.spellObj
+                    State.InFlightStartedTime = now
+                end
             end
         end
     elseif not modDown and State.ModifierHeld then

@@ -8,6 +8,7 @@ ConsumeRunesOnSwappedCasts=true
 EnableQuickCastHotkeys=true
 QuickCastRequireModifier=true
 QuickCastSuppressGameActions=true
+ActiveQuickCastCount=4 binding(s) active from quick_cast.txt
 QuickCastHotkey1=1,GP_X
 QuickCastSpell1=SaradominGodsword
 QuickCastHotkey2=2,GP_Y
