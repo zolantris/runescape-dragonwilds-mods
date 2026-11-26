@@ -1,20 +1,18 @@
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, Position = 0)]
     [string]$ModFolder,
     [string]$Version,
     [string]$Channel,
     [ValidateSet("", "patch", "minor", "major")]
     [string]$Bump = "",
     [string]$EngineDir = "C:\Program Files\Epic Games\UE_5.6",
-    [string]$GameDir = $(if ($env:RSDW_GAME_DIR) { $env:RSDW_GAME_DIR } else { "C:\steam\steamapps\common\RSDragonwilds" }),
     [switch]$SkipChangelog,
     [switch]$SkipPak,
-    [switch]$ForceRebuildPak,
-    [switch]$SkipDeploy
+    [switch]$ForceRebuildPak
 )
 
-$ErrorActionPreference = "Stop"
-$ProgressPreference    = "SilentlyContinue"
+$ErrorActionPreference     = "Stop"
+$ProgressPreference        = "SilentlyContinue"
 $global:ProgressPreference = "SilentlyContinue"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $modRoot  = Join-Path $repoRoot $ModFolder
@@ -82,16 +80,17 @@ if (-not $SkipPak -and (Test-Path $pakConfigPath)) {
     $uprojectPath = Join-Path $repoRoot ($ueProjectRel -replace '/', '\')
     $projectDir   = Split-Path -Parent $uprojectPath
     $buildBat     = Join-Path $EngineDir "Engine\Build\BatchFiles\Build.bat"
+    $runUAT       = Join-Path $EngineDir "Engine\Build\BatchFiles\RunUAT.bat"
     $ueCmd        = Join-Path $EngineDir "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
-    $unrealPak    = Join-Path $EngineDir "Engine\Binaries\Win64\UnrealPak.exe"
     $syncScript   = Join-Path $repoRoot ($syncScriptRel -replace '/', '\')
+    $chunkId      = if ($pakCfg.chunkId) { [int]$pakCfg.chunkId } else { 101 }
 
     if (-not (Test-Path $uprojectPath)) { throw "Missing UE project configured in pak.json: $uprojectPath" }
     if (-not (Test-Path $buildBat))     { throw "Missing UE Build.bat at '$buildBat'. Pass -EngineDir or -SkipPak." }
+    if (-not (Test-Path $runUAT))       { throw "Missing UE RunUAT.bat at '$runUAT'." }
     if (-not (Test-Path $ueCmd))        { throw "Missing UnrealEditor-Cmd.exe at '$ueCmd'." }
-    if (-not (Test-Path $unrealPak))    { throw "Missing UnrealPak.exe at '$unrealPak'." }
 
-    Write-Host "=== Building UE Blueprint Pak ($pakName) for $modName ===" -ForegroundColor Cyan
+    Write-Host "=== Building UE 5.6 IoStore Blueprint Pak ($pakName) for $modName ===" -ForegroundColor Cyan
 
     # 1. Sync minimal Dominion damage stubs from gitignored UHTHeaderDump/ if needed
     $dominionStubDir = Join-Path $projectDir "Source\Dominion"
@@ -107,59 +106,72 @@ if (-not $SkipPak -and (Test-Path $pakConfigPath)) {
         throw "UE Editor build failed (Exit Code: $LASTEXITCODE)."
     }
 
-    # 3. Auto-generate Blueprint asset via Editor commandlet if configured and missing (or -ForceRebuildPak)
+    # 3. Auto-generate Blueprint asset + PrimaryAssetLabel (Chunk $chunkId) via Editor commandlet
     $modContentDisk = Join-Path $projectDir ("Content\" + ($contentSubPath -replace '/', '\'))
-    $hasUassets = (Test-Path $modContentDisk) -and ((Get-ChildItem -Path $modContentDisk -Filter "*.uasset" -Recurse -ErrorAction SilentlyContinue).Count -gt 0)
+    $palFile        = Join-Path $modContentDisk "PAL_ArcaneWildsDamageBridge.uasset"
+    $hasUassets     = (Test-Path $modContentDisk) -and ((Get-ChildItem -Path $modContentDisk -Filter "*.uasset" -Recurse -ErrorAction SilentlyContinue).Count -gt 0) -and (Test-Path $palFile)
     if ($genCommandlet -and ($ForceRebuildPak -or -not $hasUassets)) {
-        Write-Host "[Pak 3/4] Generating Blueprint asset via -run=$genCommandlet..." -ForegroundColor Yellow
+        Write-Host "[Pak 3/4] Generating Blueprint & PrimaryAssetLabel via -run=$genCommandlet..." -ForegroundColor Yellow
         & $ueCmd "$uprojectPath" "-run=$genCommandlet" -unattended -nop4 -stdout -NoLogTimes
         if ($LASTEXITCODE -ne 0) {
             throw "Blueprint generator commandlet '$genCommandlet' failed (Exit Code: $LASTEXITCODE)."
         }
     }
 
-    # 4. Cook ONLY /Game/<contentSubPath> and pack into .pak
-    $cookedContentRoot = Join-Path $projectDir "Saved\Cooked\Windows\RSDragonwilds\Content"
-    $cookedModDir      = Join-Path $cookedContentRoot ($contentSubPath -replace '/', '\')
-    if ($ForceRebuildPak -and (Test-Path $cookedModDir)) {
-        Remove-Item -Path $cookedModDir -Recurse -Force
-    }
-    Write-Host "[Pak 4/4] Cooking /Game/$contentSubPath and packaging $pakName.pak..." -ForegroundColor Yellow
-    & $ueCmd "$uprojectPath" -run=Cook -TargetPlatform=Windows -CookDir="/Game/$contentSubPath" -unattended -nop4 -stdout -NoLogTimes
-    if ($LASTEXITCODE -ne 0) {
-        throw "UE Cook failed (Exit Code: $LASTEXITCODE)."
-    }
-
-    if (-not (Test-Path $cookedModDir)) {
-        throw "Cooked mod assets not found at: $cookedModDir"
-    }
-
-    $cookedFiles = @(Get-ChildItem -Path $cookedModDir -Recurse -File)
-    if ($cookedFiles.Count -eq 0) {
-        throw "No cooked files produced under: $cookedModDir"
-    }
-
+    # 4. Cook & stage Chunk $chunkId as UE 5.6 IoStore (.pak + .utoc + .ucas) via RunUAT BuildCookRun
     $pakStageDir = Join-Path $env:TEMP "rsdw-pak-$modName"
+    $uatStageDir = Join-Path $pakStageDir "UATStaged"
     if (Test-Path $pakStageDir) { Remove-Item $pakStageDir -Recurse -Force }
-    New-Item -ItemType Directory -Force -Path $pakStageDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $uatStageDir | Out-Null
 
-    $responseFile = Join-Path $pakStageDir "$pakName-filelist.txt"
-    $pakLines = New-Object System.Collections.Generic.List[string]
-    foreach ($f in $cookedFiles) {
-        $rel = $f.FullName.Substring($cookedContentRoot.Length).TrimStart('\') -replace '\\', '/'
-        $mountPath = "../../../RSDragonwilds/Content/$rel"
-        $pakLines.Add("`"$($f.FullName)`" `"$mountPath`"")
+    $shippingExe = Join-Path $projectDir "Binaries\Win64\RSDragonwilds-Win64-Shipping.exe"
+    $needsShippingBuild = $ForceRebuildPak -or -not (Test-Path $shippingExe)
+    $uatArgs = @(
+        "BuildCookRun",
+        "-project=`"$uprojectPath`"",
+        "-platform=Win64",
+        "-clientconfig=Shipping",
+        "-cook",
+        "-stage",
+        "-pak",
+        "-iostore",
+        "-nocompile",
+        "-nocompileuat",
+        "-nodebuginfo",
+        "-nop4",
+        "-unattended",
+        "-utf8output",
+        "-CookDir=/Game/$contentSubPath",
+        "-stagingdirectory=`"$uatStageDir`""
+    )
+    if ($needsShippingBuild) {
+        $uatArgs += "-build"
+        Write-Host "[Pak 4/4] Building Shipping stub + cooking IoStore Chunk $chunkId ($pakName.pak/.utoc/.ucas)..." -ForegroundColor Yellow
+    } else {
+        $uatArgs += "-skipbuild"
+        Write-Host "[Pak 4/4] Cooking & packaging IoStore Chunk $chunkId ($pakName.pak/.utoc/.ucas)..." -ForegroundColor Yellow
     }
-    Set-Content -Path $responseFile -Value $pakLines -Encoding ASCII
 
-    $outPakPath = Join-Path $pakStageDir "$pakName.pak"
-    & $unrealPak "$outPakPath" -create="$responseFile" -compress
+    & $runUAT @uatArgs
     if ($LASTEXITCODE -ne 0) {
-        throw "UnrealPak failed (Exit Code: $LASTEXITCODE)."
+        throw "UE BuildCookRun IoStore packaging failed (Exit Code: $LASTEXITCODE)."
     }
 
-    $builtPakFiles += $outPakPath
-    Write-Host "Built Blueprint pak: $pakName.pak ($($cookedFiles.Count) cooked file(s))" -ForegroundColor Green
+    $stagedPaksDir = Join-Path $uatStageDir "Windows\RSDragonwilds\Content\Paks"
+    $chunkBase     = "pakchunk$chunkId-Windows"
+    $requiredExts  = @(".pak", ".utoc", ".ucas")
+    foreach ($ext in $requiredExts) {
+        $srcChunkFile = Join-Path $stagedPaksDir ($chunkBase + $ext)
+        if (-not (Test-Path $srcChunkFile)) {
+            $avail = (Get-ChildItem -Path $stagedPaksDir -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join ", "
+            throw "Expected IoStore chunk file '$srcChunkFile' not found. Available in staged Paks: [$avail]"
+        }
+        $dstModPakFile = Join-Path $pakStageDir ($pakName + $ext)
+        Copy-Item -Path $srcChunkFile -Destination $dstModPakFile -Force
+        $builtPakFiles += $dstModPakFile
+    }
+
+    Write-Host "Built IoStore Blueprint container: $pakName.{pak,utoc,ucas}" -ForegroundColor Green
 }
 
 # Also collect any pre-built .pak/.utoc/.ucas placed in <ModFolder>/paks/
@@ -255,13 +267,3 @@ if (Test-Path $pakStageCleanup) { Remove-Item $pakStageCleanup -Recurse -Force -
 
 $layoutNote = if ($hasPak) { "Combo UE4SS + Pak ($pakInstallFolder)" } else { "UE4SS only" }
 Write-Host "Built: $zipPath (version: $fullVersion, layout: $layoutNote)" -ForegroundColor Green
-
-# Auto-deploy freshly built archive to the local game folder (wipes old mod files first)
-if (-not $SkipDeploy) {
-    $deployScript = Join-Path $PSScriptRoot "deploy-mod.ps1"
-    if (Test-Path $deployScript) {
-        & $deployScript -ModFolder $ModFolder -GameDir $GameDir -ArchivePath $zipPath -Version $Version -Channel $Channel
-    } else {
-        Write-Warning "Deploy script not found at '$deployScript'; skipping auto-deploy."
-    }
-}

@@ -10,6 +10,7 @@
 #include "EdGraphSchema_K2.h"
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
+#include "Engine/PrimaryAssetLabel.h"
 #include "GameFramework/Actor.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_DynamicCast.h"
@@ -290,5 +291,42 @@ int32 UGenerateArcaneWildsDamageBridgeCommandlet::Main(const FString& Params)
 	}
 
 	UE_LOG(LogArcaneWildsBPGen, Display, TEXT("Successfully generated, compiled, and saved: %s"), *PackageFilename);
+
+	// Also generate PrimaryAssetLabel (Chunk 101) so UE 5.6 IoStore packaging isolates ONLY
+	// /Game/Mods/ArcaneWilds into pakchunk101-Windows.{pak,utoc,ucas}.
+	const FString PalPackagePath = TEXT("/Game/Mods/ArcaneWilds/PAL_ArcaneWildsDamageBridge");
+	const FString PalAssetName   = TEXT("PAL_ArcaneWildsDamageBridge");
+	UPackage* PalPackage = CreatePackage(*PalPackagePath);
+	if (!PalPackage)
+	{
+		UE_LOG(LogArcaneWildsBPGen, Error, TEXT("Failed to create PrimaryAssetLabel package %s"), *PalPackagePath);
+		return 1;
+	}
+	PalPackage->FullyLoad();
+
+	if (UObject* ExistingPal = StaticFindObject(UPrimaryAssetLabel::StaticClass(), PalPackage, *PalAssetName))
+	{
+		ExistingPal->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
+	}
+
+	UPrimaryAssetLabel* Label = NewObject<UPrimaryAssetLabel>(PalPackage, FName(*PalAssetName), RF_Public | RF_Standalone);
+	Label->Rules.ChunkId = 101;
+	Label->Rules.CookRule = EPrimaryAssetCookRule::AlwaysCook;
+	Label->bLabelAssetsInMyDirectory = true;
+	Label->bIsRuntimeLabel = true;
+	Label->ExplicitBlueprints.Add(TSoftClassPtr<UObject>(FSoftObjectPath(TEXT("/Game/Mods/ArcaneWilds/BFL_ArcaneWildsDamage.BFL_ArcaneWildsDamage_C"))));
+
+	FAssetRegistryModule::AssetCreated(Label);
+	PalPackage->MarkPackageDirty();
+
+	const FString PalFilename = FPackageName::LongPackageNameToFilename(PalPackagePath, FPackageName::GetAssetPackageExtension());
+	const bool bSavedPal = UPackage::SavePackage(PalPackage, Label, *PalFilename, SaveArgs);
+	if (!bSavedPal)
+	{
+		UE_LOG(LogArcaneWildsBPGen, Error, TEXT("Failed to save PrimaryAssetLabel to %s"), *PalFilename);
+		return 1;
+	}
+
+	UE_LOG(LogArcaneWildsBPGen, Display, TEXT("Successfully saved PrimaryAssetLabel (Chunk 101): %s"), *PalFilename);
 	return 0;
 }

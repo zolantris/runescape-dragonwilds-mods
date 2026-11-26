@@ -46,6 +46,66 @@
     },
     {
       "type": "header",
+      "label": "Quick-Cast Direct Spell Hotkeys"
+    },
+    {
+      "key": "EnableQuickCastHotkeys",
+      "type": "toggle",
+      "label": "Enable Quick-Cast Hotkeys",
+      "description": "Fire any custom or native spell directly with a hotkey without running a combo chain.",
+      "default": true
+    },
+    {
+      "key": "QuickCastRequireModifier",
+      "type": "toggle",
+      "label": "Require Block / Modifier Hold for Quick-Cast",
+      "description": "When ON, hold Block/Modifier (e.g. RMB) then press the Quick-Cast hotkey (e.g. Hold Block + X or 1). When OFF, pressing the hotkey alone casts immediately.",
+      "default": true
+    },
+    {
+      "key": "QuickCastHotkey1",
+      "type": "text",
+      "label": "Quick-Cast Hotkey #1",
+      "description": "Key for Slot #1 (e.g. X, 1, 2, 3, F, G, R, V, NumPadOne, Mouse4, Gamepad_FaceButton_Left). Leave blank to disable.",
+      "default": "X"
+    },
+    {
+      "key": "QuickCastSpell1",
+      "type": "text",
+      "label": "Quick-Cast Spell #1",
+      "description": "Spell name from custom_spells.txt, spell_names.txt, or DA_Spell_* asset name (e.g. SaradominGodsword).",
+      "default": "SaradominGodsword"
+    },
+    {
+      "key": "QuickCastHotkey2",
+      "type": "text",
+      "label": "Quick-Cast Hotkey #2",
+      "description": "Key for Slot #2 (e.g. 1 / One, F, G, NumPadTwo). Leave blank to disable.",
+      "default": "One"
+    },
+    {
+      "key": "QuickCastSpell2",
+      "type": "text",
+      "label": "Quick-Cast Spell #2",
+      "description": "Spell name for Slot #2 (e.g. FlamesOfZamorak).",
+      "default": "FlamesOfZamorak"
+    },
+    {
+      "key": "QuickCastHotkey3",
+      "type": "text",
+      "label": "Quick-Cast Hotkey #3",
+      "description": "Key for Slot #3 (e.g. 2 / Two, V, C, NumPadThree). Leave blank to disable.",
+      "default": "Two"
+    },
+    {
+      "key": "QuickCastSpell3",
+      "type": "text",
+      "label": "Quick-Cast Spell #3",
+      "description": "Spell name for Slot #3 (e.g. StormOfArmadyl).",
+      "default": "StormOfArmadyl"
+    },
+    {
+      "type": "header",
       "label": "Weighted Cross-Element Combo Macros (combo_rules.txt)"
     },
     {

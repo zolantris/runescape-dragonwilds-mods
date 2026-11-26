@@ -74,6 +74,10 @@ local DEFAULT_COMBO_RULES_CONTENT = table.concat({
 local ORDERED_CONFIG_KEYS = {
     "Enabled", "DebugMode", "AllowDebugCommands", "DebugHotkey",
     "RequireModifierKey", "ModifierKey", "ConsumeRunesOnSwappedCasts",
+    "EnableQuickCastHotkeys", "QuickCastRequireModifier",
+    "QuickCastHotkey1", "QuickCastSpell1",
+    "QuickCastHotkey2", "QuickCastSpell2",
+    "QuickCastHotkey3", "QuickCastSpell3",
     "TriggerComboOnModifierHold", "EnableAutoAttackHold", "AutoAttackAllCombos", "AutoAttackIntervalMs",
     "DefaultComboCutoff", "BonusSpeedVariancePct",
     "UnlockAir", "UnlockFire", "UnlockWater", "UnlockEarth",
@@ -103,6 +107,14 @@ function ConfigManager.CreateDefaultConfig()
         RequireModifierKey = true,
         ModifierKey = "RMB",
         ConsumeRunesOnSwappedCasts = true,
+        EnableQuickCastHotkeys = true,
+        QuickCastRequireModifier = true,
+        QuickCastHotkey1 = "X",
+        QuickCastSpell1 = "SaradominGodsword",
+        QuickCastHotkey2 = "One",
+        QuickCastSpell2 = "FlamesOfZamorak",
+        QuickCastHotkey3 = "Two",
+        QuickCastSpell3 = "StormOfArmadyl",
         TriggerComboOnModifierHold = true,
         EnableAutoAttackHold = true,
         AutoAttackAllCombos = true,
@@ -384,6 +396,14 @@ function ConfigManager.LoadConfigFile(paths, config, state, logFn, forceRebuildM
                 elseif k == "RequireModifierKey" then config.RequireModifierKey = ConfigManager.ParseBool(v, true)
                 elseif k == "ModifierKey" then config.ModifierKey = (v ~= "" and v:upper() or "SHIFT")
                 elseif k == "ConsumeRunesOnSwappedCasts" then config.ConsumeRunesOnSwappedCasts = ConfigManager.ParseBool(v, true)
+                elseif k == "EnableQuickCastHotkeys" then config.EnableQuickCastHotkeys = ConfigManager.ParseBool(v, true)
+                elseif k == "QuickCastRequireModifier" then config.QuickCastRequireModifier = ConfigManager.ParseBool(v, true)
+                elseif k == "QuickCastHotkey1" then config.QuickCastHotkey1 = v
+                elseif k == "QuickCastSpell1" then config.QuickCastSpell1 = v
+                elseif k == "QuickCastHotkey2" then config.QuickCastHotkey2 = v
+                elseif k == "QuickCastSpell2" then config.QuickCastSpell2 = v
+                elseif k == "QuickCastHotkey3" then config.QuickCastHotkey3 = v
+                elseif k == "QuickCastSpell3" then config.QuickCastSpell3 = v
                 elseif k == "TriggerComboOnModifierHold" then config.TriggerComboOnModifierHold = ConfigManager.ParseBool(v, true)
                 elseif k == "EnableAutoAttackHold" then config.EnableAutoAttackHold = ConfigManager.ParseBool(v, true)
                 elseif k == "AutoAttackAllCombos" then config.AutoAttackAllCombos = ConfigManager.ParseBool(v, true)

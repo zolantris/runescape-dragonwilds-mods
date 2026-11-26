@@ -30,6 +30,7 @@ Place `ue4ss/Mods/ArcaneWilds/` into your `RSDragonwilds/Binaries/Win64/` direct
 <!-- CHANGELOG:START -->
 ### v1.70.57
 
+- **2026-11-26** - Add build mod and wipe mode and deploymod scripts ([7fa5b7e](https://github.com/zolantris/runescape-dragonwilds-mods/commit/7fa5b7ec36394c71d6d64fcf33125eae76334c94))
 - **2026-11-26** - add stub for dragonwilds to expose dominion to do damage ([6383f14](https://github.com/zolantris/runescape-dragonwilds-mods/commit/6383f14abb9e87f36ee74c5f795f60ccab81ed4b))
 - **2026-11-26** - Wip: continue attempting to get damage to apply as a float. Still not working ([49d457e](https://github.com/zolantris/runescape-dragonwilds-mods/commit/49d457e46a0909f880be36e5319512ea4b335437))
 - **2026-11-24** - Add equipment matcher for staff, wand auto spells ([b7ddeb7](https://github.com/zolantris/runescape-dragonwilds-mods/commit/b7ddeb7968b0e148ee7e4e6629d9d75ecd4041a6))

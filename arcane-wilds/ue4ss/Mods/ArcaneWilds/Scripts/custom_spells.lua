@@ -556,6 +556,20 @@ local function IsValidUObject(obj)
     return ok and valid == true
 end
 
+local function HasUFunc(obj, name)
+    if not IsValidUObject(obj) or not name then return false end
+    local ok, fn = pcall(function() return obj[name] end)
+    if not ok or fn == nil then return false end
+    local t = type(fn)
+    if t == "function" then return true end
+    if t == "userdata" then
+        -- In UE4SS Lua, UFunction members on UObjects are callable userdata (not Lua "function")
+        local okV, valid = pcall(function() return fn:IsValid() end)
+        return (not okV) or (valid == true)
+    end
+    return false
+end
+
 local function MakeVectorTable(v, fallbackZ)
     if type(v) == "table" or type(v) == "userdata" then
         local x, y, z = 0.0, 0.0, fallbackZ or 0.0
@@ -691,14 +705,14 @@ local function ResolveTargetDamageComponent(targetActor)
     if not IsValidUObject(targetActor) then return nil end
     local comp = nil
     pcall(function()
-        if type(targetActor.GetDamageComponent) == "function" then
+        if HasUFunc(targetActor, "GetDamageComponent") then
             comp = targetActor:GetDamageComponent()
         end
     end)
     if IsValidUObject(comp) then return comp end
 
     pcall(function()
-        if type(targetActor.GetAiDamageComponent) == "function" then
+        if HasUFunc(targetActor, "GetAiDamageComponent") then
             comp = targetActor:GetAiDamageComponent()
         end
     end)
@@ -711,7 +725,7 @@ local function ResolveTargetDamageComponent(targetActor)
 
     pcall(function()
         local dmgClass = StaticFindObject("/Script/Dominion.DamageComponent")
-        if IsValidUObject(dmgClass) and type(targetActor.GetComponentByClass) == "function" then
+        if IsValidUObject(dmgClass) and HasUFunc(targetActor, "GetComponentByClass") then
             comp = targetActor:GetComponentByClass(dmgClass)
         end
     end)
@@ -723,7 +737,7 @@ local function ResolveTargetHealthComponent(targetActor)
     if not IsValidUObject(targetActor) then return nil end
     local comp = nil
     pcall(function()
-        if type(targetActor.GetAiHealthComponent) == "function" then
+        if HasUFunc(targetActor, "GetAiHealthComponent") then
             comp = targetActor:GetAiHealthComponent()
         end
     end)
@@ -740,9 +754,9 @@ local function ReadActorHealth(healthComp)
     if not IsValidUObject(healthComp) then return nil end
     local hp = nil
     pcall(function()
-        if type(healthComp.GetAuthoritativeHealth) == "function" then
+        if HasUFunc(healthComp, "GetAuthoritativeHealth") then
             hp = tonumber(healthComp:GetAuthoritativeHealth())
-        elseif type(healthComp.GetLocalHealth) == "function" then
+        elseif HasUFunc(healthComp, "GetLocalHealth") then
             hp = tonumber(healthComp:GetLocalHealth())
         end
     end)
@@ -753,7 +767,7 @@ local function GetWorldTimeSecondsSafe(actorObj)
     local t = 0.0
     pcall(function()
         local gpStatics = StaticFindObject("/Script/Engine.Default__GameplayStatics")
-        if IsValidUObject(gpStatics) and type(gpStatics.GetTimeSeconds) == "function" and IsValidUObject(actorObj) then
+        if IsValidUObject(gpStatics) and HasUFunc(gpStatics, "GetTimeSeconds") and IsValidUObject(actorObj) then
             t = tonumber(gpStatics:GetTimeSeconds(actorObj)) or 0.0
         end
     end)
@@ -817,12 +831,11 @@ local function MakeFStringArg(strVal)
     return fstr or s
 end
 
--- Unified Dominion Blueprint damage pipeline:
---   Tier 1: Optional cooked Blueprint bridge (.pak) BFL_ArcaneWildsDamage::ApplyArcaneWildsDamage
---   Tier 2A: Native UDamageComponent::PredictDamage -> UDamageFunctionLibrary::ApplyDamage
---   Tier 2B: Native UDamageFunctionLibrary::ApplyDamage with full FDominionDamageEvent struct table
---   Tier 3: Native UDamageComponent::ApplyDamageFromGameplayEffect(evt, true, true)
---   Tier 4: Fallback UHealthComponent::DecreaseHealth + UDamageFloatiesSubsystem::DisplayDamage
+-- Unified Dominion Blueprint damage pipeline (crash-safe):
+--   Tier 1: Cooked IoStore Blueprint bridge (.pak/.utoc/.ucas) BFL_ArcaneWildsDamage::ApplyArcaneWildsDamage
+--           (passes ONLY primitives/pointers from Lua; Blueprint VM constructs FTypeDamage/TArray/FDominionDamageEvent natively)
+--   Tier 2: Crash-proof HealthComponent::DecreaseHealth + UDamageFloatiesSubsystem::DisplayDamage
+--           (passes ONLY primitives: float, FString, FVector; never marshals nested TArray<UStruct> from Lua)
 local function ApplyDominionBlueprintDamage(targetActor, instigatorPawn, dmgAmount, hitLoc, instLoc, entry, logFn)
     if not IsValidUObject(targetActor) or targetActor == instigatorPawn then
         return false, "invalid-target"
@@ -843,7 +856,7 @@ local function ApplyDominionBlueprintDamage(targetActor, instigatorPawn, dmgAmou
     -- Ensure damage floaties are enabled on the target's DamageComponent
     if IsValidUObject(damageComp) then
         pcall(function()
-            if damageComp.bShowDamageFloaties == false and type(damageComp.SetCanShowDamageFloaties) == "function" then
+            if damageComp.bShowDamageFloaties == false and HasUFunc(damageComp, "SetCanShowDamageFloaties") then
                 damageComp:SetCanShowDamageFloaties(true)
             end
         end)
@@ -852,13 +865,6 @@ local function ApplyDominionBlueprintDamage(targetActor, instigatorPawn, dmgAmou
     local hitVec = MakeVectorTable(hitLoc, 0.0)
     local instVec = MakeVectorTable(instLoc, 0.0)
     local floatieLoc = { X = hitVec.X, Y = hitVec.Y, Z = hitVec.Z + floatieOffsetZ }
-
-    local victimFwd = nil
-    pcall(function()
-        if type(targetActor.GetActorForwardVector) == "function" then
-            victimFwd = targetActor:GetActorForwardVector()
-        end
-    end)
 
     local traceParts = {}
     local damageApplied = false
@@ -872,105 +878,33 @@ local function ApplyDominionBlueprintDamage(targetActor, instigatorPawn, dmgAmou
         return false, hpNow
     end
 
-    -- Tier 1: Optional cooked Blueprint bridge (.pak)
+    -- Tier 1: Cooked IoStore Blueprint bridge (only primitives/pointers cross Lua -> UE boundary)
     local bridgeCDO = GetDamageBridgeCDO(entry)
-    if IsValidUObject(bridgeCDO) and type(bridgeCDO.ApplyArcaneWildsDamage) == "function" then
+    if HasUFunc(bridgeCDO, "ApplyArcaneWildsDamage") then
         local okB, resB = pcall(function()
             return bridgeCDO:ApplyArcaneWildsDamage(
                 targetActor, instigatorPawn, amtNum, dmgClassByte, hitVec, instVec, forceVal, attackId)
         end)
-        local dropped, hpNow = DidHealthDrop()
-        table.insert(traceParts, string.format("BPBridge(ok=%s,res=%s)", tostring(okB), tostring(resB)))
+        local dropped = DidHealthDrop()
+        table.insert(traceParts, string.format("BPBridge(ok=%s,res=%s,dropped=%s)", tostring(okB), tostring(resB), tostring(dropped)))
         if (okB and resB == true) or dropped then
             damageApplied = true
             usedNativePipeline = true
         end
+    else
+        table.insert(traceParts, "BPBridge:not-loaded")
     end
 
-    local dmgLib = GetDamageFunctionLibrary()
-    local predictedEvt = nil
-
-    -- Tier 2A: Native UDamageComponent:PredictDamage -> UDamageFunctionLibrary:ApplyDamage
-    if not damageApplied and IsValidUObject(damageComp) and type(damageComp.PredictDamage) == "function" then
-        local worldTime = GetWorldTimeSecondsSafe(instigatorPawn)
-        local typeDamagesArg = {
-            {
-                StatusEffect = 0,
-                Types = { GameplayTags = {} },
-                Amount = amtNum
-            }
-        }
-        local okPred, predRes = pcall(function()
-            return damageComp:PredictDamage(
-                dmgClassByte,
-                typeDamagesArg,
-                worldTime,
-                instigatorPawn,
-                instigatorPawn,
-                hitVec,
-                5, -- EReactionDirectionality::Outwards
-                forceVal,
-                attackId
-            )
-        end)
-        if okPred and predRes ~= nil then
-            predictedEvt = predRes
-            table.insert(traceParts, "PredictDamage:ok")
-            if IsValidUObject(dmgLib) and type(dmgLib.ApplyDamage) == "function" then
-                local okApp, appRes = pcall(function()
-                    return dmgLib:ApplyDamage(targetActor, predictedEvt)
-                end)
-                local dropped = DidHealthDrop()
-                table.insert(traceParts, string.format("DFL.ApplyDamage(predicted,ok=%s,res=%s)", tostring(okApp), tostring(appRes)))
-                if (okApp and appRes == true) or dropped then
-                    damageApplied = true
-                    usedNativePipeline = true
-                end
-            end
-        else
-            table.insert(traceParts, "PredictDamage:err(" .. tostring(predRes) .. ")")
-        end
-    end
-
-    -- Tier 2B: Native UDamageFunctionLibrary:ApplyDamage with full FDominionDamageEvent table
-    local fullEvtTable = nil
-    if not damageApplied and IsValidUObject(dmgLib) and type(dmgLib.ApplyDamage) == "function" then
-        fullEvtTable = BuildFullDominionDamageEventTable(
-            instigatorPawn, amtNum, dmgClassByte, instVec, hitVec, victimFwd, forceVal, attackId)
-        local okApp, appRes = pcall(function()
-            return dmgLib:ApplyDamage(targetActor, fullEvtTable)
-        end)
-        local dropped = DidHealthDrop()
-        table.insert(traceParts, string.format("DFL.ApplyDamage(table,ok=%s,res=%s)", tostring(okApp), tostring(appRes)))
-        if (okApp and appRes == true) or dropped then
-            damageApplied = true
-            usedNativePipeline = true
-        end
-    end
-
-    -- Tier 3: Native UDamageComponent:ApplyDamageFromGameplayEffect(evt, true, true)
-    if not damageApplied and IsValidUObject(damageComp) and type(damageComp.ApplyDamageFromGameplayEffect) == "function" then
-        local evtToUse = predictedEvt or fullEvtTable or BuildFullDominionDamageEventTable(
-            instigatorPawn, amtNum, dmgClassByte, instVec, hitVec, victimFwd, forceVal, attackId)
-        local okGe, errGe = pcall(function()
-            damageComp:ApplyDamageFromGameplayEffect(evtToUse, true, true)
-        end)
-        local dropped = DidHealthDrop()
-        table.insert(traceParts, string.format("DC.ApplyDamageFromGE(ok=%s,dropped=%s,err=%s)",
-            tostring(okGe), tostring(dropped), tostring(okGe and "" or errGe)))
-        if dropped then
-            damageApplied = true
-            usedNativePipeline = true
-        end
-    end
-
-    -- Tier 4: Direct HealthComponent fallback + official UDamageFloatiesSubsystem:DisplayDamage
+    -- Tier 2: Crash-proof direct HealthComponent fallback + official UDamageFloatiesSubsystem::DisplayDamage
+    -- NOTE: We intentionally do NOT call PredictDamage / UDamageFunctionLibrary::ApplyDamage directly from Lua
+    -- with Lua tables, because UE4SS marshalling Lua tables into TArray<FTypeDamage> / FDominionDamageEvent
+    -- corrupts TArray::ArrayNum and crashes Unreal Engine (ContainerHelpers.cpp).
     if not damageApplied and not skipDirectHp and IsValidUObject(healthComp) then
         local ctxArg = MakeFStringArg("ArcaneWilds_CustomSpell")
         local okDec, errDec = pcall(function()
-            if type(healthComp.DecreaseHealth) == "function" then
+            if HasUFunc(healthComp, "DecreaseHealth") then
                 healthComp:DecreaseHealth(amtNum, ctxArg)
-            elseif type(healthComp.ModifyAuthoritativeHealth) == "function" then
+            elseif HasUFunc(healthComp, "ModifyAuthoritativeHealth") then
                 healthComp:ModifyAuthoritativeHealth(-amtNum)
             else
                 error("no health decrease method")
@@ -978,8 +912,10 @@ local function ApplyDominionBlueprintDamage(targetActor, instigatorPawn, dmgAmou
         end)
         if not okDec then
             okDec, errDec = pcall(function()
-                if type(healthComp.DecreaseHealth) == "function" then
+                if HasUFunc(healthComp, "DecreaseHealth") then
                     healthComp:DecreaseHealth(amtNum, "ArcaneWilds_CustomSpell")
+                else
+                    error("no DecreaseHealth method")
                 end
             end)
         end
@@ -1313,7 +1249,7 @@ local function ExecuteAroundPlayerHitbox(pawn, entry, debugLogFn)
                                     local gComp = ai.GameplayEffectsComponent
                                     local geMethods = {}
                                     if gComp and gComp:IsValid() and geObj and geObj:IsValid() then
-                                        if type(gComp.InstantiateGameplayEffect) == "function" and type(gComp.ApplyGameplayEffect) == "function" then
+                                        if HasUFunc(gComp, "InstantiateGameplayEffect") and HasUFunc(gComp, "ApplyGameplayEffect") then
                                             local okInst, handle = pcall(function()
                                                 return gComp:InstantiateGameplayEffect(geObj, nil, true)
                                             end)
@@ -1372,8 +1308,8 @@ local function ExecuteAroundPlayerHitbox(pawn, entry, debugLogFn)
                         logHb("AOE_TRACE: spell modules=[" .. table.concat(modSummary, ", ") .. "]")
 
                         local bpLib = StaticFindObject("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary")
-                        local hasBpLib = (bpLib and bpLib:IsValid()) and true or false
-                        local hasTrig = hasBpLib and (type(bpLib.TriggerModularAbilityForPlayer) == "function")
+                        local hasBpLib = IsValidUObject(bpLib)
+                        local hasTrig = HasUFunc(bpLib, "TriggerModularAbilityForPlayer")
                         if hasTrig then
                             local okTrig, errTrig = pcall(function()
                                 bpLib:TriggerModularAbilityForPlayer(pawn, spObj)

@@ -158,15 +158,121 @@ local FRIENDLY_KEY_ALIASES = {
     ["`"] = "Grave",
     ["TILDE"] = "Grave",
     ["MOUSE4"] = "ThumbMouseButton",
-    ["MOUSE5"] = "ThumbMouseButton2"
+    ["MB4"] = "ThumbMouseButton",
+    ["MOUSE5"] = "ThumbMouseButton2",
+    ["MB5"] = "ThumbMouseButton2",
+    ["MMB"] = "MiddleMouseButton",
+    ["0"] = "Zero",
+    ["1"] = "One",
+    ["2"] = "Two",
+    ["3"] = "Three",
+    ["4"] = "Four",
+    ["5"] = "Five",
+    ["6"] = "Six",
+    ["7"] = "Seven",
+    ["8"] = "Eight",
+    ["9"] = "Nine",
+    ["NUM0"] = "NumPadZero",
+    ["NUM1"] = "NumPadOne",
+    ["NUM2"] = "NumPadTwo",
+    ["NUM3"] = "NumPadThree",
+    ["NUM4"] = "NumPadFour",
+    ["NUM5"] = "NumPadFive",
+    ["NUM6"] = "NumPadSix",
+    ["NUM7"] = "NumPadSeven",
+    ["NUM8"] = "NumPadEight",
+    ["NUM9"] = "NumPadNine"
 }
 
 local function NormalizeKeyName(raw)
-    local up = (tostring(raw or "BackSlash")):gsub("^%s*(.-)%s*$", "%1"):upper()
+    local trimmed = tostring(raw or ""):gsub("^%s*(.-)%s*$", "%1")
+    if trimmed == "" then return "" end
+    local up = trimmed:upper()
     if FRIENDLY_KEY_ALIASES[up] then
         return FRIENDLY_KEY_ALIASES[up]
     end
-    return tostring(raw or "BackSlash"):gsub("^%s*(.-)%s*$", "%1")
+    if #trimmed == 1 and trimmed:match("%a") then
+        return up
+    end
+    return trimmed
+end
+
+local function ResolveQuickCastEntry(spellName)
+    local clean = tostring(spellName or ""):gsub("^%s*(.-)%s*$", "%1")
+    if clean == "" then return nil end
+    local low = clean:lower()
+    if State.SpellRegistry[low] then
+        return State.SpellRegistry[low]
+    end
+    if State.GlobalNameMap and State.GlobalNameMap[low] then
+        local mapped = State.GlobalNameMap[low]:lower()
+        if State.SpellRegistry[mapped] then
+            return State.SpellRegistry[mapped]
+        end
+    end
+    if State.CustomSpellDefs and State.CustomSpellDefs[low] then
+        local rebuilt = CustomSpells.BuildCustomRegistryEntries(
+            { [low] = State.CustomSpellDefs[low] },
+            State.SpellRegistry, State.SpellChains, State.RuneItemDataCache,
+            SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName)
+        if rebuilt[low] then
+            State.SpellRegistry[low] = rebuilt[low]
+            return rebuilt[low]
+        end
+    end
+    return nil
+end
+
+local function PollQuickCastHotkeys(now, pc, pawn, combatMagic)
+    if Config.EnableQuickCastHotkeys == false then return false end
+    if not pc or not pc:IsValid() or not pawn or not pawn:IsValid() then return false end
+
+    State._QuickCastPrevDown = State._QuickCastPrevDown or {}
+    local slots = {
+        { key = Config.QuickCastHotkey1, spell = Config.QuickCastSpell1 },
+        { key = Config.QuickCastHotkey2, spell = Config.QuickCastSpell2 },
+        { key = Config.QuickCastHotkey3, spell = Config.QuickCastSpell3 }
+    }
+
+    local modReqOk = (Config.QuickCastRequireModifier == false) or State.ModifierHeld
+    local firedAny = false
+
+    for idx, slot in ipairs(slots) do
+        local keyName = NormalizeKeyName(slot.key)
+        local spellName = tostring(slot.spell or ""):gsub("^%s*(.-)%s*$", "%1")
+        if keyName ~= "" and spellName ~= "" then
+            local isDown = false
+            pcall(function()
+                isDown = pc:IsInputKeyDown({ KeyName = FName(keyName) })
+            end)
+            local wasDown = State._QuickCastPrevDown[idx] == true
+            State._QuickCastPrevDown[idx] = isDown
+
+            if isDown and not wasDown and modReqOk and not firedAny then
+                if (now - (State._LastQuickCastTime or 0)) >= 0.35 then
+                    local entry = ResolveQuickCastEntry(spellName)
+                    if entry then
+                        State._LastQuickCastTime = now
+                        State.LastAutoAttackTime = now
+                        State.LastTriggeredSpellTime = now
+                        State._LastTriggeredSpellPtr = nil
+                        State.StepInFlight = false
+                        State.InFlightSpellObj = nil
+                        local prefix = (Config.QuickCastRequireModifier ~= false) and (tostring(Config.ModifierKey or "RMB") .. "+") or ""
+                        Log(string.format("QuickCast #%d [%s%s] -> %s", idx, prefix, keyName, tostring(entry.shortName or spellName)))
+                        CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, entry, DebugLog, combatMagic)
+                        firedAny = true
+                    else
+                        Log(string.format("QuickCast #%d [%s]: spell '%s' not found in loaded/custom spells", idx, keyName, spellName))
+                    end
+                end
+            end
+        else
+            State._QuickCastPrevDown[idx] = false
+        end
+    end
+
+    return firedAny
 end
 
 local function PollHotkeyListener(pc)
@@ -514,17 +620,21 @@ LoopAsync(50, function()
         end
     end
 
+    local quickCastFired = PollQuickCastHotkeys(now, pc, pawn, combatMagic)
+
     local inPostSpecialPause = (State.SpecialPostPauseUntil or 0) > now
-    if State.PendingAnchorReturn and not State.ActiveMacro and not inPostSpecialPause and combatMagic and combatMagic:IsValid() then
+    if not quickCastFired and State.PendingAnchorReturn and not State.ActiveMacro and not inPostSpecialPause and combatMagic and combatMagic:IsValid() then
         TickAnchorReturn(now, pawn, combatMagic)
     end
 
-    if State.ModifierHeld and State.ActiveMacro and combatMagic and combatMagic:IsValid() then
+    if not quickCastFired and State.ModifierHeld and State.ActiveMacro and combatMagic and combatMagic:IsValid() then
         TickActiveMacro(now, pawn, combatMagic)
     end
 
     CustomSpells.TickProjectileImpactAoE(State, pawn, combatMagic)
-    TickAutoAttack(now, pc, pawn, combatMagic)
+    if not quickCastFired then
+        TickAutoAttack(now, pc, pawn, combatMagic)
+    end
     return false
 end)
 
