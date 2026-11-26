@@ -641,7 +641,9 @@ local function GetDamageBridgeCDO(entry)
     -- Try LoadAsset once for the packaged BlueprintFunctionLibrary if the optional .pak is mounted
     if type(LoadAsset) == "function" then
         local loadPaths = {
+            "/Game/Mods/ArcaneWilds/BFL_ArcaneWildsDamage.BFL_ArcaneWildsDamage_C",
             "/Game/Mods/ArcaneWilds/BFL_ArcaneWildsDamage",
+            "/Game/Mods/ArcaneWilds/BP_ArcaneWildsDamageBridge.BP_ArcaneWildsDamageBridge_C",
             "/Game/Mods/ArcaneWilds/BP_ArcaneWildsDamageBridge"
         }
         for _, lp in ipairs(loadPaths) do

@@ -6,12 +6,16 @@ param(
     [ValidateSet("", "patch", "minor", "major")]
     [string]$Bump = "",
     [string]$EngineDir = "C:\Program Files\Epic Games\UE_5.6",
+    [string]$GameDir = $(if ($env:RSDW_GAME_DIR) { $env:RSDW_GAME_DIR } else { "C:\steam\steamapps\common\RSDragonwilds" }),
     [switch]$SkipChangelog,
     [switch]$SkipPak,
-    [switch]$ForceRebuildPak
+    [switch]$ForceRebuildPak,
+    [switch]$SkipDeploy
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference    = "SilentlyContinue"
+$global:ProgressPreference = "SilentlyContinue"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $modRoot  = Join-Path $repoRoot $ModFolder
 $ue4ssSrc = Join-Path $modRoot "ue4ss"
@@ -115,14 +119,17 @@ if (-not $SkipPak -and (Test-Path $pakConfigPath)) {
     }
 
     # 4. Cook ONLY /Game/<contentSubPath> and pack into .pak
+    $cookedContentRoot = Join-Path $projectDir "Saved\Cooked\Windows\RSDragonwilds\Content"
+    $cookedModDir      = Join-Path $cookedContentRoot ($contentSubPath -replace '/', '\')
+    if ($ForceRebuildPak -and (Test-Path $cookedModDir)) {
+        Remove-Item -Path $cookedModDir -Recurse -Force
+    }
     Write-Host "[Pak 4/4] Cooking /Game/$contentSubPath and packaging $pakName.pak..." -ForegroundColor Yellow
     & $ueCmd "$uprojectPath" -run=Cook -TargetPlatform=Windows -CookDir="/Game/$contentSubPath" -unattended -nop4 -stdout -NoLogTimes
     if ($LASTEXITCODE -ne 0) {
         throw "UE Cook failed (Exit Code: $LASTEXITCODE)."
     }
 
-    $cookedContentRoot = Join-Path $projectDir "Saved\Cooked\Windows\RSDragonwilds\Content"
-    $cookedModDir      = Join-Path $cookedContentRoot ($contentSubPath -replace '/', '\')
     if (-not (Test-Path $cookedModDir)) {
         throw "Cooked mod assets not found at: $cookedModDir"
     }
@@ -248,3 +255,13 @@ if (Test-Path $pakStageCleanup) { Remove-Item $pakStageCleanup -Recurse -Force -
 
 $layoutNote = if ($hasPak) { "Combo UE4SS + Pak ($pakInstallFolder)" } else { "UE4SS only" }
 Write-Host "Built: $zipPath (version: $fullVersion, layout: $layoutNote)" -ForegroundColor Green
+
+# Auto-deploy freshly built archive to the local game folder (wipes old mod files first)
+if (-not $SkipDeploy) {
+    $deployScript = Join-Path $PSScriptRoot "deploy-mod.ps1"
+    if (Test-Path $deployScript) {
+        & $deployScript -ModFolder $ModFolder -GameDir $GameDir -ArchivePath $zipPath -Version $Version -Channel $Channel
+    } else {
+        Write-Warning "Deploy script not found at '$deployScript'; skipping auto-deploy."
+    }
+}
