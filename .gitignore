@@ -16,3 +16,5 @@ unreal-engine/**/.vs/
 unreal-engine/**/*.sln
 unreal-engine/**/*.vsconfig
 unreal-engine/RSDragonwilds/Source/Dominion/
+unreal-engine/**/Build/
+
