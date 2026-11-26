@@ -12,6 +12,9 @@
 #include "Engine/BlueprintGeneratedClass.h"
 #include "Engine/PrimaryAssetLabel.h"
 #include "GameFramework/Actor.h"
+#include "InputAction.h"
+#include "InputCoreTypes.h"
+#include "InputMappingContext.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_DynamicCast.h"
 #include "K2Node_FunctionEntry.h"
@@ -262,6 +265,70 @@ int32 UGenerateArcaneWildsDamageBridgeCommandlet::Main(const FString& Params)
 		return 1;
 	}
 
+	// Second Blueprint function: MapKeySafe(UInputMappingContext* Context, UInputAction* Action, FKey Key) -> void
+	// Safely maps a key inside native Blueprint VM without returning FEnhancedActionKeyMapping (which has TArrays) to UE4SS Lua.
+	{
+		UEdGraph* MapGraph = FBlueprintEditorUtils::CreateNewGraph(
+			BP,
+			FName(TEXT("MapKeySafe")),
+			UEdGraph::StaticClass(),
+			UEdGraphSchema_K2::StaticClass()
+		);
+		FBlueprintEditorUtils::AddFunctionGraph<UFunction>(BP, MapGraph, /*bIsUserCreated=*/true, static_cast<UFunction*>(nullptr));
+		const UEdGraphSchema_K2* MapSchema = CastChecked<UEdGraphSchema_K2>(MapGraph->GetSchema());
+
+		UK2Node_FunctionEntry* MapEntry = nullptr;
+		for (UEdGraphNode* Node : MapGraph->Nodes)
+		{
+			if (UK2Node_FunctionEntry* Candidate = Cast<UK2Node_FunctionEntry>(Node))
+			{
+				MapEntry = Candidate;
+				break;
+			}
+		}
+		if (!MapEntry)
+		{
+			UE_LOG(LogArcaneWildsBPGen, Error, TEXT("MapKeySafe FunctionEntry missing"));
+			return 1;
+		}
+		MapEntry->AddExtraFlags(FUNC_Public | FUNC_Static | FUNC_BlueprintCallable);
+
+		FEdGraphPinType ImcPinType;
+		ImcPinType.PinCategory = UEdGraphSchema_K2::PC_Object;
+		ImcPinType.PinSubCategoryObject = UInputMappingContext::StaticClass();
+
+		FEdGraphPinType IaPinType;
+		IaPinType.PinCategory = UEdGraphSchema_K2::PC_Object;
+		IaPinType.PinSubCategoryObject = UInputAction::StaticClass();
+
+		FEdGraphPinType KeyPinType;
+		KeyPinType.PinCategory = UEdGraphSchema_K2::PC_Struct;
+		KeyPinType.PinSubCategoryObject = TBaseStructure<FKey>::Get();
+
+		UEdGraphPin* PinImc = MapEntry->CreateUserDefinedPin(FName(TEXT("Context")), ImcPinType, EGPD_Output);
+		UEdGraphPin* PinIa  = MapEntry->CreateUserDefinedPin(FName(TEXT("Action")), IaPinType, EGPD_Output);
+		UEdGraphPin* PinKey = MapEntry->CreateUserDefinedPin(FName(TEXT("Key")), KeyPinType, EGPD_Output);
+
+		UK2Node_CallFunction* CallMapKey = SpawnNode<UK2Node_CallFunction>(MapGraph, 300, 0);
+		CallMapKey->FunctionReference.SetExternalMember(FName(TEXT("MapKey")), UInputMappingContext::StaticClass());
+		CallMapKey->AllocateDefaultPins();
+
+		UK2Node_FunctionResult* MapRet = SpawnNode<UK2Node_FunctionResult>(MapGraph, 650, 0);
+		MapRet->AllocateDefaultPins();
+
+		bool bMapOk = true;
+		bMapOk &= ConnectPins(MapSchema, MapEntry->FindPin(UEdGraphSchema_K2::PN_Then), CallMapKey->GetExecPin(), TEXT("MapEntry->CallMapKey.Exec"));
+		bMapOk &= ConnectPins(MapSchema, CallMapKey->GetThenPin(), MapRet->GetExecPin(), TEXT("CallMapKey->MapRet.Exec"));
+		bMapOk &= ConnectPins(MapSchema, PinImc, CallMapKey->FindPin(UEdGraphSchema_K2::PN_Self), TEXT("Context->MapKey.Self"));
+		bMapOk &= ConnectPins(MapSchema, PinIa, CallMapKey->FindPin(TEXT("Action")), TEXT("Action->MapKey.Action"));
+		bMapOk &= ConnectPins(MapSchema, PinKey, CallMapKey->FindPin(TEXT("ToKey")), TEXT("Key->MapKey.ToKey"));
+		if (!bMapOk)
+		{
+			UE_LOG(LogArcaneWildsBPGen, Error, TEXT("Failed wiring MapKeySafe graph"));
+			return 1;
+		}
+	}
+
 	// Mark modified & compile Blueprint bytecode
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(BP);
 	FKismetEditorUtilities::CompileBlueprint(BP, EBlueprintCompileOptions::None);
@@ -292,6 +359,62 @@ int32 UGenerateArcaneWildsDamageBridgeCommandlet::Main(const FString& Params)
 
 	UE_LOG(LogArcaneWildsBPGen, Display, TEXT("Successfully generated, compiled, and saved: %s"), *PackageFilename);
 
+	// Generate IA_ArcaneWildsKeyBlocker (UInputAction with bConsumeInput=true) +
+	// IMC_ArcaneWildsQuickCastBlock (pre-mapped to 1-4 and controller X/Y/B/A) so holding Block
+	// suppresses hotbar 1-4 and controller face button game actions cleanly.
+	const FString IaPackagePath = TEXT("/Game/Mods/ArcaneWilds/IA_ArcaneWildsKeyBlocker");
+	UPackage* IaPackage = CreatePackage(*IaPackagePath);
+	IaPackage->FullyLoad();
+	if (UObject* ExistingIa = StaticFindObject(UInputAction::StaticClass(), IaPackage, TEXT("IA_ArcaneWildsKeyBlocker")))
+	{
+		ExistingIa->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
+	}
+	UInputAction* BlockerAction = NewObject<UInputAction>(IaPackage, FName(TEXT("IA_ArcaneWildsKeyBlocker")), RF_Public | RF_Standalone);
+	BlockerAction->bConsumeInput = true;
+	BlockerAction->bConsumesActionAndAxisMappings = true;
+	BlockerAction->bReserveAllMappings = true;
+	BlockerAction->ValueType = EInputActionValueType::Boolean;
+	FAssetRegistryModule::AssetCreated(BlockerAction);
+	IaPackage->MarkPackageDirty();
+	const FString IaFilename = FPackageName::LongPackageNameToFilename(IaPackagePath, FPackageName::GetAssetPackageExtension());
+	if (!UPackage::SavePackage(IaPackage, BlockerAction, *IaFilename, SaveArgs))
+	{
+		UE_LOG(LogArcaneWildsBPGen, Error, TEXT("Failed to save IA_ArcaneWildsKeyBlocker"));
+		return 1;
+	}
+
+	const FString ImcPackagePath = TEXT("/Game/Mods/ArcaneWilds/IMC_ArcaneWildsQuickCastBlock");
+	UPackage* ImcPackage = CreatePackage(*ImcPackagePath);
+	ImcPackage->FullyLoad();
+	if (UObject* ExistingImc = StaticFindObject(UInputMappingContext::StaticClass(), ImcPackage, TEXT("IMC_ArcaneWildsQuickCastBlock")))
+	{
+		ExistingImc->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
+	}
+	UInputMappingContext* BlockImc = NewObject<UInputMappingContext>(ImcPackage, FName(TEXT("IMC_ArcaneWildsQuickCastBlock")), RF_Public | RF_Standalone);
+	const TArray<FKey> DefaultBlockedKeys = {
+		EKeys::One,
+		EKeys::Two,
+		EKeys::Three,
+		EKeys::Four,
+		EKeys::Gamepad_FaceButton_Left,   // Controller X
+		EKeys::Gamepad_FaceButton_Top,    // Controller Y
+		EKeys::Gamepad_FaceButton_Right,  // Controller B
+		EKeys::Gamepad_FaceButton_Bottom  // Controller A
+	};
+	for (const FKey& K : DefaultBlockedKeys)
+	{
+		BlockImc->MapKey(BlockerAction, K);
+	}
+	FAssetRegistryModule::AssetCreated(BlockImc);
+	ImcPackage->MarkPackageDirty();
+	const FString ImcFilename = FPackageName::LongPackageNameToFilename(ImcPackagePath, FPackageName::GetAssetPackageExtension());
+	if (!UPackage::SavePackage(ImcPackage, BlockImc, *ImcFilename, SaveArgs))
+	{
+		UE_LOG(LogArcaneWildsBPGen, Error, TEXT("Failed to save IMC_ArcaneWildsQuickCastBlock"));
+		return 1;
+	}
+	UE_LOG(LogArcaneWildsBPGen, Display, TEXT("Successfully saved IA_ArcaneWildsKeyBlocker & IMC_ArcaneWildsQuickCastBlock"));
+
 	// Also generate PrimaryAssetLabel (Chunk 101) so UE 5.6 IoStore packaging isolates ONLY
 	// /Game/Mods/ArcaneWilds into pakchunk101-Windows.{pak,utoc,ucas}.
 	const FString PalPackagePath = TEXT("/Game/Mods/ArcaneWilds/PAL_ArcaneWildsDamageBridge");
@@ -315,6 +438,8 @@ int32 UGenerateArcaneWildsDamageBridgeCommandlet::Main(const FString& Params)
 	Label->bLabelAssetsInMyDirectory = true;
 	Label->bIsRuntimeLabel = true;
 	Label->ExplicitBlueprints.Add(TSoftClassPtr<UObject>(FSoftObjectPath(TEXT("/Game/Mods/ArcaneWilds/BFL_ArcaneWildsDamage.BFL_ArcaneWildsDamage_C"))));
+	Label->ExplicitAssets.Add(TSoftObjectPtr<UObject>(FSoftObjectPath(TEXT("/Game/Mods/ArcaneWilds/IA_ArcaneWildsKeyBlocker.IA_ArcaneWildsKeyBlocker"))));
+	Label->ExplicitAssets.Add(TSoftObjectPtr<UObject>(FSoftObjectPath(TEXT("/Game/Mods/ArcaneWilds/IMC_ArcaneWildsQuickCastBlock.IMC_ArcaneWildsQuickCastBlock"))));
 
 	FAssetRegistryModule::AssetCreated(Label);
 	PalPackage->MarkPackageDirty();

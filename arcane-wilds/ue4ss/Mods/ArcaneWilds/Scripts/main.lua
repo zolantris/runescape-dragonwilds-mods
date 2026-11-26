@@ -181,7 +181,23 @@ local FRIENDLY_KEY_ALIASES = {
     ["NUM6"] = "NumPadSix",
     ["NUM7"] = "NumPadSeven",
     ["NUM8"] = "NumPadEight",
-    ["NUM9"] = "NumPadNine"
+    ["NUM9"] = "NumPadNine",
+    ["GP_X"] = "Gamepad_FaceButton_Left",
+    ["GAMEPAD_X"] = "Gamepad_FaceButton_Left",
+    ["CONTROLLER_X"] = "Gamepad_FaceButton_Left",
+    ["GP_Y"] = "Gamepad_FaceButton_Top",
+    ["GAMEPAD_Y"] = "Gamepad_FaceButton_Top",
+    ["CONTROLLER_Y"] = "Gamepad_FaceButton_Top",
+    ["GP_B"] = "Gamepad_FaceButton_Right",
+    ["GAMEPAD_B"] = "Gamepad_FaceButton_Right",
+    ["CONTROLLER_B"] = "Gamepad_FaceButton_Right",
+    ["GP_A"] = "Gamepad_FaceButton_Bottom",
+    ["GAMEPAD_A"] = "Gamepad_FaceButton_Bottom",
+    ["CONTROLLER_A"] = "Gamepad_FaceButton_Bottom",
+    ["GP_LB"] = "Gamepad_LeftShoulder",
+    ["GP_RB"] = "Gamepad_RightShoulder",
+    ["GP_LT"] = "Gamepad_LeftTrigger",
+    ["GP_RT"] = "Gamepad_RightTrigger"
 }
 
 local function NormalizeKeyName(raw)
@@ -195,6 +211,146 @@ local function NormalizeKeyName(raw)
         return up
     end
     return trimmed
+end
+
+local function ParseKeyList(rawStr)
+    local keys = {}
+    local s = tostring(rawStr or "")
+    for token in s:gmatch("[^,|;]+") do
+        local k = NormalizeKeyName(token)
+        if k ~= "" then
+            table.insert(keys, k)
+        end
+    end
+    return keys
+end
+
+local function GetQuickCastSlots()
+    return {
+        { key = Config.QuickCastHotkey1, spell = Config.QuickCastSpell1 },
+        { key = Config.QuickCastHotkey2, spell = Config.QuickCastSpell2 },
+        { key = Config.QuickCastHotkey3, spell = Config.QuickCastSpell3 },
+        { key = Config.QuickCastHotkey4, spell = Config.QuickCastSpell4 }
+    }
+end
+
+local function ResolveQuickCastBlockerAssets()
+    if State._QuickCastIMC and State._QuickCastIMC:IsValid()
+        and State._QuickCastIA and State._QuickCastIA:IsValid() then
+        return State._QuickCastIMC, State._QuickCastIA
+    end
+    if State._TriedLoadQuickCastBlocker then
+        return nil, nil
+    end
+    State._TriedLoadQuickCastBlocker = true
+
+    local imc, ia = nil, nil
+    pcall(function()
+        imc = StaticFindObject("/Game/Mods/ArcaneWilds/IMC_ArcaneWildsQuickCastBlock.IMC_ArcaneWildsQuickCastBlock")
+        ia  = StaticFindObject("/Game/Mods/ArcaneWilds/IA_ArcaneWildsKeyBlocker.IA_ArcaneWildsKeyBlocker")
+    end)
+    if (not imc or not imc:IsValid() or not ia or not ia:IsValid()) and type(LoadAsset) == "function" then
+        pcall(function() LoadAsset("/Game/Mods/ArcaneWilds/IA_ArcaneWildsKeyBlocker.IA_ArcaneWildsKeyBlocker") end)
+        pcall(function() LoadAsset("/Game/Mods/ArcaneWilds/IMC_ArcaneWildsQuickCastBlock.IMC_ArcaneWildsQuickCastBlock") end)
+        pcall(function()
+            imc = StaticFindObject("/Game/Mods/ArcaneWilds/IMC_ArcaneWildsQuickCastBlock.IMC_ArcaneWildsQuickCastBlock")
+            ia  = StaticFindObject("/Game/Mods/ArcaneWilds/IA_ArcaneWildsKeyBlocker.IA_ArcaneWildsKeyBlocker")
+        end)
+    end
+    if imc and imc:IsValid() and ia and ia:IsValid() then
+        State._QuickCastIMC = imc
+        State._QuickCastIA = ia
+        DebugLog("Loaded EnhancedInput Quick-Cast blocker IMC & IA from IoStore pak")
+        return imc, ia
+    end
+    return nil, nil
+end
+
+local function SyncQuickCastBlockerMappings(imc, ia)
+    local allKeys = {}
+    local seen = {}
+    for _, slot in ipairs(GetQuickCastSlots()) do
+        local spellName = tostring(slot.spell or ""):gsub("^%s*(.-)%s*$", "%1")
+        if spellName ~= "" then
+            for _, k in ipairs(ParseKeyList(slot.key)) do
+                if not seen[k] then
+                    seen[k] = true
+                    table.insert(allKeys, k)
+                end
+            end
+        end
+    end
+    local sig = table.concat(allKeys, ",")
+    if State._QuickCastBlockerSig == sig then return end
+
+    -- Default cooked IMC already contains 1-4 + Gamepad X/Y/B/A; only remap via MapKeySafe if customized
+    local defaultSig = "One,Gamepad_FaceButton_Left,Two,Gamepad_FaceButton_Top,Three,Gamepad_FaceButton_Right,Four,Gamepad_FaceButton_Bottom"
+    if sig == defaultSig and State._QuickCastBlockerSig == nil then
+        State._QuickCastBlockerSig = sig
+        return
+    end
+
+    local bridgeCDO = nil
+    pcall(function()
+        bridgeCDO = StaticFindObject("/Game/Mods/ArcaneWilds/BFL_ArcaneWildsDamage.Default__BFL_ArcaneWildsDamage_C")
+        if (not bridgeCDO or not bridgeCDO:IsValid()) and type(LoadAsset) == "function" then
+            LoadAsset("/Game/Mods/ArcaneWilds/BFL_ArcaneWildsDamage.BFL_ArcaneWildsDamage_C")
+            bridgeCDO = StaticFindObject("/Game/Mods/ArcaneWilds/BFL_ArcaneWildsDamage.Default__BFL_ArcaneWildsDamage_C")
+        end
+    end)
+    if bridgeCDO and bridgeCDO:IsValid() then
+        pcall(function()
+            imc:UnmapAll()
+            for _, k in ipairs(allKeys) do
+                bridgeCDO:MapKeySafe(imc, ia, { KeyName = FName(k) })
+            end
+            State._QuickCastBlockerSig = sig
+            DebugLog("Updated Quick-Cast input blocker keys: " .. sig)
+        end)
+    end
+end
+
+local function SetQuickCastInputSuppressed(shouldSuppress)
+    if Config.EnableQuickCastHotkeys == false or Config.QuickCastSuppressGameActions == false then
+        shouldSuppress = false
+    end
+    if State._QuickCastInputBlocked == shouldSuppress then return end
+
+    local imc, ia = ResolveQuickCastBlockerAssets()
+    if not imc or not ia then return end
+
+    local sub = nil
+    pcall(function() sub = FindFirstOf("EnhancedInputLocalPlayerSubsystem") end)
+    if not sub or not sub:IsValid() then return end
+
+    State._QuickCastInputBlocked = shouldSuppress
+    local function applyOnGameThread()
+        pcall(function()
+            if not sub or not sub:IsValid() or not imc or not imc:IsValid() then return end
+            if shouldSuppress then
+                SyncQuickCastBlockerMappings(imc, ia)
+                sub:AddMappingContext(imc, 9999, {
+                    bIgnoreAllPressedKeysUntilRelease = false,
+                    bForceImmediately = true,
+                    bNotifyUserSettings = false
+                })
+                DebugLog("Quick-Cast input blocker ON (Priority 9999: Hotbar 1-4 & Controller X/Y/B/A suppressed)")
+            else
+                sub:RemoveMappingContext(imc, {
+                    bIgnoreAllPressedKeysUntilRelease = true,
+                    bForceImmediately = true,
+                    bNotifyUserSettings = false
+                })
+                DebugLog("Quick-Cast input blocker OFF (Hotbar 1-4 & Controller X/Y/B/A restored)")
+            end
+        end)
+    end
+
+    if type(ExecuteInGameThread) == "function" then
+        pcall(function() ExecuteInGameThread(applyOnGameThread) end)
+    else
+        applyOnGameThread()
+    end
 end
 
 local function ResolveQuickCastEntry(spellName)
@@ -224,31 +380,41 @@ local function ResolveQuickCastEntry(spellName)
 end
 
 local function PollQuickCastHotkeys(now, pc, pawn, combatMagic)
-    if Config.EnableQuickCastHotkeys == false then return false end
+    if Config.EnableQuickCastHotkeys == false then
+        SetQuickCastInputSuppressed(false)
+        return false
+    end
     if not pc or not pc:IsValid() or not pawn or not pawn:IsValid() then return false end
 
-    State._QuickCastPrevDown = State._QuickCastPrevDown or {}
-    local slots = {
-        { key = Config.QuickCastHotkey1, spell = Config.QuickCastSpell1 },
-        { key = Config.QuickCastHotkey2, spell = Config.QuickCastSpell2 },
-        { key = Config.QuickCastHotkey3, spell = Config.QuickCastSpell3 }
-    }
+    local shouldSuppress = (Config.QuickCastRequireModifier ~= false) and State.ModifierHeld
+    SetQuickCastInputSuppressed(shouldSuppress)
 
+    State._QuickCastPrevDown = State._QuickCastPrevDown or {}
+    local slots = GetQuickCastSlots()
     local modReqOk = (Config.QuickCastRequireModifier == false) or State.ModifierHeld
     local firedAny = false
 
     for idx, slot in ipairs(slots) do
-        local keyName = NormalizeKeyName(slot.key)
+        local keyList = ParseKeyList(slot.key)
         local spellName = tostring(slot.spell or ""):gsub("^%s*(.-)%s*$", "%1")
-        if keyName ~= "" and spellName ~= "" then
-            local isDown = false
-            pcall(function()
-                isDown = pc:IsInputKeyDown({ KeyName = FName(keyName) })
-            end)
+        if #keyList > 0 and spellName ~= "" then
+            local anyDown = false
+            local triggeredKey = nil
+            for _, keyName in ipairs(keyList) do
+                local isDown = false
+                pcall(function()
+                    isDown = pc:IsInputKeyDown({ KeyName = FName(keyName) })
+                end)
+                if isDown then
+                    anyDown = true
+                    triggeredKey = keyName
+                    break
+                end
+            end
             local wasDown = State._QuickCastPrevDown[idx] == true
-            State._QuickCastPrevDown[idx] = isDown
+            State._QuickCastPrevDown[idx] = anyDown
 
-            if isDown and not wasDown and modReqOk and not firedAny then
+            if anyDown and not wasDown and modReqOk and not firedAny then
                 if (now - (State._LastQuickCastTime or 0)) >= 0.35 then
                     local entry = ResolveQuickCastEntry(spellName)
                     if entry then
@@ -259,11 +425,11 @@ local function PollQuickCastHotkeys(now, pc, pawn, combatMagic)
                         State.StepInFlight = false
                         State.InFlightSpellObj = nil
                         local prefix = (Config.QuickCastRequireModifier ~= false) and (tostring(Config.ModifierKey or "RMB") .. "+") or ""
-                        Log(string.format("QuickCast #%d [%s%s] -> %s", idx, prefix, keyName, tostring(entry.shortName or spellName)))
+                        Log(string.format("QuickCast #%d [%s%s] -> %s", idx, prefix, tostring(triggeredKey), tostring(entry.shortName or spellName)))
                         CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, entry, DebugLog, combatMagic)
                         firedAny = true
                     else
-                        Log(string.format("QuickCast #%d [%s]: spell '%s' not found in loaded/custom spells", idx, keyName, spellName))
+                        Log(string.format("QuickCast #%d [%s]: spell '%s' not found in loaded/custom spells", idx, tostring(triggeredKey), spellName))
                     end
                 end
             end
@@ -555,7 +721,10 @@ LoopAsync(50, function()
     end
     State.Enabled = Config.Enabled
 
-    if not Config.Enabled then return false end
+    if not Config.Enabled then
+        SetQuickCastInputSuppressed(false)
+        return false
+    end
 
     local pc, pawn, combatMagic = GetPlayerPawnAndComponents()
     if not pc then return false end

@@ -22,7 +22,9 @@ public class DominionEditor : ModuleRules
 			"BlueprintGraph",
 			"Kismet",
 			"KismetCompiler",
-			"AssetRegistry"
+			"AssetRegistry",
+			"InputCore",
+			"EnhancedInput"
 		});
 	}
 }

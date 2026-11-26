@@ -46,28 +46,35 @@
     },
     {
       "type": "header",
-      "label": "Quick-Cast Direct Spell Hotkeys"
+      "label": "Quick-Cast Direct Spell Hotkeys (Keyboard 1-4 / Controller X,Y,B,A)"
     },
     {
       "key": "EnableQuickCastHotkeys",
       "type": "toggle",
       "label": "Enable Quick-Cast Hotkeys",
-      "description": "Fire any custom or native spell directly with a hotkey without running a combo chain.",
+      "description": "Fire any custom or native spell directly with Block + 1/2/3/4 (Keyboard) or Block + X/Y/B/A (Controller).",
       "default": true
     },
     {
       "key": "QuickCastRequireModifier",
       "type": "toggle",
       "label": "Require Block / Modifier Hold for Quick-Cast",
-      "description": "When ON, hold Block/Modifier (e.g. RMB) then press the Quick-Cast hotkey (e.g. Hold Block + X or 1). When OFF, pressing the hotkey alone casts immediately.",
+      "description": "When ON, hold Block/Modifier (RMB / LT / RB) then press 1-4 or X/Y/B/A. When OFF, pressing the hotkey alone casts immediately.",
+      "default": true
+    },
+    {
+      "key": "QuickCastSuppressGameActions",
+      "type": "toggle",
+      "label": "Suppress Hotbar / Face Button Actions While Holding Block",
+      "description": "Consumes Quick-Cast keys at highest EnhancedInput priority while holding Block so Hotbar 1-4 and controller X/Y/B/A game actions do not fire during Quick-Cast.",
       "default": true
     },
     {
       "key": "QuickCastHotkey1",
       "type": "text",
-      "label": "Quick-Cast Hotkey #1",
-      "description": "Key for Slot #1 (e.g. X, 1, 2, 3, F, G, R, V, NumPadOne, Mouse4, Gamepad_FaceButton_Left). Leave blank to disable.",
-      "default": "X"
+      "label": "Quick-Cast Hotkey #1 (Keyboard,Controller)",
+      "description": "Comma-separated keys for Slot #1. Defaults to Keyboard 1 + Controller X (1,GP_X). Supports 1-9, GP_X/Y/B/A, F, G, R, Mouse4, etc.",
+      "default": "1,GP_X"
     },
     {
       "key": "QuickCastSpell1",
@@ -79,9 +86,9 @@
     {
       "key": "QuickCastHotkey2",
       "type": "text",
-      "label": "Quick-Cast Hotkey #2",
-      "description": "Key for Slot #2 (e.g. 1 / One, F, G, NumPadTwo). Leave blank to disable.",
-      "default": "One"
+      "label": "Quick-Cast Hotkey #2 (Keyboard,Controller)",
+      "description": "Comma-separated keys for Slot #2. Defaults to Keyboard 2 + Controller Y (2,GP_Y).",
+      "default": "2,GP_Y"
     },
     {
       "key": "QuickCastSpell2",
@@ -93,9 +100,9 @@
     {
       "key": "QuickCastHotkey3",
       "type": "text",
-      "label": "Quick-Cast Hotkey #3",
-      "description": "Key for Slot #3 (e.g. 2 / Two, V, C, NumPadThree). Leave blank to disable.",
-      "default": "Two"
+      "label": "Quick-Cast Hotkey #3 (Keyboard,Controller)",
+      "description": "Comma-separated keys for Slot #3. Defaults to Keyboard 3 + Controller B (3,GP_B).",
+      "default": "3,GP_B"
     },
     {
       "key": "QuickCastSpell3",
@@ -103,6 +110,20 @@
       "label": "Quick-Cast Spell #3",
       "description": "Spell name for Slot #3 (e.g. StormOfArmadyl).",
       "default": "StormOfArmadyl"
+    },
+    {
+      "key": "QuickCastHotkey4",
+      "type": "text",
+      "label": "Quick-Cast Hotkey #4 (Keyboard,Controller)",
+      "description": "Comma-separated keys for Slot #4. Defaults to Keyboard 4 + Controller A (4,GP_A).",
+      "default": "4,GP_A"
+    },
+    {
+      "key": "QuickCastSpell4",
+      "type": "text",
+      "label": "Quick-Cast Spell #4",
+      "description": "Spell name for Slot #4 (e.g. SaradominStrike).",
+      "default": "SaradominStrike"
     },
     {
       "type": "header",

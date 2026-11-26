@@ -74,10 +74,11 @@ local DEFAULT_COMBO_RULES_CONTENT = table.concat({
 local ORDERED_CONFIG_KEYS = {
     "Enabled", "DebugMode", "AllowDebugCommands", "DebugHotkey",
     "RequireModifierKey", "ModifierKey", "ConsumeRunesOnSwappedCasts",
-    "EnableQuickCastHotkeys", "QuickCastRequireModifier",
+    "EnableQuickCastHotkeys", "QuickCastRequireModifier", "QuickCastSuppressGameActions",
     "QuickCastHotkey1", "QuickCastSpell1",
     "QuickCastHotkey2", "QuickCastSpell2",
     "QuickCastHotkey3", "QuickCastSpell3",
+    "QuickCastHotkey4", "QuickCastSpell4",
     "TriggerComboOnModifierHold", "EnableAutoAttackHold", "AutoAttackAllCombos", "AutoAttackIntervalMs",
     "DefaultComboCutoff", "BonusSpeedVariancePct",
     "UnlockAir", "UnlockFire", "UnlockWater", "UnlockEarth",
@@ -109,12 +110,15 @@ function ConfigManager.CreateDefaultConfig()
         ConsumeRunesOnSwappedCasts = true,
         EnableQuickCastHotkeys = true,
         QuickCastRequireModifier = true,
-        QuickCastHotkey1 = "X",
+        QuickCastSuppressGameActions = true,
+        QuickCastHotkey1 = "1,GP_X",
         QuickCastSpell1 = "SaradominGodsword",
-        QuickCastHotkey2 = "One",
+        QuickCastHotkey2 = "2,GP_Y",
         QuickCastSpell2 = "FlamesOfZamorak",
-        QuickCastHotkey3 = "Two",
+        QuickCastHotkey3 = "3,GP_B",
         QuickCastSpell3 = "StormOfArmadyl",
+        QuickCastHotkey4 = "4,GP_A",
+        QuickCastSpell4 = "SaradominStrike",
         TriggerComboOnModifierHold = true,
         EnableAutoAttackHold = true,
         AutoAttackAllCombos = true,
@@ -398,12 +402,15 @@ function ConfigManager.LoadConfigFile(paths, config, state, logFn, forceRebuildM
                 elseif k == "ConsumeRunesOnSwappedCasts" then config.ConsumeRunesOnSwappedCasts = ConfigManager.ParseBool(v, true)
                 elseif k == "EnableQuickCastHotkeys" then config.EnableQuickCastHotkeys = ConfigManager.ParseBool(v, true)
                 elseif k == "QuickCastRequireModifier" then config.QuickCastRequireModifier = ConfigManager.ParseBool(v, true)
+                elseif k == "QuickCastSuppressGameActions" then config.QuickCastSuppressGameActions = ConfigManager.ParseBool(v, true)
                 elseif k == "QuickCastHotkey1" then config.QuickCastHotkey1 = v
                 elseif k == "QuickCastSpell1" then config.QuickCastSpell1 = v
                 elseif k == "QuickCastHotkey2" then config.QuickCastHotkey2 = v
                 elseif k == "QuickCastSpell2" then config.QuickCastSpell2 = v
                 elseif k == "QuickCastHotkey3" then config.QuickCastHotkey3 = v
                 elseif k == "QuickCastSpell3" then config.QuickCastSpell3 = v
+                elseif k == "QuickCastHotkey4" then config.QuickCastHotkey4 = v
+                elseif k == "QuickCastSpell4" then config.QuickCastSpell4 = v
                 elseif k == "TriggerComboOnModifierHold" then config.TriggerComboOnModifierHold = ConfigManager.ParseBool(v, true)
                 elseif k == "EnableAutoAttackHold" then config.EnableAutoAttackHold = ConfigManager.ParseBool(v, true)
                 elseif k == "AutoAttackAllCombos" then config.AutoAttackAllCombos = ConfigManager.ParseBool(v, true)
