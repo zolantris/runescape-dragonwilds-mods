@@ -1,6 +1,10 @@
-# ArcaneWilds Custom Combo Rules (Hot-Reloaded Automatically on Save!)
+# ArcaneWilds Custom Combo Rules (Test Config)
 # Syntax: Category@spell,spell:speed -> Category@spell,spell:speed :weight;
-Air@bolt,gust,vortex,slam:2.2 :5;
-Water@bolt,waterfall,wave,tsunami:2.2 :5;
-Fire@bolt_1,bolt_2:2.2 -> Air@gust,vortex:2.2 :5;
-Earth@bolt,spike,shatter:2.0 -> FlamesOfZamorak@FlamesOfZamorak:2.0 :5;
+
+# Commented out baseline rules for focused testing:
+# Air@bolt,gust,vortex,slam:2.2 :5;
+# Water@bolt,waterfall,wave,tsunami:2.2 :5;
+# Fire@bolt_1,bolt_2:2.2 -> Air@gust,vortex:2.2 :5;
+# Earth@bolt,spike,shatter:2.0 -> FlamesOfZamorak@FlamesOfZamorak:2.0 :5;
+
+Air@bolt:1.5 -> SaradominGodsword@SaradominGodsword:1 :5;

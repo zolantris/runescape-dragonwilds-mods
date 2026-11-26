@@ -1,22 +1,4 @@
-# Arcane Wilds Custom Spell Scaffolding (Hot-Reloaded Automatically on Save!)
-# Define custom spells that wrap an existing DominionSpellData base spell and attach
-# custom VFX (Niagara / SpawnActor / GameplayEffect), SFX (SoundWave / SoundCue),
-# AnimMontage, and Speed/Clamp settings at runtime—without .pak asset overrides.
-#
-# Block Format:
-#   [CustomSpellName]
-#   BaseSpell = <DA_Spell_*, HAM_*, or DA_AncientStaff_* asset name>
-#   Category  = <Category tag for chaining & movement unlock, e.g. Fire, Air, Water, Earth, AncientMagicks>
-#   VFX       = <Optional NiagaraSystem / Actor / GameplayEffect object name>
-#   SFX       = <Optional SoundWave / SoundCue object name>
-#   Montage   = <Optional AnimMontage object name>
-#   Speed     = <Optional speed multiplier >= 1.0, e.g. 2.0>
-#   Clamp     = <Optional true/false; true caps high speeds at MaxFinisherSpeedClamp (default 5.0x) so AnimNotifies aren't skipped>
-#   RuneCost  = <Optional rune alias or item name, e.g. fire, air, blood, ice>
-#   RuneCount = <Optional integer quantity >= 1, default 1>
-#
-# Once defined here, you can reference [CustomSpellName] directly in combo_rules.txt!
-# Example: Fire@bolt_1,bolt_2:2.0 -> FlamesOfZamorak@FlamesOfZamorak:1.8 :5;
+# Arcane Wilds Custom Spells (Test Config)
 
 [FlamesOfZamorak]
 BaseSpell = DA_ZamorakStaff_Special
@@ -27,32 +9,54 @@ RuneCost  = fire
 RuneCount = 2
 
 [StormOfArmadyl]
-BaseSpell = DA_Spell_Primary_Air_03
-Category  = Air
-VFX       = HAM_IceBarrage
-SFX       = SW_IceBarrage
-Speed     = 2.2
-Clamp     = false
-RuneCost  = air
-RuneCount = 2
+BaseSpell       = DA_Spell_Primary_Air_01
+Category        = Air
+ImpactAoE       = DA_Spell_Primary_Air_04
+ImpactLightning = lightning
+ImpactSFX       = lightning
+ImpactDamageMin = 120
+ImpactDamageMax = 240
+ImpactRadius    = 350
+Speed           = 2.0
+Clamp           = true
+RuneCost        = air
+RuneCount       = 2
 
-# Additional scaffolding templates (uncomment & tune object names from Live View / detected_spells.txt):
-# [SaradominStrike]
-# BaseSpell = DA_Spell_Primary_Water_03
-# Category  = Water
-# VFX       =
-# SFX       =
-# Speed     = 2.0
-# Clamp     = false
-# RuneCost  = water
-# RuneCount = 1
+[SaradominStrike]
+BaseSpell          = none
+Category           = Air
+SpawnActor         = BP_Godsword_Special_Saradomin_C
+Montage            = AM_PlayerM_Attack_2H_Greatsword_Secondary
+SpinHitbox         = true
+HitRadius          = 400
+HitDamageMin       = 85
+HitDamageMax       = 165
+HitDelaySec        = 0.35
+ExtraAoE           = DA_ZamorakStaff_Special
+ExtraAoEDelaySec   = 0.25
+SuppressDirectHealth = false
+Speed              = 1.5
+Clamp              = true
+RuneCost           = air
+RuneCount          = 1
 
-# [IbanBlast]
-# BaseSpell = DA_Spell_Primary_Fire_03
-# Category  = Fire
-# VFX       =
-# SFX       =
-# Speed     = 1.9
-# Clamp     = true
-# RuneCost  = fire
-# RuneCount = 1
+[SaradominGodsword]
+BaseSpell          = none
+Category           = Air
+SpawnActor         = BP_Godsword_Special_Saradomin_C
+Montage            = AM_PlayerM_Attack_2H_Greatsword_Secondary
+SpinHitbox         = true
+HitRadius          = 400
+HitDamageMin       = 85
+HitDamageMax       = 165
+HitDelaySec        = 0.35
+ExtraAoE           = DA_ZamorakStaff_Special
+ExtraAoEDelaySec   = 0.25
+SuppressDirectHealth = false
+Speed              = 1.5
+Clamp              = true
+RuneCost           = air
+RuneCount          = 1
+
+# Optional: apply a GameplayEffect class/asset to hit targets in SpinHitbox (e.g. GE_AddBurning)
+# DamageGE = GE_AddBurning

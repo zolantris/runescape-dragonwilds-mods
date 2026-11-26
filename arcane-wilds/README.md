@@ -28,8 +28,9 @@ Place `ue4ss/Mods/ArcaneWilds/` into your `RSDragonwilds/Binaries/Win64/` direct
 ## Changelog
 
 <!-- CHANGELOG:START -->
-### v1.70.0
+### v1.70.57
 
+- **2026-11-24** - Add equipment matcher for staff, wand auto spells ([b7ddeb7](https://github.com/zolantris/runescape-dragonwilds-mods/commit/b7ddeb7968b0e148ee7e4e6629d9d75ecd4041a6))
 - **2026-11-24** - Attempt to fix firespell -> other spell combo swap without basic. Still not working ([cd86b92](https://github.com/zolantris/runescape-dragonwilds-mods/commit/cd86b9228adacfb19d2d0e8bfa3d6fa588de4e37))
 - **2026-11-24** - attempt to fix FoZ animation crash when overlapping animations or potential deduction of zero special ([fdca3b7](https://github.com/zolantris/runescape-dragonwilds-mods/commit/fdca3b77ef3f24407cf343e639be8b21af19a486))
 - **2026-11-24** - Fix compiler ([e4c3e2a](https://github.com/zolantris/runescape-dragonwilds-mods/commit/e4c3e2a622bc5d840bf9aefa97815bc915ddebfe))

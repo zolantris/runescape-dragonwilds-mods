@@ -5,6 +5,7 @@ DebugHotkey=BackSlash
 RequireModifierKey=true
 ModifierKey=RMB
 ConsumeRunesOnSwappedCasts=true
+TriggerComboOnModifierHold=true
 EnableAutoAttackHold=true
 AutoAttackAllCombos=true
 AutoAttackIntervalMs=65

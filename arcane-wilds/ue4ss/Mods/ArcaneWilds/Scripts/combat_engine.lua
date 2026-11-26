@@ -250,6 +250,37 @@ function CombatEngine.ApplyStageSpeedAndPriming(config, state, combatMagic, stag
     end
 end
 
+function CombatEngine.ResetAllState(config, state, combatMagic, pawn, debugLogFn, reason)
+    if not state then return end
+    state.ActiveMacro = nil
+    state.StageIndex = 1
+    state.StepInStage = 1
+    state.PendingAnchorReturn = false
+    state.StepInFlight = false
+    state.InFlightSpellObj = nil
+    state.InFlightStartedTime = 0
+    state.ActiveStageTargetSpeed = 1.0
+    state.ActiveStageIsAirSmash = false
+    state.SpecialPostPauseUntil = 0
+    state.AnimPadUntil = 0
+    state._AppliedPadForCurrentStep = false
+    state._LastTriggeredSpellPtr = nil
+    state._LastTriggeredSpellPtrTime = 0
+    state.LastObservedChainedSpell = nil
+    state.LastCastSpellData = nil
+
+    if combatMagic and combatMagic:IsValid() then
+        pcall(function() combatMagic.LastChainedSpell = nil end)
+    end
+    CustomSpells.StopForcedMontage(state, pawn)
+    if not (state.ModifierHeld) and config then
+        CombatEngine.SetAllComboMontageRates(config, state, 1.0)
+    end
+    if debugLogFn and reason then
+        debugLogFn("Reset state (" .. tostring(reason) .. ")")
+    end
+end
+
 function CombatEngine.RestoreAnchorElementAndReset(config, state, combatMagic, debugLogFn)
     local anchor = state.AnchorElement or state.LastKnownEquippedElement
     state.ActiveMacro = nil
@@ -266,6 +297,7 @@ function CombatEngine.RestoreAnchorElementAndReset(config, state, combatMagic, d
     if combatMagic and combatMagic:IsValid() then
         pcall(function() combatMagic.LastChainedSpell = nil end)
     end
+    CustomSpells.StopForcedMontage(state, pawn)
     if not state.ModifierHeld then
         CombatEngine.SetAllComboMontageRates(config, state, 1.0)
     end
@@ -377,8 +409,11 @@ local function TryTriggerSpecialAbility(pawn, spellObj, debugLogFn)
     return triggered
 end
 
-function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, debugLogFn)
-    if not pawn or not pawn:IsValid() or not entry or not entry.spellObj or not entry.spellObj:IsValid() then
+function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, debugLogFn, combatMagic)
+    if not pawn or not pawn:IsValid() or not entry then
+        return false
+    end
+    if not entry.suppressBaseSpell and (not entry.spellObj or not entry.spellObj:IsValid()) then
         return false
     end
     local now = os.clock()
@@ -404,25 +439,53 @@ function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, deb
         local okSpec = TryTriggerSpecialAbility(pawn, entry.spellObj, debugLogFn)
         if okSpec then
             EquipmentRunes.ConsumeRunesForSpellEntry(config, state, pawn, entry, debugLogFn)
-            CustomSpells.TriggerCustomPresentation(pawn, entry, SpellScanner.SafeGetName)
-            return true
-        end
-    end
-
-    local bpLib = StaticFindObject("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary")
-    if bpLib and bpLib:IsValid() then
-        local ok = pcall(function()
-            bpLib:TriggerModularAbilityForPlayer(pawn, entry.spellObj)
-        end)
-        if ok then
-            EquipmentRunes.ConsumeRunesForSpellEntry(config, state, pawn, entry, debugLogFn)
-            if entry.impactAoEName and entry.impactAoEName ~= "" then
+            if (entry.impactAoEName and entry.impactAoEName ~= "") or (entry.impactLightningName and entry.impactLightningName ~= "") or entry.impactDamageMin then
                 CustomSpells.ArmProjectileImpactAoE(state, pawn, entry, SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName)
             else
                 CustomSpells.TriggerCustomPresentation(pawn, entry, SpellScanner.SafeGetName)
             end
             return true
         end
+    end
+
+    local bpLib = StaticFindObject("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary")
+    local anyTriggered = false
+    if not entry.suppressBaseSpell and bpLib and bpLib:IsValid() and entry.spellObj and entry.spellObj:IsValid() then
+        local function fireAbility()
+            pcall(function()
+                if pawn and pawn:IsValid() and bpLib and bpLib:IsValid() and entry.spellObj and entry.spellObj:IsValid() then
+                    bpLib:TriggerModularAbilityForPlayer(pawn, entry.spellObj)
+                end
+            end)
+        end
+        if type(ExecuteInGameThread) == "function" then
+            pcall(function() ExecuteInGameThread(fireAbility) end)
+        else
+            fireAbility()
+        end
+        anyTriggered = true
+    elseif entry.suppressBaseSpell then
+        anyTriggered = true
+    end
+
+    if entry.isCustomSpell and entry.montageObj then
+        local rate = tonumber(entry.customOverrideSpeed) or tonumber(state.ActiveStageTargetSpeed) or 1.0
+        if CustomSpells.PlayEntryMontageOnPawn(pawn, entry, rate, state) then
+            anyTriggered = true
+            if debugLogFn then
+                debugLogFn("Played custom montage directly on pawn: " .. tostring(entry.montageName))
+            end
+        end
+    end
+
+    if anyTriggered then
+        EquipmentRunes.ConsumeRunesForSpellEntry(config, state, pawn, entry, debugLogFn)
+        if (entry.impactAoEName and entry.impactAoEName ~= "") or (entry.impactLightningName and entry.impactLightningName ~= "") or entry.impactDamageMin then
+            CustomSpells.ArmProjectileImpactAoE(state, pawn, entry, SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName)
+        else
+            CustomSpells.TriggerCustomPresentation(pawn, entry, SpellScanner.SafeGetName)
+        end
+        return true
     end
     return false
 end
@@ -569,6 +632,18 @@ function CombatEngine.RollAndEngageMacroForAnchor(config, state, pawn, combatMag
         logFn(string.format("Start [%s] (Anchor [%s]) -> Locked macro (%d stages): %s",
             tostring(startKey or freshAnchor or "None"), tostring(freshAnchor or "None"), #macro.stages, macro.raw))
         CombatEngine.ApplyStageSpeedAndPriming(config, state, combatMagic, macro.stages[1], 1, pawn, debugLogFn)
+        local st1 = macro.stages[1]
+        if st1 and st1.elementLower then
+            local ch = state.SpellChains and state.SpellChains[st1.elementLower]
+            if ch and ch.montages then
+                local spd = tonumber(st1.speed) or 1.0
+                for _, mObj in pairs(ch.montages) do
+                    if mObj and mObj:IsValid() then
+                        CombatEngine.ApplyMontageRateToInstance(config, pawn, mObj, spd, false)
+                    end
+                end
+            end
+        end
     else
         logFn(string.format("Start [%s] (Anchor [%s]) -> No matching rule for same starting spell in combo_rules.txt",
             tostring(startKey or freshAnchor or "None"), tostring(freshAnchor or "None")))
@@ -591,6 +666,15 @@ end
 
 function CombatEngine.ReleaseModifierAndRevert(config, state, pawn, combatMagic, logFn, debugLogFn)
     local originalAnchor = state.AnchorElement
+    local relPawn = nil
+    pcall(function()
+        if combatMagic and combatMagic:IsValid() then relPawn = combatMagic:GetOwner() end
+        if not relPawn or not relPawn:IsValid() then
+            local pc = FindFirstOf("DominionPlayerController") or FindFirstOf("PlayerController")
+            if pc and pc:IsValid() then relPawn = pc.Pawn end
+        end
+    end)
+    CustomSpells.StopForcedMontage(state, relPawn)
     CombatEngine.RestoreAnchorElementAndReset(config, state, combatMagic, debugLogFn)
     CombatEngine.SetAllComboMontageRates(config, state, 1.0)
     state.PendingAnchorReturn = false

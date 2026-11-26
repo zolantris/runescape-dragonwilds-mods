@@ -66,6 +66,7 @@ local DEFAULT_COMBO_RULES_CONTENT = table.concat({
     "# Syntax: Category@spell,spell:speed -> Category@spell,spell:speed :weight;",
     "Air@bolt,gust,vortex,slam:2.2 :5;",
     "Water@bolt,waterfall,wave,tsunami:2.2 :5;",
+    "Water@bolt,waterfall,wave:2.0 -> SaradominGodsword@SaradominGodsword:1.5 :5;",
     "Fire@bolt_1,bolt_2:2.2 -> Air@gust,vortex:2.2 :5;",
     "Earth@bolt,spike,shatter:2.0 -> FlamesOfZamorak@FlamesOfZamorak:2.0 :5;"
 }, "\n") .. "\n"
@@ -73,7 +74,7 @@ local DEFAULT_COMBO_RULES_CONTENT = table.concat({
 local ORDERED_CONFIG_KEYS = {
     "Enabled", "DebugMode", "AllowDebugCommands", "DebugHotkey",
     "RequireModifierKey", "ModifierKey", "ConsumeRunesOnSwappedCasts",
-    "EnableAutoAttackHold", "AutoAttackAllCombos", "AutoAttackIntervalMs",
+    "TriggerComboOnModifierHold", "EnableAutoAttackHold", "AutoAttackAllCombos", "AutoAttackIntervalMs",
     "DefaultComboCutoff", "BonusSpeedVariancePct",
     "UnlockAir", "UnlockFire", "UnlockWater", "UnlockEarth",
     "UnlockModdedCombat", "UnlockUtilitySpells", "KeepGroundSmashAnchored", "MaxFinisherSpeedClamp", "InjectSpecialBarOnSpecials", "SpecialBarInjectAmount", "RequireSpecialEnergyForSpecials", "MinSpecialEnergyCost", "AllowFastSpecialCast", "MaxSpecialCastRate", "PostSpecialPauseSec", "AnimRepeatPadSec",
@@ -102,6 +103,7 @@ function ConfigManager.CreateDefaultConfig()
         RequireModifierKey = true,
         ModifierKey = "RMB",
         ConsumeRunesOnSwappedCasts = true,
+        TriggerComboOnModifierHold = true,
         EnableAutoAttackHold = true,
         AutoAttackAllCombos = true,
         AutoAttackIntervalMs = 65,
@@ -142,9 +144,20 @@ function ConfigManager.ResolveStepEntry(state, stage, stepDescriptor)
     if not stepDescriptor then return nil end
 
     if stepDescriptor.assetName and stepDescriptor.assetName ~= "" then
-        local exact = state.SpellRegistry[stepDescriptor.assetName:lower()]
-        if exact and exact.spellObj and exact.spellObj:IsValid() then
+        local kLower = stepDescriptor.assetName:lower()
+        local exact = state.SpellRegistry[kLower]
+        if exact and ((exact.spellObj and exact.spellObj:IsValid()) or exact.suppressBaseSpell) then
             return exact
+        end
+        if state.CustomSpellDefs and state.CustomSpellDefs[kLower] then
+            local rebuilt = CustomSpells.BuildCustomRegistryEntries(
+                { [kLower] = state.CustomSpellDefs[kLower] },
+                state.SpellRegistry, state.SpellChains, state.RuneItemDataCache,
+                SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName)
+            if rebuilt[kLower] then
+                state.SpellRegistry[kLower] = rebuilt[kLower]
+                return rebuilt[kLower]
+            end
         end
     end
 
@@ -371,6 +384,7 @@ function ConfigManager.LoadConfigFile(paths, config, state, logFn, forceRebuildM
                 elseif k == "RequireModifierKey" then config.RequireModifierKey = ConfigManager.ParseBool(v, true)
                 elseif k == "ModifierKey" then config.ModifierKey = (v ~= "" and v:upper() or "SHIFT")
                 elseif k == "ConsumeRunesOnSwappedCasts" then config.ConsumeRunesOnSwappedCasts = ConfigManager.ParseBool(v, true)
+                elseif k == "TriggerComboOnModifierHold" then config.TriggerComboOnModifierHold = ConfigManager.ParseBool(v, true)
                 elseif k == "EnableAutoAttackHold" then config.EnableAutoAttackHold = ConfigManager.ParseBool(v, true)
                 elseif k == "AutoAttackAllCombos" then config.AutoAttackAllCombos = ConfigManager.ParseBool(v, true)
                 elseif k == "AutoAttackIntervalMs" then config.AutoAttackIntervalMs = tonumber(v) or 65

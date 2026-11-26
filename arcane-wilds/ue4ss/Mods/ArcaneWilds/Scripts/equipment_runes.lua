@@ -558,7 +558,16 @@ function EquipmentRunes.InstallEquipmentSwapHooks(state, combatMagic, logFn, deb
                 if not cm then cm = combatMagic end
                 state.ActiveMacro = nil
                 state.PendingAnchorReturn = false
+                state.StepInFlight = false
+                state.InFlightSpellObj = nil
+                state.SpecialPostPauseUntil = 0
+                state.AnimPadUntil = 0
+                state._LastTriggeredSpellPtr = nil
                 state.LastObservedChainedSpell = nil
+                pcall(function()
+                    local cs = require("custom_spells")
+                    if cs and cs.StopForcedMontage then cs.StopForcedMontage(state, pawn) end
+                end)
                 if cm and cm:IsValid() then
                     pcall(function() cm.LastChainedSpell = nil end)
                 end
