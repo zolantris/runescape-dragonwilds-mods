@@ -1,0 +1,6 @@
+{
+    "git.ignoreLimitWarning": true,
+    "editor.inlineSuggest.enabled": false,
+    "editor.inlineSuggest.syntaxHighlightingEnabled": false,
+    "editor.suggest.showInlineDetails": false,
+}

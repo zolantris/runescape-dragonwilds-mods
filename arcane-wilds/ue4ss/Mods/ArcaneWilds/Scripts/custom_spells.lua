@@ -4,6 +4,11 @@
 
 local CustomSpells = {}
 local ObjectLookupCache = {}
+local AttackIdCounter = 1000
+local CachedDamageFuncLib = nil
+local CachedFloatiesSubsystem = nil
+local CachedBridgeCDO = nil
+local CheckedBridgeAsset = false
 
 local function Trim(s)
     if not s then return "" end
@@ -88,6 +93,10 @@ end
 function CustomSpells.ClearCache()
     LazyKeywordCache = {}
     ObjectLookupCache = {}
+    CachedDamageFuncLib = nil
+    CachedFloatiesSubsystem = nil
+    CachedBridgeCDO = nil
+    CheckedBridgeAsset = false
 end
 
 function CustomSpells.ParseDefinitions(rawText)
@@ -199,6 +208,16 @@ function CustomSpells.ParseDefinitions(rawText)
                             current.suppressDirectHealth = ParseBool(val, false)
                         elseif key == "damagege" or key == "gameplayeffect" or key == "hitge" then
                             current.damageGE = val
+                        elseif key == "damageclass" or key == "hitclass" then
+                            current.damageClass = val and val:lower() or nil
+                        elseif key == "damageforce" or key == "hitforce" or key == "knockback" then
+                            current.damageForce = tonumber(val)
+                        elseif key == "floatieoffsetz" or key == "damageoffsetz" then
+                            current.floatieOffsetZ = tonumber(val)
+                        elseif key == "forcefloatie" or key == "forcedamagefloatie" then
+                            current.forceDamageFloatie = ParseBool(val, false)
+                        elseif key == "bridgeblueprint" or key == "damagebridge" then
+                            current.bridgeBlueprint = val
                         end
                     end
                 end
@@ -502,6 +521,7 @@ function CustomSpells.ArmProjectileImpactAoE(state, pawn, entry, safeGetNameFn, 
 
     state.PendingImpactAoE = {
         spellName = entry.shortName,
+        entry = entry,
         aoeSpellObj = aoeSpellObj,
         aoeName = entry.impactAoEName,
         lightningVfxObj = lightningVfx,
@@ -516,56 +536,530 @@ function CustomSpells.ArmProjectileImpactAoE(state, pawn, entry, safeGetNameFn, 
     }
 end
 
-local function ApplyRolledImpactDamage(pawn, loc, minDmg, maxDmg, radius)
+local function NextAttackId()
+    AttackIdCounter = AttackIdCounter + 1
+    if AttackIdCounter > 2000000000 then
+        AttackIdCounter = 1001
+    end
+    return AttackIdCounter
+end
+
+local function SafeObjName(obj)
+    if not obj then return "nil" end
+    local ok, n = pcall(function() return obj:GetFullName() end)
+    return (ok and n) or tostring(obj)
+end
+
+local function IsValidUObject(obj)
+    if not obj then return false end
+    local ok, valid = pcall(function() return obj:IsValid() end)
+    return ok and valid == true
+end
+
+local function MakeVectorTable(v, fallbackZ)
+    if type(v) == "table" or type(v) == "userdata" then
+        local x, y, z = 0.0, 0.0, fallbackZ or 0.0
+        pcall(function() x = tonumber(v.X) or 0.0 end)
+        pcall(function() y = tonumber(v.Y) or 0.0 end)
+        pcall(function() z = tonumber(v.Z) or (fallbackZ or 0.0) end)
+        return { X = x, Y = y, Z = z }
+    end
+    return { X = 0.0, Y = 0.0, Z = fallbackZ or 0.0 }
+end
+
+local function ResolveDamageClassByte(entry)
+    local raw = entry and entry.customDef and entry.customDef.damageClass or nil
+    if raw then
+        local l = tostring(raw):lower()
+        if l == "none" or l == "0" then return 0 end
+        if l == "melee" or l == "1" or l == "slash" or l == "crush" or l == "stab" then return 1 end
+        if l == "magical" or l == "magic" or l == "2" or l == "spell" then return 2 end
+        if l == "ranged" or l == "range" or l == "3" then return 3 end
+    end
+    local sLow = tostring(entry and entry.shortName or ""):lower()
+    if sLow:find("sword", 1, true) or sLow:find("greatsword", 1, true) or sLow:find("claws", 1, true) then
+        return 1 -- EDamageClass::Melee
+    end
+    return 2 -- EDamageClass::Magical
+end
+
+local function GetDamageFunctionLibrary()
+    if IsValidUObject(CachedDamageFuncLib) then
+        return CachedDamageFuncLib
+    end
+    local lib = nil
+    pcall(function()
+        lib = StaticFindObject("/Script/Dominion.Default__DamageFunctionLibrary")
+    end)
+    if IsValidUObject(lib) then
+        CachedDamageFuncLib = lib
+        return lib
+    end
+    return nil
+end
+
+local function GetDamageFloatiesSubsystem()
+    if IsValidUObject(CachedFloatiesSubsystem) then
+        return CachedFloatiesSubsystem
+    end
+    local sub = nil
+    pcall(function()
+        sub = FindFirstOf("DamageFloatiesSubsystem")
+    end)
+    if IsValidUObject(sub) then
+        CachedFloatiesSubsystem = sub
+        return sub
+    end
+    return nil
+end
+
+local function GetDamageBridgeCDO(entry)
+    if IsValidUObject(CachedBridgeCDO) then
+        return CachedBridgeCDO
+    end
+    if CheckedBridgeAsset and not (entry and entry.customDef and entry.customDef.bridgeBlueprint) then
+        return nil
+    end
+    CheckedBridgeAsset = true
+
+    local candidateCDOs = {}
+    if entry and entry.customDef and entry.customDef.bridgeBlueprint and entry.customDef.bridgeBlueprint ~= "" then
+        table.insert(candidateCDOs, entry.customDef.bridgeBlueprint)
+    end
+    table.insert(candidateCDOs, "/Game/Mods/ArcaneWilds/BFL_ArcaneWildsDamage.Default__BFL_ArcaneWildsDamage_C")
+    table.insert(candidateCDOs, "/Game/Mods/ArcaneWilds/BP_ArcaneWildsDamageBridge.Default__BP_ArcaneWildsDamageBridge_C")
+
+    for _, path in ipairs(candidateCDOs) do
+        local obj = nil
+        pcall(function() obj = StaticFindObject(path) end)
+        if IsValidUObject(obj) then
+            CachedBridgeCDO = obj
+            return obj
+        end
+    end
+
+    -- Try LoadAsset once for the packaged BlueprintFunctionLibrary if the optional .pak is mounted
+    if type(LoadAsset) == "function" then
+        local loadPaths = {
+            "/Game/Mods/ArcaneWilds/BFL_ArcaneWildsDamage",
+            "/Game/Mods/ArcaneWilds/BP_ArcaneWildsDamageBridge"
+        }
+        for _, lp in ipairs(loadPaths) do
+            pcall(function() LoadAsset(lp) end)
+        end
+        for _, path in ipairs(candidateCDOs) do
+            local obj = nil
+            pcall(function() obj = StaticFindObject(path) end)
+            if IsValidUObject(obj) then
+                CachedBridgeCDO = obj
+                return obj
+            end
+        end
+    end
+
+    local inst = nil
+    pcall(function() inst = FindFirstOf("BP_ArcaneWildsDamageBridge_C") end)
+    if IsValidUObject(inst) then
+        CachedBridgeCDO = inst
+        return inst
+    end
+
+    return nil
+end
+
+local function DisplayDamageFloatie(amount, loc, logFn)
+    local sub = GetDamageFloatiesSubsystem()
+    if not sub then
+        if logFn then logFn("  FLOATIE: DamageFloatiesSubsystem not found") end
+        return false
+    end
+    local dmgFloat = tonumber(amount) or 0.0
+    local vec = MakeVectorTable(loc, 0.0)
+    local ok, err = pcall(function()
+        sub:DisplayDamage(dmgFloat, vec)
+    end)
+    if logFn then
+        logFn(string.format("  FLOATIE: DisplayDamage(%.1f, [%.1f,%.1f,%.1f]) ok=%s err=%s",
+            dmgFloat, vec.X, vec.Y, vec.Z, tostring(ok), tostring(err or "")))
+    end
+    return ok
+end
+
+local function ResolveTargetDamageComponent(targetActor)
+    if not IsValidUObject(targetActor) then return nil end
+    local comp = nil
+    pcall(function()
+        if type(targetActor.GetDamageComponent) == "function" then
+            comp = targetActor:GetDamageComponent()
+        end
+    end)
+    if IsValidUObject(comp) then return comp end
+
+    pcall(function()
+        if type(targetActor.GetAiDamageComponent) == "function" then
+            comp = targetActor:GetAiDamageComponent()
+        end
+    end)
+    if IsValidUObject(comp) then return comp end
+
+    for _, propName in ipairs({ "AiDamageComponent", "BP_AiDamageComponent", "DamageComponent" }) do
+        pcall(function() comp = targetActor[propName] end)
+        if IsValidUObject(comp) then return comp end
+    end
+
+    pcall(function()
+        local dmgClass = StaticFindObject("/Script/Dominion.DamageComponent")
+        if IsValidUObject(dmgClass) and type(targetActor.GetComponentByClass) == "function" then
+            comp = targetActor:GetComponentByClass(dmgClass)
+        end
+    end)
+    if IsValidUObject(comp) then return comp end
+    return nil
+end
+
+local function ResolveTargetHealthComponent(targetActor)
+    if not IsValidUObject(targetActor) then return nil end
+    local comp = nil
+    pcall(function()
+        if type(targetActor.GetAiHealthComponent) == "function" then
+            comp = targetActor:GetAiHealthComponent()
+        end
+    end)
+    if IsValidUObject(comp) then return comp end
+
+    for _, propName in ipairs({ "HealthComponent", "AiHealthComponent" }) do
+        pcall(function() comp = targetActor[propName] end)
+        if IsValidUObject(comp) then return comp end
+    end
+    return nil
+end
+
+local function ReadActorHealth(healthComp)
+    if not IsValidUObject(healthComp) then return nil end
+    local hp = nil
+    pcall(function()
+        if type(healthComp.GetAuthoritativeHealth) == "function" then
+            hp = tonumber(healthComp:GetAuthoritativeHealth())
+        elseif type(healthComp.GetLocalHealth) == "function" then
+            hp = tonumber(healthComp:GetLocalHealth())
+        end
+    end)
+    return hp
+end
+
+local function GetWorldTimeSecondsSafe(actorObj)
+    local t = 0.0
+    pcall(function()
+        local gpStatics = StaticFindObject("/Script/Engine.Default__GameplayStatics")
+        if IsValidUObject(gpStatics) and type(gpStatics.GetTimeSeconds) == "function" and IsValidUObject(actorObj) then
+            t = tonumber(gpStatics:GetTimeSeconds(actorObj)) or 0.0
+        end
+    end)
+    return t
+end
+
+local function BuildFullDominionDamageEventTable(instigatorPawn, amtNum, dmgClassByte, instLoc, victimLoc, victimFwd, forceVal, attackId)
+    local instVec = MakeVectorTable(instLoc, 0.0)
+    local vicVec = MakeVectorTable(victimLoc, 0.0)
+    local fwdVec = MakeVectorTable(victimFwd, 0.0)
+    if fwdVec.X == 0.0 and fwdVec.Y == 0.0 and fwdVec.Z == 0.0 then
+        fwdVec.X = 1.0
+    end
+    return {
+        Amount = amtNum,
+        AmountAbsorbedByShield = 0.0,
+        DamageClass = dmgClassByte,
+        TypeDamagesArray = {
+            ArraySize = 1,
+            TypeDamages = {
+                {
+                    StatusEffect = 0, -- EStatusEffectType::None
+                    Types = { GameplayTags = {} },
+                    Amount = amtNum
+                }
+            }
+        },
+        TypeDamagesOutcome = { 0 }, -- ETypeDamageOutcome::Neutral
+        Instigator = instigatorPawn,
+        Source = instigatorPawn,
+        InstigatorLocation = instVec,
+        VictimForward = fwdVec,
+        VictimLocation = vicVec,
+        ModifierMessageTags = {},
+        Directionality = 5, -- EReactionDirectionality::Outwards
+        Force = forceVal,
+        AttackProperties = 0,
+        StaminaCostMultiplier = 0.0,
+        HitReaction = nil,
+        GEHandlesArray = {
+            ArraySize = 0,
+            Handles = {}
+        },
+        DamageProperties = 0,
+        AttackId = attackId,
+        bIsFatalHit = false,
+        Seed = 1,
+        CachedDamageShouldHitReact = true,
+        ID = attackId
+    }
+end
+
+local function MakeFStringArg(strVal)
+    local s = tostring(strVal or "")
+    local fstr = nil
+    pcall(function()
+        if type(FString) == "function" then
+            fstr = FString(s)
+        end
+    end)
+    return fstr or s
+end
+
+-- Unified Dominion Blueprint damage pipeline:
+--   Tier 1: Optional cooked Blueprint bridge (.pak) BFL_ArcaneWildsDamage::ApplyArcaneWildsDamage
+--   Tier 2A: Native UDamageComponent::PredictDamage -> UDamageFunctionLibrary::ApplyDamage
+--   Tier 2B: Native UDamageFunctionLibrary::ApplyDamage with full FDominionDamageEvent struct table
+--   Tier 3: Native UDamageComponent::ApplyDamageFromGameplayEffect(evt, true, true)
+--   Tier 4: Fallback UHealthComponent::DecreaseHealth + UDamageFloatiesSubsystem::DisplayDamage
+local function ApplyDominionBlueprintDamage(targetActor, instigatorPawn, dmgAmount, hitLoc, instLoc, entry, logFn)
+    if not IsValidUObject(targetActor) or targetActor == instigatorPawn then
+        return false, "invalid-target"
+    end
+
+    local amtNum = tonumber(dmgAmount) or 65.0
+    local dmgClassByte = ResolveDamageClassByte(entry)
+    local forceVal = tonumber(entry and entry.customDef and entry.customDef.damageForce) or 260.0
+    local floatieOffsetZ = tonumber(entry and entry.customDef and entry.customDef.floatieOffsetZ) or 90.0
+    local skipDirectHp = (entry and entry.customDef and entry.customDef.suppressDirectHealth == true)
+    local forceFloatie = (entry and entry.customDef and entry.customDef.forceDamageFloatie == true)
+    local attackId = NextAttackId()
+
+    local healthComp = ResolveTargetHealthComponent(targetActor)
+    local damageComp = ResolveTargetDamageComponent(targetActor)
+    local hpBefore = ReadActorHealth(healthComp)
+
+    -- Ensure damage floaties are enabled on the target's DamageComponent
+    if IsValidUObject(damageComp) then
+        pcall(function()
+            if damageComp.bShowDamageFloaties == false and type(damageComp.SetCanShowDamageFloaties) == "function" then
+                damageComp:SetCanShowDamageFloaties(true)
+            end
+        end)
+    end
+
+    local hitVec = MakeVectorTable(hitLoc, 0.0)
+    local instVec = MakeVectorTable(instLoc, 0.0)
+    local floatieLoc = { X = hitVec.X, Y = hitVec.Y, Z = hitVec.Z + floatieOffsetZ }
+
+    local victimFwd = nil
+    pcall(function()
+        if type(targetActor.GetActorForwardVector) == "function" then
+            victimFwd = targetActor:GetActorForwardVector()
+        end
+    end)
+
+    local traceParts = {}
+    local damageApplied = false
+    local usedNativePipeline = false
+
+    local function DidHealthDrop()
+        local hpNow = ReadActorHealth(healthComp)
+        if hpBefore ~= nil and hpNow ~= nil then
+            return (hpNow < hpBefore - 0.01), hpNow
+        end
+        return false, hpNow
+    end
+
+    -- Tier 1: Optional cooked Blueprint bridge (.pak)
+    local bridgeCDO = GetDamageBridgeCDO(entry)
+    if IsValidUObject(bridgeCDO) and type(bridgeCDO.ApplyArcaneWildsDamage) == "function" then
+        local okB, resB = pcall(function()
+            return bridgeCDO:ApplyArcaneWildsDamage(
+                targetActor, instigatorPawn, amtNum, dmgClassByte, hitVec, instVec, forceVal, attackId)
+        end)
+        local dropped, hpNow = DidHealthDrop()
+        table.insert(traceParts, string.format("BPBridge(ok=%s,res=%s)", tostring(okB), tostring(resB)))
+        if (okB and resB == true) or dropped then
+            damageApplied = true
+            usedNativePipeline = true
+        end
+    end
+
+    local dmgLib = GetDamageFunctionLibrary()
+    local predictedEvt = nil
+
+    -- Tier 2A: Native UDamageComponent:PredictDamage -> UDamageFunctionLibrary:ApplyDamage
+    if not damageApplied and IsValidUObject(damageComp) and type(damageComp.PredictDamage) == "function" then
+        local worldTime = GetWorldTimeSecondsSafe(instigatorPawn)
+        local typeDamagesArg = {
+            {
+                StatusEffect = 0,
+                Types = { GameplayTags = {} },
+                Amount = amtNum
+            }
+        }
+        local okPred, predRes = pcall(function()
+            return damageComp:PredictDamage(
+                dmgClassByte,
+                typeDamagesArg,
+                worldTime,
+                instigatorPawn,
+                instigatorPawn,
+                hitVec,
+                5, -- EReactionDirectionality::Outwards
+                forceVal,
+                attackId
+            )
+        end)
+        if okPred and predRes ~= nil then
+            predictedEvt = predRes
+            table.insert(traceParts, "PredictDamage:ok")
+            if IsValidUObject(dmgLib) and type(dmgLib.ApplyDamage) == "function" then
+                local okApp, appRes = pcall(function()
+                    return dmgLib:ApplyDamage(targetActor, predictedEvt)
+                end)
+                local dropped = DidHealthDrop()
+                table.insert(traceParts, string.format("DFL.ApplyDamage(predicted,ok=%s,res=%s)", tostring(okApp), tostring(appRes)))
+                if (okApp and appRes == true) or dropped then
+                    damageApplied = true
+                    usedNativePipeline = true
+                end
+            end
+        else
+            table.insert(traceParts, "PredictDamage:err(" .. tostring(predRes) .. ")")
+        end
+    end
+
+    -- Tier 2B: Native UDamageFunctionLibrary:ApplyDamage with full FDominionDamageEvent table
+    local fullEvtTable = nil
+    if not damageApplied and IsValidUObject(dmgLib) and type(dmgLib.ApplyDamage) == "function" then
+        fullEvtTable = BuildFullDominionDamageEventTable(
+            instigatorPawn, amtNum, dmgClassByte, instVec, hitVec, victimFwd, forceVal, attackId)
+        local okApp, appRes = pcall(function()
+            return dmgLib:ApplyDamage(targetActor, fullEvtTable)
+        end)
+        local dropped = DidHealthDrop()
+        table.insert(traceParts, string.format("DFL.ApplyDamage(table,ok=%s,res=%s)", tostring(okApp), tostring(appRes)))
+        if (okApp and appRes == true) or dropped then
+            damageApplied = true
+            usedNativePipeline = true
+        end
+    end
+
+    -- Tier 3: Native UDamageComponent:ApplyDamageFromGameplayEffect(evt, true, true)
+    if not damageApplied and IsValidUObject(damageComp) and type(damageComp.ApplyDamageFromGameplayEffect) == "function" then
+        local evtToUse = predictedEvt or fullEvtTable or BuildFullDominionDamageEventTable(
+            instigatorPawn, amtNum, dmgClassByte, instVec, hitVec, victimFwd, forceVal, attackId)
+        local okGe, errGe = pcall(function()
+            damageComp:ApplyDamageFromGameplayEffect(evtToUse, true, true)
+        end)
+        local dropped = DidHealthDrop()
+        table.insert(traceParts, string.format("DC.ApplyDamageFromGE(ok=%s,dropped=%s,err=%s)",
+            tostring(okGe), tostring(dropped), tostring(okGe and "" or errGe)))
+        if dropped then
+            damageApplied = true
+            usedNativePipeline = true
+        end
+    end
+
+    -- Tier 4: Direct HealthComponent fallback + official UDamageFloatiesSubsystem:DisplayDamage
+    if not damageApplied and not skipDirectHp and IsValidUObject(healthComp) then
+        local ctxArg = MakeFStringArg("ArcaneWilds_CustomSpell")
+        local okDec, errDec = pcall(function()
+            if type(healthComp.DecreaseHealth) == "function" then
+                healthComp:DecreaseHealth(amtNum, ctxArg)
+            elseif type(healthComp.ModifyAuthoritativeHealth) == "function" then
+                healthComp:ModifyAuthoritativeHealth(-amtNum)
+            else
+                error("no health decrease method")
+            end
+        end)
+        if not okDec then
+            okDec, errDec = pcall(function()
+                if type(healthComp.DecreaseHealth) == "function" then
+                    healthComp:DecreaseHealth(amtNum, "ArcaneWilds_CustomSpell")
+                end
+            end)
+        end
+        local dropped = DidHealthDrop()
+        table.insert(traceParts, string.format("HealthFallback(ok=%s,dropped=%s,err=%s)",
+            tostring(okDec), tostring(dropped), tostring(okDec and "" or errDec)))
+        if okDec or dropped then
+            damageApplied = true
+            DisplayDamageFloatie(amtNum, floatieLoc, logFn)
+        end
+    elseif damageApplied and (forceFloatie or not usedNativePipeline) then
+        DisplayDamageFloatie(amtNum, floatieLoc, logFn)
+    end
+
+    local hpAfter = ReadActorHealth(healthComp)
+    local hpDeltaStr = ""
+    if hpBefore ~= nil and hpAfter ~= nil then
+        hpDeltaStr = string.format(" hp:%.1f->%.1f", hpBefore, hpAfter)
+    end
+    local summary = table.concat(traceParts, " -> ") .. hpDeltaStr
+    return damageApplied, summary
+end
+
+local function ApplyRolledImpactDamage(pawn, loc, minDmg, maxDmg, radius, entry, logFn)
     if not loc or not minDmg then return end
     local lo = math.floor(tonumber(minDmg) or 100)
     local hi = math.max(lo, math.floor(tonumber(maxDmg) or lo))
     local rolledDmg = (hi > lo) and math.random(lo, hi) or lo
     local rad = tonumber(radius) or 350.0
+    local rSq = rad * rad
 
-    local pc = nil
+    local instLoc = nil
     pcall(function()
-        if pawn and pawn:IsValid() then pc = pawn.Controller end
+        if IsValidUObject(pawn) then instLoc = pawn:K2_GetActorLocation() end
     end)
 
-    -- 1. Try GameplayStatics:ApplyRadialDamage at the impact location (ignores self pawn)
-    local appliedRadial = false
+    local seenNames = {}
+    local pawnFullLow = SafeObjName(pawn):lower()
+    local candidates = {}
     pcall(function()
-        local gpStatics = StaticFindObject("/Script/Engine.Default__GameplayStatics")
-        if gpStatics and gpStatics:IsValid() and gpStatics.ApplyRadialDamage then
-            local ignoreList = {}
-            if pawn and pawn:IsValid() then table.insert(ignoreList, pawn) end
-            appliedRadial = gpStatics:ApplyRadialDamage(
-                pawn, rolledDmg, loc, rad, nil, ignoreList, pawn, pc, true, 0)
+        local aiList = FindAllOf("DominionAICharacter")
+        if aiList then
+            for _, a in ipairs(aiList) do table.insert(candidates, a) end
+        end
+    end)
+    pcall(function()
+        local chList = FindAllOf("Character")
+        if chList then
+            for _, c in ipairs(chList) do table.insert(candidates, c) end
         end
     end)
 
-    -- 2. Also scan nearby Character/AI pawns within radius and apply direct damage fallback
-    --    if radial damage didn't connect or if targets use custom Dominion health/damage receivers.
-    if not appliedRadial then
-        pcall(function()
-            local gpStatics = StaticFindObject("/Script/Engine.Default__GameplayStatics")
-            local chars = FindAllOf("Character")
-            if chars then
-                for _, ch in ipairs(chars) do
-                    if ch and ch:IsValid() and ch ~= pawn then
-                        local cLoc = nil
-                        pcall(function() cLoc = ch:K2_GetActorLocation() end)
-                        if cLoc then
-                            local dx = (cLoc.X or 0) - (loc.X or 0)
-                            local dy = (cLoc.Y or 0) - (loc.Y or 0)
-                            local dz = (cLoc.Z or 0) - (loc.Z or 0)
-                            local distSq = dx * dx + dy * dy + dz * dz
-                            if distSq <= (rad * rad) then
-                                if gpStatics and gpStatics:IsValid() and gpStatics.ApplyDamage then
-                                    pcall(function()
-                                        gpStatics:ApplyDamage(ch, rolledDmg, pc, pawn, nil)
-                                    end)
-                                end
-                            end
-                        end
+    local hitAny = false
+    for _, ch in ipairs(candidates) do
+        if IsValidUObject(ch) and ch ~= pawn then
+            local fName = SafeObjName(ch)
+            local fLow = fName:lower()
+            if fLow ~= "" and fLow ~= pawnFullLow and not fLow:find("bp_playercharacter", 1, true) and not seenNames[fLow] then
+                seenNames[fLow] = true
+                local cLoc = nil
+                pcall(function() cLoc = ch:K2_GetActorLocation() end)
+                if cLoc then
+                    local dx = (cLoc.X or 0) - (loc.X or 0)
+                    local dy = (cLoc.Y or 0) - (loc.Y or 0)
+                    local dz = (cLoc.Z or 0) - (loc.Z or 0)
+                    if (dx * dx + dy * dy + dz * dz) <= rSq then
+                        local okD = ApplyDominionBlueprintDamage(ch, pawn, rolledDmg, cLoc, instLoc or loc, entry, logFn)
+                        if okD then hitAny = true end
                     end
                 end
+            end
+        end
+    end
+
+    if not hitAny then
+        pcall(function()
+            local pc = IsValidUObject(pawn) and pawn.Controller or nil
+            local gpStatics = StaticFindObject("/Script/Engine.Default__GameplayStatics")
+            if IsValidUObject(gpStatics) and gpStatics.ApplyRadialDamage then
+                local ignoreList = {}
+                if IsValidUObject(pawn) then table.insert(ignoreList, pawn) end
+                gpStatics:ApplyRadialDamage(pawn, rolledDmg, loc, rad, nil, ignoreList, pawn, pc, true, 0)
             end
         end)
     end
@@ -621,7 +1115,7 @@ local function FireImpactAtLocation(pawn, pending, loc)
 
         -- 4. Roll damage on targets hit around the impact location
         if pending.damageMin then
-            ApplyRolledImpactDamage(pawn, loc, pending.damageMin, pending.damageMax, pending.damageRadius)
+            ApplyRolledImpactDamage(pawn, loc, pending.damageMin, pending.damageMax, pending.damageRadius, pending.entry)
         end
     end
 end
@@ -728,203 +1222,6 @@ function CustomSpells.PlayEntryMontageOnPawn(pawn, entry, rate, state)
     return true
 end
 
-local AI_DAMAGE_METHOD_NAMES = {
-    "ApplyDamage", "ReceiveDamage", "HandleDamage", "TakeDamage", "InflictDamage",
-    "DealDamage", "ProcessDamage", "OnDamageReceived", "ApplyHit", "TriggerHitReaction",
-    "ModifyHealth", "AdjustHealth", "SubtractHealth", "ApplyHealthDelta", "ApplyRadialDamage"
-}
-
-local function BuildDominionDamageEventPayload(instigatorPawn, dmgAmount, instLoc, victimLoc)
-    local amt = tonumber(dmgAmount) or 100.0
-    local evt = nil
-    pcall(function()
-        local structType = StaticFindObject("/Script/Dominion.DominionDamageEvent")
-        if structType and structType:IsValid() and type(structType) == "userdata" then
-            if NewObject then
-                evt = NewObject(structType, nil)
-            end
-        end
-    end)
-    if evt then
-        pcall(function() evt.Amount = amt end)
-        pcall(function() evt.AmountAbsorbedByShield = 0.0 end)
-        pcall(function() evt.Instigator = instigatorPawn end)
-        pcall(function() evt.Source = instigatorPawn end)
-        pcall(function() if instLoc then evt.InstigatorLocation = instLoc end end)
-        pcall(function() if victimLoc then evt.VictimLocation = victimLoc end end)
-        pcall(function() evt.Force = 260.0 end)
-        pcall(function() evt.bIsFatalHit = false end)
-        pcall(function() evt.CachedDamageShouldHitReact = true end)
-        return evt
-    end
-    return {
-        Amount = amt,
-        AmountAbsorbedByShield = 0.0,
-        Instigator = instigatorPawn,
-        Source = instigatorPawn,
-        InstigatorLocation = instLoc or { X = 0, Y = 0, Z = 0 },
-        VictimLocation = victimLoc or { X = 0, Y = 0, Z = 0 },
-        Force = 260.0,
-        bIsFatalHit = false,
-        CachedDamageShouldHitReact = true
-    }
-end
-
-local function MakeFStringArg(strVal)
-    local s = tostring(strVal or "")
-    local fstr = nil
-    pcall(function()
-        if type(FString) == "function" then
-            fstr = FString(s)
-        end
-    end)
-    return fstr or s
-end
-
-local function TryCallOnTargetObj(obj, instigatorPawn, dmgAmount, hitLoc, pcObj, instLoc)
-    if not obj then return false, "" end
-    local valid = false
-    pcall(function() valid = obj:IsValid() end)
-    if not valid then return false, "" end
-
-    local calledAny = false
-    local callsLog = {}
-    local amtNum = tonumber(dmgAmount) or 65.0
-
-    local hpBefore = nil
-    pcall(function()
-        if obj.GetAuthoritativeHealth then hpBefore = tonumber(obj:GetAuthoritativeHealth()) end
-    end)
-
-    -- Single clean health call on HealthComponent: prefer DecreaseHealth once (avoiding
-    -- double-calling ModifyAuthoritativeHealth + DecreaseHealth which caused abrupt hp->0.0 deaths
-    -- without GUI floaties).
-    local ctxArg = MakeFStringArg("ArcaneWilds_Spin")
-    local okDec = false
-    pcall(function()
-        if obj.DecreaseHealth then
-            obj:DecreaseHealth(amtNum, ctxArg)
-            okDec = true
-        end
-    end)
-    if not okDec then
-        pcall(function()
-            if obj.DecreaseHealth then
-                obj:DecreaseHealth(amtNum, "ArcaneWilds_Spin")
-                okDec = true
-            end
-        end)
-    end
-    if okDec then
-        calledAny = true
-        table.insert(callsLog, "DecreaseHealth")
-    elseif type(obj.ModifyAuthoritativeHealth) == "function" then
-        local okMod = pcall(function() obj:ModifyAuthoritativeHealth(-amtNum) end)
-        if okMod then
-            calledAny = true
-            table.insert(callsLog, "ModifyAuthoritativeHealth")
-        end
-    end
-
-    local dmgEvt = BuildDominionDamageEventPayload(instigatorPawn, amtNum, instLoc, hitLoc)
-    if type(obj.ApplyDamageFromGameplayEffect) == "function" then
-        local okEvt = pcall(function()
-            obj:ApplyDamageFromGameplayEffect(dmgEvt, true, true)
-        end)
-        if okEvt then
-            calledAny = true
-            table.insert(callsLog, "ApplyDamageFromGameplayEffect")
-        end
-    end
-    if type(obj.Multicast_ApplyDamageFromGameplayEffect) == "function" then
-        local okMc = pcall(function()
-            obj:Multicast_ApplyDamageFromGameplayEffect(dmgEvt, 0)
-        end)
-        if okMc then
-            calledAny = true
-            table.insert(callsLog, "Multicast_ApplyDamageFromGameplayEffect")
-        end
-    end
-
-    for _, fnName in ipairs(AI_DAMAGE_METHOD_NAMES) do
-        local okFn, fn = pcall(function() return obj[fnName] end)
-        if okFn and type(fn) == "function" then
-            local okCall = pcall(function() fn(obj, amtNum, instigatorPawn, hitLoc, pcObj) end)
-                or pcall(function() fn(obj, amtNum, instigatorPawn, hitLoc) end)
-                or pcall(function() fn(obj, amtNum) end)
-            if okCall then
-                calledAny = true
-                table.insert(callsLog, fnName)
-            end
-        end
-    end
-
-    local hpAfter = nil
-    pcall(function()
-        if obj.GetAuthoritativeHealth then hpAfter = tonumber(obj:GetAuthoritativeHealth()) end
-    end)
-    local hpDeltaStr = ""
-    if hpBefore ~= nil and hpAfter ~= nil then
-        hpDeltaStr = string.format(" hp:%.1f->%.1f", hpBefore, hpAfter)
-    end
-    return calledAny, table.concat(callsLog, "+") .. hpDeltaStr
-end
-
-local function TryInvokeAiDamageComponent(targetActor, instigatorPawn, dmgAmount, hitLoc, pcObj, instLoc)
-    if not targetActor or not targetActor:IsValid() or targetActor == instigatorPawn then return false, "none" end
-    local invoked = false
-    local summaryParts = {}
-    local callDetails = {}
-    local compProps = {
-        "HealthComponent",
-        "AiDamageComponent", "BP_AiDamageComponent",
-        "AiHitPointsComponent", "BP_AiHitPointsComponent",
-        "AiHitReactionsComponent", "BP_AiHitReactionsComponent",
-        "GameplayEffectsComponent"
-    }
-    for _, cProp in ipairs(compProps) do
-        local okC, comp = pcall(function() return targetActor[cProp] end)
-        if okC and comp and comp:IsValid() then
-            local hpTag = ""
-            if cProp == "HealthComponent" then
-                pcall(function()
-                    if comp.GetAuthoritativeHealth then
-                        hpTag = string.format("(hp=%.1f)", tonumber(comp:GetAuthoritativeHealth()) or -1)
-                    end
-                end)
-            end
-            table.insert(summaryParts, cProp .. hpTag)
-            local okCall, detail = TryCallOnTargetObj(comp, instigatorPawn, dmgAmount, hitLoc, pcObj, instLoc)
-            if okCall then
-                invoked = true
-                if detail ~= "" then table.insert(callDetails, cProp .. ":" .. detail) end
-            end
-            pcall(function()
-                local ncc = comp.NativeComponentContainer
-                local nativeComp = ncc and ncc.Container
-                if nativeComp then
-                    local okN, detailN = TryCallOnTargetObj(nativeComp, instigatorPawn, dmgAmount, hitLoc, pcObj, instLoc)
-                    if okN then
-                        invoked = true
-                        if detailN ~= "" then table.insert(callDetails, cProp .. ".Native:" .. detailN) end
-                    end
-                end
-            end)
-        end
-    end
-    local infoStr = (#summaryParts > 0) and table.concat(summaryParts, ",") or "no-damage-comps"
-    if #callDetails > 0 then
-        infoStr = infoStr .. " calls=[" .. table.concat(callDetails, ";") .. "]"
-    end
-    return invoked, infoStr
-end
-
-local function SafeObjName(obj)
-    if not obj then return "nil" end
-    local ok, n = pcall(function() return obj:GetFullName() end)
-    return (ok and n) or tostring(obj)
-end
-
 local function ExecuteAroundPlayerHitbox(pawn, entry, debugLogFn)
     if not pawn or not pawn:IsValid() or not entry then return end
     local function logHb(msg)
@@ -948,8 +1245,8 @@ local function ExecuteAroundPlayerHitbox(pawn, entry, debugLogFn)
         local hi = math.max(lo, math.floor(tonumber(maxD) or lo))
         local rolledDmg = (hi > lo) and math.random(lo, hi) or lo
 
-        logHb(string.format("SpinHitbox firing [%s] around player (%.1f,%.1f,%.1f) radius=%.1f dmg=%d",
-            tostring(entry.shortName), loc.X or 0, loc.Y or 0, loc.Z or 0, rad, rolledDmg))
+        logHb(string.format("SpinHitbox firing [%s] around player (%.1f,%.1f,%.1f) radius=%.1f dmg=%d class=%d",
+            tostring(entry.shortName), loc.X or 0, loc.Y or 0, loc.Z or 0, rad, rolledDmg, ResolveDamageClassByte(entry)))
 
         if entry.hitVfxObj and entry.hitVfxObj:IsValid() then
             pcall(function()
@@ -967,20 +1264,19 @@ local function ExecuteAroundPlayerHitbox(pawn, entry, debugLogFn)
                 end
             end)
         end
-        ApplyRolledImpactDamage(pawn, loc, rolledDmg, rolledDmg, rad)
 
         local rSq = rad * rad
         local hitCount = 0
         local seenNames = {}
         local pawnFullLow = SafeObjName(pawn):lower()
         local candidates = {}
-        local chList = FindAllOf("Character")
-        if chList then
-            for _, c in ipairs(chList) do table.insert(candidates, c) end
-        end
         local aiList = FindAllOf("DominionAICharacter")
         if aiList then
             for _, a in ipairs(aiList) do table.insert(candidates, a) end
+        end
+        local chList = FindAllOf("Character")
+        if chList then
+            for _, c in ipairs(chList) do table.insert(candidates, c) end
         end
 
         local pcObj = nil
@@ -1001,11 +1297,9 @@ local function ExecuteAroundPlayerHitbox(pawn, entry, debugLogFn)
                         local distSq = dx*dx + dy*dy + dz*dz
                         if distSq <= rSq then
                             hitCount = hitCount + 1
-                            local skipDirectHp = (entry.customDef and entry.customDef.suppressDirectHealth == true)
-                            local compInvoked, compInfo = false, "skipped-direct-hp"
-                            if not skipDirectHp then
-                                compInvoked, compInfo = TryInvokeAiDamageComponent(ai, pawn, rolledDmg, aLoc, pcObj, loc)
-                            end
+                            local targetRolledDmg = (hi > lo) and math.random(lo, hi) or lo
+                            local compInvoked, compInfo = ApplyDominionBlueprintDamage(
+                                ai, pawn, targetRolledDmg, aLoc, loc, entry, logHb)
                             if entry.customDef and entry.customDef.damageGE and entry.customDef.damageGE ~= "" then
                                 pcall(function()
                                     local geName = tostring(entry.customDef.damageGE)
@@ -1016,12 +1310,17 @@ local function ExecuteAroundPlayerHitbox(pawn, entry, debugLogFn)
                                     end
                                     local gComp = ai.GameplayEffectsComponent
                                     local geMethods = {}
-                                    if gComp and gComp:IsValid() then
-                                        for _, mName in ipairs({ "ApplyGameplayEffect", "AddGameplayEffect", "TryApplyGameplayEffect", "ApplyEffect", "Server_ApplyGameplayEffect" }) do
-                                            if type(gComp[mName]) == "function" then
-                                                local okG = pcall(function() gComp[mName](gComp, geObj) end)
-                                                    or pcall(function() gComp[mName](gComp, geObj, pawn) end)
-                                                table.insert(geMethods, mName .. ":" .. tostring(okG))
+                                    if gComp and gComp:IsValid() and geObj and geObj:IsValid() then
+                                        if type(gComp.InstantiateGameplayEffect) == "function" and type(gComp.ApplyGameplayEffect) == "function" then
+                                            local okInst, handle = pcall(function()
+                                                return gComp:InstantiateGameplayEffect(geObj, nil, true)
+                                            end)
+                                            table.insert(geMethods, "InstantiateGE:" .. tostring(okInst))
+                                            if okInst and handle ~= nil then
+                                                local okApp, appRes = pcall(function()
+                                                    return gComp:ApplyGameplayEffect(pawn, pawn, handle, true)
+                                                end)
+                                                table.insert(geMethods, "ApplyGE:" .. tostring(okApp) .. "/" .. tostring(appRes))
                                             end
                                         end
                                     end
@@ -1029,8 +1328,8 @@ local function ExecuteAroundPlayerHitbox(pawn, entry, debugLogFn)
                                         geName, fName, geObj and SafeObjName(geObj) or "NIL", table.concat(geMethods, ",")))
                                 end)
                             end
-                            logHb(string.format("  Hit candidate #%d: %s dist=%.1f compInvoked=%s comps=[%s]",
-                                hitCount, fName, math.sqrt(distSq), tostring(compInvoked), tostring(compInfo)))
+                            logHb(string.format("  Hit candidate #%d: %s dist=%.1f dmg=%d applied=%s trace=[%s]",
+                                hitCount, fName, math.sqrt(distSq), targetRolledDmg, tostring(compInvoked), tostring(compInfo)))
                         end
                     end
                 end
@@ -1163,5 +1462,8 @@ function CustomSpells.TriggerCustomPresentation(pawn, entry, safeGetNameFn)
         end
     end
 end
+
+CustomSpells.ApplyDominionBlueprintDamage = ApplyDominionBlueprintDamage
+CustomSpells.DisplayDamageFloatie = DisplayDamageFloatie
 
 return CustomSpells

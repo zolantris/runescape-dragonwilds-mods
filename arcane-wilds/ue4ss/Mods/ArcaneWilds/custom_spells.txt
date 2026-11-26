@@ -32,6 +32,9 @@ HitRadius          = 400
 HitDamageMin       = 85
 HitDamageMax       = 165
 HitDelaySec        = 0.35
+DamageClass        = Magical
+DamageForce        = 260
+FloatieOffsetZ     = 90
 ExtraAoE           = DA_ZamorakStaff_Special
 ExtraAoEDelaySec   = 0.25
 SuppressDirectHealth = false
@@ -50,6 +53,9 @@ HitRadius          = 400
 HitDamageMin       = 85
 HitDamageMax       = 165
 HitDelaySec        = 0.35
+DamageClass        = Melee
+DamageForce        = 260
+FloatieOffsetZ     = 90
 ExtraAoE           = DA_ZamorakStaff_Special
 ExtraAoEDelaySec   = 0.25
 SuppressDirectHealth = false
@@ -58,5 +64,9 @@ Clamp              = true
 RuneCost           = air
 RuneCount          = 1
 
-# Optional: apply a GameplayEffect class/asset to hit targets in SpinHitbox (e.g. GE_AddBurning)
-# DamageGE = GE_AddBurning
+# Optional damage tuning keys for custom spells:
+#   DamageClass    = Melee | Magical | Ranged | None
+#   DamageForce    = 260
+#   FloatieOffsetZ = 90
+#   ForceFloatie   = false   (set true to always trigger DamageFloatiesSubsystem::DisplayDamage)
+#   DamageGE       = GE_AddBurning (optional UDominionGameplayEffectData class applied to hit targets)
