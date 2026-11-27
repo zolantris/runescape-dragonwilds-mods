@@ -7,8 +7,10 @@ local TimelineRunner = {}
 
 local TimelineInstanceCounter = 0
 local CachedUeClasses = {}
+local CachedSkillDataByName = {}
 local LoggedMismatchWarnings = {}
 local NormalizeUeAssetPath
+local ApplyNiagaraScaleAndParams
 
 local function IsValidUObject(obj)
     if not obj then return false end
@@ -820,6 +822,265 @@ local function ResolveAimTarget(pawn, maxRange, coneDeg, fallbackDist, config, e
     return fallbackLoc, pRot, nil, "forward"
 end
 
+-- ESkill enum values from UHTHeaderDump/Dominion/Public/ESkill.h
+local ESKILL_NAME_TO_BYTE = {
+    agility = 1, artisan = 2, attack = 3, construction = 4, cooking = 5,
+    defence = 6, defense = 6, herblore = 7, magic = 8, mining = 9,
+    ranged = 10, runecrafting = 11, thieving = 12, woodcutting = 13,
+    farming = 14, utility = 15, fishing = 16
+}
+
+-- Read the player's live skill level (e.g. Magic = 1..99) from USkillComponent.
+local function GetPlayerSkillLevel(pawn, skillName)
+    local sLow = tostring(skillName or "magic"):lower()
+    local targetByte = ESKILL_NAME_TO_BYTE[sLow] or 8
+    local skillComp = nil
+    pcall(function()
+        local pc = IsValidUObject(pawn) and pawn.Controller or nil
+        if not IsValidUObject(pc) then
+            pc = FindFirstOf("DominionPlayerController") or FindFirstOf("PlayerController")
+        end
+        if IsValidUObject(pc) then
+            if HasUFunc(pc, "GetPlayerSkillComponent") then
+                skillComp = pc:GetPlayerSkillComponent()
+            end
+            if not IsValidUObject(skillComp) then
+                skillComp = pc.SkillComponent
+            end
+        end
+        if not IsValidUObject(skillComp) and IsValidUObject(pawn) and HasUFunc(pawn, "GetSkillComponent") then
+            skillComp = pawn:GetSkillComponent()
+        end
+        if not IsValidUObject(skillComp) then
+            skillComp = FindFirstOf("SkillComponent")
+        end
+    end)
+    if not IsValidUObject(skillComp) then return 1 end
+
+    local skillData = CachedSkillDataByName[sLow]
+    if not IsValidUObject(skillData) then
+        skillData = nil
+        pcall(function()
+            local arr = skillComp.Skills
+            if arr and type(arr) == "userdata" then
+                arr:ForEach(function(_, wrap)
+                    if skillData then return end
+                    pcall(function()
+                        local fs = wrap:get()
+                        local sd = fs and fs.SkillData
+                        if IsValidUObject(sd) then
+                            local matched = false
+                            if HasUFunc(sd, "GetSkillType") then
+                                local okT, st = pcall(function() return sd:GetSkillType() end)
+                                if okT and tonumber(st) == targetByte then matched = true end
+                            end
+                            if not matched and SafeObjName(sd):lower():find(sLow, 1, true) then
+                                matched = true
+                            end
+                            if matched then
+                                skillData = sd
+                            end
+                        end
+                    end)
+                end)
+            end
+        end)
+        if IsValidUObject(skillData) then
+            CachedSkillDataByName[sLow] = skillData
+        end
+    end
+
+    if IsValidUObject(skillData) and HasUFunc(skillComp, "GetSkillLevel") then
+        local okL, lvl = pcall(function() return tonumber(skillComp:GetSkillLevel(skillData)) end)
+        if okL and lvl and lvl >= 1 then
+            return math.floor(lvl)
+        end
+    end
+    return 1
+end
+
+-- Native UE5 Line-of-Sight check via AController::LineOfSightTo (crash-proof primitive/pointer args only).
+local function HasLineOfSightToActor(pawn, targetActor)
+    if not IsValidUObject(pawn) or not IsValidUObject(targetActor) then return false end
+    local pc = nil
+    pcall(function() pc = pawn.Controller end)
+    if not IsValidUObject(pc) then
+        pcall(function() pc = FindFirstOf("DominionPlayerController") or FindFirstOf("PlayerController") end)
+    end
+    if not IsValidUObject(pc) or not HasUFunc(pc, "LineOfSightTo") then
+        return true
+    end
+    local pLoc, _, camLoc = GetPlayerAimOriginAndRot(pawn)
+    local eyeLoc = MakeVec(pLoc.X, pLoc.Y, pLoc.Z + 120.0)
+    local visible = false
+    pcall(function()
+        visible = (pc:LineOfSightTo(targetActor, eyeLoc, false) == true)
+    end)
+    if not visible then
+        pcall(function()
+            visible = (pc:LineOfSightTo(targetActor, MakeVec(pLoc.X, pLoc.Y, pLoc.Z + 155.0), true) == true)
+        end)
+    end
+    if not visible and IsNonZeroWorldLoc(camLoc) then
+        pcall(function()
+            visible = (pc:LineOfSightTo(targetActor, camLoc, false) == true)
+        end)
+    end
+    return visible
+end
+
+-- Pick the next target for a ChainStrike barrage:
+-- Prefers alive, LOS-visible enemies with the LOWEST hit count (other unhit enemies first),
+-- wrapping back to already-hit / primary enemy when no other enemies remain!
+local function PickNextChainStrikeTarget(pawn, csChain)
+    local pawnLow = SafeObjName(pawn):lower()
+    -- Strike #1 always targets primaryActor if alive
+    if csChain.firedStrikes == 0 then
+        if IsEnemyAliveAndTargetable(csChain.primaryActor, pawn, pawnLow) then
+            if (not csChain.requireLos) or HasLineOfSightToActor(pawn, csChain.primaryActor) then
+                return csChain.primaryActor, select(1, GetActorLocAndRot(csChain.primaryActor))
+            end
+        end
+    end
+
+    -- Refresh anchor location around primary target if still alive, else last struck position
+    local anchorLoc = csChain.lastAnchorLoc
+    if IsEnemyAliveAndTargetable(csChain.primaryActor, pawn, pawnLow) then
+        anchorLoc = select(1, GetActorLocAndRot(csChain.primaryActor))
+    end
+    if not IsNonZeroWorldLoc(anchorLoc) then return nil, nil end
+
+    local nearby = FindNearbyEnemyTargets(pawn, anchorLoc, MakeRot(0, 0, 0), csChain.chainRadius, nil, nil)
+    local candidates = {}
+    local seen = {}
+
+    local function considerActor(actor, loc)
+        if not IsEnemyAliveAndTargetable(actor, pawn, pawnLow) then return end
+        local key = SafeObjName(actor):lower()
+        if seen[key] then return end
+        if csChain.requireLos and not HasLineOfSightToActor(pawn, actor) then return end
+        seen[key] = true
+        local dx = loc.X - anchorLoc.X
+        local dy = loc.Y - anchorLoc.Y
+        local dz = loc.Z - anchorLoc.Z
+        local isPrimary = (actor == csChain.primaryActor)
+        table.insert(candidates, {
+            actor = actor,
+            key = key,
+            loc = loc,
+            hits = csChain.hitCounts[key] or 0,
+            distSq = dx * dx + dy * dy + dz * dz,
+            isPrimary = isPrimary
+        })
+    end
+
+    if IsEnemyAliveAndTargetable(csChain.primaryActor, pawn, pawnLow) then
+        considerActor(csChain.primaryActor, select(1, GetActorLocAndRot(csChain.primaryActor)))
+    end
+    for _, e in ipairs(nearby) do
+        considerActor(e.actor, e.loc)
+    end
+
+    if #candidates == 0 then return nil, nil end
+
+    if csChain.preferUnique then
+        table.sort(candidates, function(a, b)
+            if a.hits ~= b.hits then return a.hits < b.hits end
+            if a.hits > 0 and a.isPrimary ~= b.isPrimary then return a.isPrimary end
+            return a.distSq < b.distSq
+        end)
+    else
+        table.sort(candidates, function(a, b)
+            if a.isPrimary ~= b.isPrimary then return a.isPrimary end
+            return a.distSq < b.distSq
+        end)
+    end
+
+    return candidates[1].actor, candidates[1].loc
+end
+
+-- Execute one individual thunderbolt strike from a ChainStrike cue.
+local function FireSingleChainStrike(tlInst, cue, cueState, pawn, customSpells, debugLogFn, now)
+    local ch = cueState.chainState
+    if not ch then return false end
+    local targetActor, targetLoc = PickNextChainStrikeTarget(pawn, ch)
+    if not IsValidUObject(targetActor) or not IsNonZeroWorldLoc(targetLoc) then
+        return false
+    end
+
+    local tKey = SafeObjName(targetActor):lower()
+    ch.hitCounts[tKey] = (ch.hitCounts[tKey] or 0) + 1
+    ch.firedStrikes = ch.firedStrikes + 1
+    ch.lastAnchorLoc = targetLoc
+
+    local p = ch.params or {}
+    local minD = tonumber(p.dmgMin) or 65
+    local maxD = tonumber(p.dmgMax) or minD
+    local lo, hi = math.floor(minD), math.max(math.floor(minD), math.floor(maxD))
+    pcall(function()
+        local okPS, PS = pcall(require, "progression_scaling")
+        if okPS and PS and PS.ComputeDamageMultiplier and PS.ScaleDamageRange then
+            local mult = PS.ComputeDamageMultiplier(tlInst.config, nil, pawn, tlInst.entry, p)
+            lo, hi = PS.ScaleDamageRange(minD, maxD, mult)
+        end
+    end)
+    local rolledDmg = (hi > lo) and math.random(lo, hi) or lo
+
+    -- Build lightweight effective entry for ApplyDominionBlueprintDamage
+    local effDef = {}
+    if tlInst.entry and tlInst.entry.customDef then
+        for k, v in pairs(tlInst.entry.customDef) do effDef[k] = v end
+    end
+    if p.damageClass and p.damageClass ~= "" then effDef.damageClass = p.damageClass:lower() end
+    if p.force ~= nil then effDef.damageForce = tonumber(p.force) end
+    if p.ge and p.ge ~= "" then effDef.damageGE = p.ge end
+    local effEntry = { shortName = tlInst.spellName, customDef = effDef }
+
+    local instLoc = select(1, GetActorLocAndRot(pawn))
+    local applied, trace = false, ""
+    if customSpells and customSpells.ApplyDominionBlueprintDamage then
+        applied, trace = customSpells.ApplyDominionBlueprintDamage(targetActor, pawn, rolledDmg, targetLoc, instLoc, effEntry, debugLogFn)
+    end
+
+    -- Spawn scaled lightning / strike VFX directly on the struck enemy
+    if IsValidUObject(ch.vfxObj) then
+        local nsLib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
+        if IsValidUObject(nsLib) and HasUFunc(nsLib, "SpawnSystemAtLocation") then
+            local strikeLoc = LocalOffsetToWorld(targetLoc, MakeRot(0, 0, 0), p.offset)
+            local okV, comp = pcall(function()
+                return nsLib:SpawnSystemAtLocation(pawn, ch.vfxObj, strikeLoc, MakeRot(0, math.random(0, 359), 0), ch.vfxScale, true, true, 0, false)
+            end)
+            if okV and IsValidUObject(comp) then
+                ApplyNiagaraScaleAndParams(comp, ch.vfxScale, p, false)
+                cueState.vfxComps = cueState.vfxComps or {}
+                table.insert(cueState.vfxComps, comp)
+                table.insert(ch.spawnedVfx, { comp = comp, expireAt = now + ch.vfxDur })
+            end
+        end
+    end
+
+    -- Play thunder / strike SFX at the struck enemy with slight pitch jitter
+    if IsValidUObject(ch.sfxObj) then
+        local gpStatics = StaticFindObject("/Script/Engine.Default__GameplayStatics")
+        if IsValidUObject(gpStatics) then
+            local vol = tonumber(p.vol) or 0.95
+            local basePitch = tonumber(p.pitch) or 1.0
+            local pitch = basePitch * (0.94 + math.random() * 0.14)
+            if HasUFunc(gpStatics, "SpawnSoundAtLocation") then
+                pcall(function() gpStatics:SpawnSoundAtLocation(pawn, ch.sfxObj, targetLoc, MakeRot(0, 0, 0), vol, pitch, 0.0, nil, nil, true) end)
+            elseif HasUFunc(gpStatics, "PlaySoundAtLocation") then
+                pcall(function() gpStatics:PlaySoundAtLocation(pawn, ch.sfxObj, targetLoc) end)
+            end
+        end
+    end
+
+    if debugLogFn then
+        debugLogFn(string.format("Timeline [%s] ChainStrike %d/%d -> %s (hits=%d, dmg=%d, applied=%s)",
+            tlInst.spellName, ch.firedStrikes, ch.totalStrikes, SafeObjName(targetActor), ch.hitCounts[tKey], rolledDmg, tostring(applied)))
+    end
+    return true
+end
+
 -- Inspect a live ADominionSpellActor's SpellInstance.Graph for:
 --   1. Exact USpellModule_CollisionRuntime CollisionPoint (where the spell ACTUALLY hit!)
 --   2. Active USpellModule_SpawnActorRuntime.Actor (the actual flying Air Bolt / projectile actor!)
@@ -884,7 +1145,7 @@ end
 
 -- Apply transform scale AND common/explicit Niagara User Parameters so both local-space
 -- and world-space Niagara VFX (such as sky lightning bolts) scale cleanly.
-local function ApplyNiagaraScaleAndParams(comp, scale, cueParams, isAttached)
+ApplyNiagaraScaleAndParams = function(comp, scale, cueParams, isAttached)
     if not IsValidUObject(comp) then return end
     local sx = scale and scale.X or 1.0
     local sy = scale and scale.Y or 1.0
@@ -1559,6 +1820,130 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
             end)
         end
         cueState.expectedDur = 0.0
+
+    elseif cType == "chainstrike" then
+        local requireLock = (p.requireLock ~= false)
+        local requireLos  = (p.los ~= false)
+
+        -- 1. Resolve primary target (strictly locked-on when requireLock=true)
+        local primaryActor, primaryLoc = ResolveLockedOnEnemy(pawn, math.max(3000.0, tonumber(p.range) or 3000.0))
+        if not IsValidUObject(primaryActor) and not requireLock then
+            local aimLoc, _, aimActor = ResolveAimTarget(pawn, p.range, p.cone, nil, tlInst.config, tlInst.entry, debugLogFn)
+            if IsValidUObject(aimActor) then
+                primaryActor = aimActor
+                primaryLoc = aimLoc
+            end
+        end
+
+        if not IsValidUObject(primaryActor) or not IsNonZeroWorldLoc(primaryLoc) then
+            if debugLogFn then
+                debugLogFn(string.format("Timeline [%s] ChainStrike #%d skipped (no %s enemy found)",
+                    tlInst.spellName, cue.index, requireLock and "locked-on" or "targeted"))
+            end
+            cueState.expectedDur = 0.0
+            return
+        end
+
+        if requireLos and not HasLineOfSightToActor(pawn, primaryActor) then
+            if debugLogFn then
+                debugLogFn(string.format("Timeline [%s] ChainStrike #%d blocked (no Line of Sight to %s)",
+                    tlInst.spellName, cue.index, SafeObjName(primaryActor)))
+            end
+            cueState.expectedDur = 0.0
+            return
+        end
+
+        -- 2. Compute strike count from live player skill level (e.g. +1 per 10 Magic levels)
+        local skillName = p.skill or "magic"
+        local skillLvl = GetPlayerSkillLevel(pawn, skillName)
+        local baseStrikes = math.max(1, math.floor(tonumber(p.baseStrikes) or 1))
+        local levelsPer = math.max(1, math.floor(tonumber(p.levelsPerStrike) or 10))
+        local maxStrikes = math.max(baseStrikes, math.floor(tonumber(p.maxStrikes) or 10))
+        local totalStrikes = math.min(maxStrikes, baseStrikes + math.floor(skillLvl / levelsPer))
+        local interval = math.max(0.02, tonumber(p.interval) or 0.15)
+        if scaleSpeed and stageSpeed > 0.1 then
+            interval = interval / stageSpeed
+        end
+
+        -- 3. Resolve & type-validate VFX and SFX once for the entire barrage
+        local vfxAsset = cue.asset or p.vfx or "lightning"
+        local vfxObj = nil
+        if vfxAsset and vfxAsset ~= "" then
+            local cleaned = NormalizeUeAssetPath(vfxAsset)
+            local lookupPath = (state and state.VfxPathLookup and state.VfxPathLookup[cleaned:lower()]) or cleaned
+            lookupPath = NormalizeUeAssetPath(lookupPath)
+            if customSpells and customSpells.FindObjectFast then vfxObj = customSpells.FindObjectFast(lookupPath) end
+            if not IsValidUObject(vfxObj) and lookupPath:find("/", 1, true) then
+                pcall(function() vfxObj = StaticFindObject(lookupPath) end)
+                if not IsValidUObject(vfxObj) and type(LoadAsset) == "function" then
+                    pcall(function() LoadAsset(lookupPath) end)
+                    pcall(function() vfxObj = StaticFindObject(lookupPath) end)
+                end
+            end
+            if not IsValidUObject(vfxObj) and customSpells and customSpells.FindAssetByKeywordOnDemand then
+                local kwSearch = cleaned:match("%.([^%.]+)$") or cleaned:match("/([^/]+)$") or cleaned
+                vfxObj = customSpells.FindAssetByKeywordOnDemand("NiagaraSystem", kwSearch, safeGetNameFn)
+            end
+            if IsValidUObject(vfxObj) and not ValidateCueAssetType(vfxObj, "vfx", tlInst.spellName, cue.index, vfxAsset) then
+                vfxObj = nil
+            end
+        end
+
+        local sfxObj = nil
+        if p.sfx and p.sfx ~= "" then
+            local cleanedSfx = NormalizeUeAssetPath(p.sfx)
+            if customSpells and customSpells.FindObjectFast then sfxObj = customSpells.FindObjectFast(cleanedSfx) end
+            if not IsValidUObject(sfxObj) and cleanedSfx:find("/", 1, true) then
+                pcall(function() sfxObj = StaticFindObject(cleanedSfx) end)
+                if not IsValidUObject(sfxObj) and type(LoadAsset) == "function" then
+                    pcall(function() LoadAsset(cleanedSfx) end)
+                    pcall(function() sfxObj = StaticFindObject(cleanedSfx) end)
+                end
+            end
+            if not IsValidUObject(sfxObj) and customSpells and customSpells.FindAssetByKeywordOnDemand then
+                sfxObj = customSpells.FindAssetByKeywordOnDemand("SoundBase", p.sfx, safeGetNameFn)
+                    or customSpells.FindAssetByKeywordOnDemand("SoundWave", p.sfx, safeGetNameFn)
+            end
+            if IsValidUObject(sfxObj) and not ValidateCueAssetType(sfxObj, "sfx", tlInst.spellName, cue.index, p.sfx) then
+                sfxObj = nil
+            end
+        end
+
+        local now = os.clock()
+        local vfxDur = tonumber(p.dur) or 0.90
+        cueState.chainState = {
+            primaryActor = primaryActor,
+            lastAnchorLoc = primaryLoc,
+            totalStrikes = totalStrikes,
+            firedStrikes = 0,
+            interval = interval,
+            nextStrikeAt = now,
+            chainRadius = tonumber(p.chainRadius) or 650.0,
+            requireLos = requireLos,
+            preferUnique = (p.preferUnique ~= false),
+            hitCounts = {},
+            vfxObj = vfxObj,
+            sfxObj = sfxObj,
+            vfxScale = p.scale or MakeVec(0.35, 0.35, 0.45),
+            vfxDur = vfxDur,
+            params = p,
+            spawnedVfx = {}
+        }
+
+        if debugLogFn then
+            debugLogFn(string.format("Timeline [%s] ChainStrike #%d engaged: %s Lv=%d -> %d strikes (every %.2fs, chainRadius=%.0f, primary=%s)",
+                tlInst.spellName, cue.index, skillName, skillLvl, totalStrikes, interval, cueState.chainState.chainRadius, SafeObjName(primaryActor)))
+        end
+
+        -- Fire Strike #1 immediately on cast!
+        local firedFirst = FireSingleChainStrike(tlInst, cue, cueState, pawn, customSpells, debugLogFn, now)
+        if firedFirst then
+            cueState.chainState.nextStrikeAt = now + interval
+            cueState.expectedDur = math.max(0.15, (totalStrikes - 1) * interval + vfxDur)
+        else
+            cueState.chainState = nil
+            cueState.expectedDur = 0.0
+        end
     end
 end
 
@@ -1860,6 +2245,38 @@ function TimelineRunner.Tick(now, config, state, pawn, combatMagic, customSpells
                             else
                                 allDone = false
                             end
+                        elseif cue.type == "chainstrike" and cs.chainState then
+                            local ch = cs.chainState
+                            -- Deactivate any individual strike VFX whose dur elapsed
+                            local stillLiveVfx = false
+                            if ch.spawnedVfx then
+                                for _, sv in ipairs(ch.spawnedVfx) do
+                                    if not sv.deactivated then
+                                        if tNow >= sv.expireAt then
+                                            sv.deactivated = true
+                                            if IsValidUObject(sv.comp) then
+                                                pcall(function()
+                                                    if HasUFunc(sv.comp, "Deactivate") then sv.comp:Deactivate() end
+                                                end)
+                                            end
+                                        else
+                                            stillLiveVfx = true
+                                        end
+                                    end
+                                end
+                            end
+                            if ch.firedStrikes < ch.totalStrikes then
+                                if tNow >= ch.nextStrikeAt then
+                                    table.insert(workBatch, { kind = "tick_chainstrike", tlInst = tlInst, cue = cue, cueState = cs, now = tNow })
+                                end
+                                allDone = false
+                            elseif stillLiveVfx then
+                                allDone = false
+                            else
+                                cs.chainState = nil
+                                cs.status = "done"
+                                cs.endedAt = tNow
+                            end
                         elseif cue.type == "spell" and cs.trackingImpact then
                             if cueElapsed >= (cs.impactTimeout or 2.2) then
                                 table.insert(workBatch, { kind = "poll_spell_impact", tlInst = tlInst, cue = cue, cueState = cs, now = tNow, forceFinish = true })
@@ -1935,6 +2352,18 @@ function TimelineRunner.Tick(now, config, state, pawn, combatMagic, customSpells
                 if not stillPlaying then
                     cs.status = "done"
                     cs.endedAt = item.now
+                end
+            end
+        elseif item.kind == "tick_chainstrike" then
+            local cs = item.cueState
+            local ch = cs and cs.chainState
+            if cs and cs.status == "active" and ch and ch.firedStrikes < ch.totalStrikes then
+                local okStrike = FireSingleChainStrike(item.tlInst, item.cue, cs, pawn, customSpells, debugLogFn, item.now)
+                if okStrike then
+                    ch.nextStrikeAt = item.now + ch.interval
+                else
+                    -- No valid alive LOS targets remain -> stop queuing further strikes cleanly
+                    ch.firedStrikes = ch.totalStrikes
                 end
             end
         elseif item.kind == "poll_spell_impact" then

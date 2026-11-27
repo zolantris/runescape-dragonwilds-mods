@@ -17,26 +17,21 @@ ScaleWithStaff     = true
 DamageScaling      = full
 BaseSpell          = none
 Category           = Air
-Speed              = 1.6
+Speed              = 1.0
 Clamp              = true
 RuneCost           = air
 RuneCount          = 2
 TimelineDuration   = auto
-StepAdvanceAt      = 0.90
+StepAdvanceAt      = 0.85
 CancelOnRelease    = false
 OverlapPolicy      = replace
-AutoTargetRange    = 700
-AutoTargetCone     = 45
-# 1. Fire the Air Bolt spell and track its exact collision point (SpellModule_CollisionRuntime)
-#    If the Air Bolt doesn't collide, falls back to: Locked-On Enemy -> Closest Enemy pointed at within AutoTargetRange (700) -> Forward 700.
-Spell = @0.00 | DA_Spell_Primary_Air_01 | id=bolt | trackImpact=true | impactTimeout=1.8
-# 2. On Air Bolt hit (>bolt), deal AoE damage at the exact impact / locked enemy location!
-#    Base dmg=65..125 scales automatically with equipped staff Tier/DamageMultiplier + Magic Skill + Magic/Staff Attributes.
-Hit   = >bolt | target=impact | radius=350 | dmg=65..125 | class=Magical | force=260
-# 3. Spawn scaled-down lightning VFX & SFX where the Air Bolt hit + directly on each hit NPC
-VFX   = &     | lightning | target=impact      | scale=0.35,0.35,0.45 | dur=1.10
-VFX   = &+0.05| lightning | target=hit_targets | scale=0.30,0.30,0.40 | dur=1.00
-SFX   = &     | lightning | target=impact      | vol=1.0 | pitch=1.05
+# Pure Line-of-Sight Thunderbolt Barrage (requires active Target Lock!):
+#   requireLock=true   -> only fires when locked onto an enemy (set false to also allow aimed enemies)
+#   los=true           -> requires direct Line of Sight to each struck enemy
+#   levelsPerStrike=10 -> +1 strike per 10 Magic levels (Lv 30 = 4 strikes, Lv 40 = 5, Lv 50 = 6, etc.)
+#   interval=0.15      -> 0.15s delay between each thunderbolt
+#   chainRadius=650    -> prefers other unhit enemies within 650cm first, then strikes same enemy again if none left
+ChainStrike = @0.00 | lightning | requireLock=true | los=true | skill=magic | baseStrikes=1 | levelsPerStrike=10 | maxStrikes=10 | interval=0.15 | chainRadius=650 | dmg=65..125 | class=Magical | force=260 | scale=0.35,0.35,0.45 | sfx=lightning | dur=0.90
 
 [StormOfArmadyl]
 DisplayName        = Storm of Armadyl
