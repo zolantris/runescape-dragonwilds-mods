@@ -37,7 +37,7 @@
     },
     {
       "name": "Fire Opener -> Air Finisher",
-      "enabled": false,
+      "enabled": true,
       "weight": 5,
       "stages": [
         {
@@ -76,7 +76,7 @@
           "spell": "FlamesOfZamorak",
           "speed": 2.0
         }
-      ]
+      ],
     },
     {
       "name": "StormOfArmadyl",
