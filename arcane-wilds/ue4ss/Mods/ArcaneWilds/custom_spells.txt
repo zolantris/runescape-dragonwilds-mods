@@ -8,7 +8,7 @@ Clamp     = true
 RuneCost  = fire
 RuneCount = 2
 
-[StormOfArmadyl]
+[SaradominStrike]
 BaseSpell        = none
 Category         = Air
 Speed            = 1.6
@@ -31,24 +31,28 @@ VFX   = &     | lightning | target=impact      | scale=0.35,0.35,0.45 | dur=1.10
 VFX   = &+0.05| lightning | target=hit_targets | scale=0.30,0.30,0.40 | dur=1.00
 SFX   = &     | lightning | target=impact      | vol=1.0 | pitch=1.05
 
-[SaradominStrike]
-BaseSpell          = none
-Category           = Air
-SpawnActor         = BP_Godsword_Special_Saradomin_C
-Montage            = AM_PlayerM_Attack_2H_Greatsword_Secondary
-SpinHitbox         = true
-HitRadius          = 400
-HitDamageMin       = 85
-HitDamageMax       = 165
-HitDelaySec        = 0.35
-DamageClass        = Magical
-DamageForce        = 260
-FloatieOffsetZ     = 90
-SuppressDirectHealth = false
-Speed              = 1.5
-Clamp              = true
-RuneCost           = air
-RuneCount          = 1
+[StormOfArmadyl]
+BaseSpell        = none
+Category         = Air
+Speed            = 1.6
+Clamp            = true
+RuneCost         = air
+RuneCount        = 2
+TimelineDuration = auto
+StepAdvanceAt    = 0.90
+CancelOnRelease  = false
+OverlapPolicy    = replace
+AutoTargetRange  = 700
+AutoTargetCone   = 45
+# 1. Fire the Air Bolt spell and track its exact collision point (SpellModule_CollisionRuntime)
+#    If the Air Bolt doesn't collide, falls back to: Locked-On Enemy -> Closest Enemy pointed at within AutoTargetRange (700) -> Forward 700.
+Spell = @0.00 | DA_Spell_Primary_Air_01 | id=bolt | trackImpact=true | impactTimeout=1.8
+# 2. On Air Bolt hit (>bolt), deal AoE damage at the exact impact / locked enemy location!
+Hit   = >bolt | target=impact | radius=350 | dmg=120..240 | class=Magical | force=260
+# 3. Spawn scaled-down lightning VFX & SFX where the Air Bolt hit + directly on each hit NPC
+VFX   = &     | /Game/Art/VFX/Library/Spells/Windstep/NS_Windstep_Launch.NS_Windstep_Launch | target=impact      | scale=0.35,0.35,0.45 | dur=1.10
+# TODO need to find sound for wind
+#SFX   = &     | DA_Spell_Primary_Air_01 | vol=0.1 | pitch=2
 
 [SaradominGodsword]
 BaseSpell          = none
