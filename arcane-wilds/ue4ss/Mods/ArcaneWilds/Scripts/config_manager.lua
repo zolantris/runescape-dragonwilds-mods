@@ -132,7 +132,7 @@ function ConfigManager.CreateDefaultConfig()
         QuickCastSpell3 = "StormOfArmadyl",
         QuickCastHotkey4 = "4,GP_A",
         QuickCastSpell4 = "SaradominStrike",
-        TriggerComboOnModifierHold = true,
+        TriggerComboOnModifierHold = false,
         EnableAutoAttackHold = true,
         AutoAttackAllCombos = true,
         AutoAttackIntervalMs = 65,
@@ -568,7 +568,7 @@ function ConfigManager.LoadConfigFile(paths, config, state, logFn, forceRebuildM
                 elseif k == "QuickCastSpell3" then config.QuickCastSpell3 = v
                 elseif k == "QuickCastHotkey4" then config.QuickCastHotkey4 = v
                 elseif k == "QuickCastSpell4" then config.QuickCastSpell4 = v
-                elseif k == "TriggerComboOnModifierHold" then config.TriggerComboOnModifierHold = ConfigManager.ParseBool(v, true)
+                elseif k == "TriggerComboOnModifierHold" then config.TriggerComboOnModifierHold = ConfigManager.ParseBool(v, false)
                 elseif k == "EnableAutoAttackHold" then config.EnableAutoAttackHold = ConfigManager.ParseBool(v, true)
                 elseif k == "AutoAttackAllCombos" then config.AutoAttackAllCombos = ConfigManager.ParseBool(v, true)
                 elseif k == "AutoAttackIntervalMs" then config.AutoAttackIntervalMs = tonumber(v) or 65

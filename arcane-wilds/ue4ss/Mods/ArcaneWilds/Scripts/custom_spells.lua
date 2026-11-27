@@ -28,16 +28,72 @@ end
 
 local LazyKeywordCache = {}
 
-local WEATHER_KEYWORDS = { "lightning", "storm", "thunder", "rain", "weather", "bolt", "tempest", "gale" }
+local WEATHER_KEYWORDS = { "lightning", "storm", "thunder", "strike", "bolt", "tempest", "electric", "spark" }
 
-local function MatchesWeatherOrKeyword(fullLower, kwLower)
-    if fullLower:find(kwLower, 1, true) then return true end
-    if kwLower == "lightning" or kwLower == "storm" or kwLower == "rain" or kwLower == "weather" then
-        for _, w in ipairs(WEATHER_KEYWORDS) do
-            if fullLower:find(w, 1, true) then return true end
+local function ScoreVfxCandidate(fullLower, kwLower)
+    if fullLower:find("default__", 1, true) then return -1 end
+    -- Avoid weather ambient rain/fog/cloud/UI systems when looking for lightning/combat VFX
+    local penalty = 0
+    if fullLower:find("rain", 1, true) or fullLower:find("cloud", 1, true) or fullLower:find("fog", 1, true)
+        or fullLower:find("sky", 1, true) or fullLower:find("ambient", 1, true) or fullLower:find("ui_", 1, true) then
+        penalty = -50
+    end
+    if fullLower:find(kwLower, 1, true) then
+        local bonus = 100
+        if fullLower:find("strike", 1, true) or fullLower:find("impact", 1, true) or fullLower:find("hit", 1, true) then
+            bonus = bonus + 30
+        end
+        if fullLower:find("telegraph", 1, true) then
+            bonus = bonus - 20
+        end
+        return bonus + penalty
+    end
+    if kwLower == "lightning" or kwLower == "storm" or kwLower == "thunder" then
+        for idx, w in ipairs(WEATHER_KEYWORDS) do
+            if fullLower:find(w, 1, true) then
+                return (60 - idx * 5) + penalty
+            end
         end
     end
-    return false
+    return -1
+end
+
+local function TryResolveLightningFromSubsystem()
+    local foundVfx = nil
+    pcall(function()
+        local sub = FindFirstOf("LightningSubsystem")
+        if sub and sub:IsValid() then
+            local cls = sub.LoadedLightningClass
+            if cls and cls:IsValid() then
+                local cdo = nil
+                pcall(function() cdo = cls:GetDefaultObject() end)
+                if cdo and cdo:IsValid() then
+                    pcall(function()
+                        if cdo.TriggerDamageVFX and cdo.TriggerDamageVFX:IsValid() and cdo.TriggerDamageVFX.Asset and cdo.TriggerDamageVFX.Asset:IsValid() then
+                            foundVfx = cdo.TriggerDamageVFX.Asset
+                        end
+                    end)
+                end
+            end
+        end
+    end)
+    if foundVfx then return foundVfx end
+    -- Also inspect any loaded ALightning instances or NiagaraComponents named TriggerDamageVFX
+    pcall(function()
+        local lights = FindAllOf("Lightning")
+        if lights then
+            for _, l in ipairs(lights) do
+                if l and l:IsValid() then
+                    local comp = l.TriggerDamageVFX
+                    if comp and comp:IsValid() and comp.Asset and comp.Asset:IsValid() then
+                        foundVfx = comp.Asset
+                        break
+                    end
+                end
+            end
+        end
+    end)
+    return foundVfx
 end
 
 local function FindAssetByKeywordOnDemand(className, keywordStr, safeGetNameFn)
@@ -45,6 +101,10 @@ local function FindAssetByKeywordOnDemand(className, keywordStr, safeGetNameFn)
     if keywordStr:find("/", 1, true) then
         local obj = nil
         pcall(function() obj = StaticFindObject(keywordStr) end)
+        if (not obj or not obj:IsValid()) and type(LoadAsset) == "function" then
+            pcall(function() LoadAsset(keywordStr) end)
+            pcall(function() obj = StaticFindObject(keywordStr) end)
+        end
         if obj and obj:IsValid() then return obj end
     end
     local cacheKey = className .. ":" .. keywordStr:lower()
@@ -57,6 +117,16 @@ local function FindAssetByKeywordOnDemand(className, keywordStr, safeGetNameFn)
 
     local kw = keywordStr:lower()
     local bestObj = nil
+    local bestScore = -1
+
+    if className == "NiagaraSystem" and (kw == "lightning" or kw == "storm" or kw == "thunder") then
+        local subVfx = TryResolveLightningFromSubsystem()
+        if subVfx and subVfx:IsValid() then
+            LazyKeywordCache[cacheKey] = subVfx
+            return subVfx
+        end
+    end
+
     if className == "AnimMontage" then
         local directMontPaths = {
             "/Game/Art/Animation/PlayerM/Greatsword/AM_PlayerM_Attack_2H_Greatsword_Secondary.AM_PlayerM_Attack_2H_Greatsword_Secondary",
@@ -72,22 +142,23 @@ local function FindAssetByKeywordOnDemand(className, keywordStr, safeGetNameFn)
             end
         end
     end
-    pcall(function()
-        local all = FindAllOf(className)
-        if all then
-            for _, item in ipairs(all) do
-                if item and item:IsValid() then
-                    local full = safeGetNameFn(item):lower()
-                    if MatchesWeatherOrKeyword(full, kw) and not full:find("default__") then
-                        bestObj = item
-                        if full:find("lightning") or full:find("storm") or full:find("thunder") or full:find("strike") then
-                            break
+    if not bestObj then
+        pcall(function()
+            local all = FindAllOf(className)
+            if all then
+                for _, item in ipairs(all) do
+                    if item and item:IsValid() then
+                        local full = safeGetNameFn(item):lower()
+                        local score = ScoreVfxCandidate(full, kw)
+                        if score > bestScore then
+                            bestScore = score
+                            bestObj = item
                         end
                     end
                 end
             end
-        end
-    end)
+        end)
+    end
     LazyKeywordCache[cacheKey] = bestObj or false
     return bestObj
 end
@@ -1678,7 +1749,7 @@ local function ExecuteHitPulse(pawn, centerLoc, centerRot, hitParams, entry, saf
         logHb(string.format("  TimelineHit #%d [%s]: %s dist=%.1f dmg=%d applied=%s trace=[%s]",
             idx, tostring(effEntry.shortName), h.name, math.sqrt(h.distSq), rolledDmg, tostring(applied), tostring(trace)))
     end
-    return #hits
+    return #hits, hits
 end
 
 CustomSpells.ApplyDominionBlueprintDamage = ApplyDominionBlueprintDamage

@@ -9,18 +9,24 @@ RuneCost  = fire
 RuneCount = 2
 
 [StormOfArmadyl]
-BaseSpell       = DA_Spell_Primary_Air_01
-Category        = Air
-ImpactAoE       = DA_Spell_Primary_Air_04
-ImpactLightning = lightning
-ImpactSFX       = lightning
-ImpactDamageMin = 120
-ImpactDamageMax = 240
-ImpactRadius    = 350
-Speed           = 2.0
-Clamp           = true
-RuneCost        = air
-RuneCount       = 2
+BaseSpell        = none
+Category         = Air
+Speed            = 1.6
+Clamp            = true
+RuneCost         = air
+RuneCount        = 2
+TimelineDuration = auto
+StepAdvanceAt    = 0.90
+CancelOnRelease  = false
+OverlapPolicy    = replace
+# 1. Fire the Air Bolt projectile and track where it impacts (or aimed NPC if instant)
+Spell = @0.00 | DA_Spell_Primary_Air_01 | id=bolt | trackImpact=true | impactTimeout=1.8
+# 2. On projectile impact (>bolt), deal AoE damage at the impact/NPC location (NOT on the player!)
+Hit   = >bolt | target=impact | radius=350 | dmg=120..240 | class=Magical | force=260
+# 3. Spawn scaled-down lightning VFX & SFX at the impact area + directly on each hit NPC
+VFX   = &     | lightning | target=impact      | scale=0.35,0.35,0.45 | dur=1.10
+VFX   = &+0.05| lightning | target=hit_targets | scale=0.30,0.30,0.40 | dur=1.00
+SFX   = &     | lightning | target=impact      | vol=1.0 | pitch=1.05
 
 [SaradominStrike]
 BaseSpell          = none

@@ -415,6 +415,32 @@ function TimelineParser.ParseCueLine(cueType, rawVal, defaultTarget)
                 params.allowUnsafeSpawn = ParseBool(val, false)
             elseif kl == "scalewithspeed" then
                 params.scaleWithSpeed = ParseBool(val, true)
+            elseif kl == "trackimpact" or kl == "waitimpact" then
+                params.trackImpact = ParseBool(val, true)
+            elseif kl == "impacttimeout" then
+                params.impactTimeout = tonumber(val) or 2.5
+            elseif kl == "range" or kl == "maxrange" then
+                params.range = tonumber(val) or 2500.0
+            elseif kl == "vfxfloat" or kl == "paramfloat" then
+                -- Syntax: vfxFloat=Name:Val (multiple allowed via semicolon, e.g. Scale:0.35;Width:0.4)
+                params.vfxFloats = params.vfxFloats or {}
+                for item in val:gmatch("[^;]+") do
+                    local pn, pv = Trim(item):match("^([^:]+):([%-%d%.]+)$")
+                    if pn and pv then
+                        table.insert(params.vfxFloats, { name = Trim(pn), value = tonumber(pv) })
+                    end
+                end
+                params.vfxFloatRaw = val
+            elseif kl == "vfxvec" or kl == "paramvec" then
+                -- Syntax: vfxVec=Name:X,Y,Z (multiple allowed via semicolon)
+                params.vfxVecs = params.vfxVecs or {}
+                for item in val:gmatch("[^;]+") do
+                    local pn, pv = Trim(item):match("^([^:]+):(.+)$")
+                    if pn and pv then
+                        table.insert(params.vfxVecs, { name = Trim(pn), value = ParseVec3(pv, 0, 0, 0) })
+                    end
+                end
+                params.vfxVecRaw = val
             elseif kl == "asset" then
                 asset = val
             else
@@ -794,6 +820,11 @@ function TimelineParser.SerializeCue(cue)
     if p.falloff ~= nil then table.insert(parts, "falloff=" .. FormatNumber(p.falloff)) end
     if p.allowUnsafeSpawn == true then table.insert(parts, "allowUnsafeSpawn=true") end
     if p.scaleWithSpeed == false then table.insert(parts, "scaleWithSpeed=false") end
+    if p.trackImpact == true then table.insert(parts, "trackImpact=true") end
+    if p.impactTimeout ~= nil then table.insert(parts, "impactTimeout=" .. FormatNumber(p.impactTimeout)) end
+    if p.range ~= nil then table.insert(parts, "range=" .. FormatNumber(p.range)) end
+    if p.vfxFloatRaw and p.vfxFloatRaw ~= "" then table.insert(parts, "vfxFloat=" .. p.vfxFloatRaw) end
+    if p.vfxVecRaw and p.vfxVecRaw ~= "" then table.insert(parts, "vfxVec=" .. p.vfxVecRaw) end
 
     return string.format("%-10s = %s", keyLabel, table.concat(parts, " | "))
 end

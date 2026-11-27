@@ -731,7 +731,7 @@ function CombatEngine.EngageModifierAndRollMacro(config, state, pawn, combatMagi
 end
 
 function CombatEngine.ReleaseModifierAndRevert(config, state, pawn, combatMagic, logFn, debugLogFn)
-    local hadActiveOrMagic = (state.ActiveMacro ~= nil) or (state.HasMagicWeaponEquipped == true)
+    local hadActiveCombo = (state.ActiveMacro ~= nil) or (state.PendingAnchorReturn == true) or (state.StepInFlight == true)
     local relPawn = pawn
     pcall(function()
         if not relPawn or not relPawn:IsValid() then
@@ -742,20 +742,22 @@ function CombatEngine.ReleaseModifierAndRevert(config, state, pawn, combatMagic,
             if pc and pc:IsValid() then relPawn = pc.Pawn end
         end
     end)
-    CustomSpells.StopForcedMontage(state, relPawn)
-    TimelineRunner.CancelTimelines(state, relPawn, "modifier-released", true)
-    CombatEngine.RestoreAnchorElementAndReset(config, state, combatMagic, debugLogFn, relPawn)
-    CombatEngine.SetAllComboMontageRates(config, state, 1.0)
-    state.PendingAnchorReturn = false
+    if hadActiveCombo then
+        CustomSpells.StopForcedMontage(state, relPawn)
+        TimelineRunner.CancelTimelines(state, relPawn, "modifier-released", true)
+        CombatEngine.RestoreAnchorElementAndReset(config, state, combatMagic, debugLogFn, relPawn)
+        CombatEngine.SetAllComboMontageRates(config, state, 1.0)
+        state.PendingAnchorReturn = false
+        if combatMagic and combatMagic:IsValid() then
+            pcall(function() combatMagic.LastChainedSpell = nil end)
+        end
+    end
     local currentEquipped = EquipmentRunes.DetectEquippedCategory(relPawn, combatMagic, state, debugLogFn)
     state.AnchorElement = currentEquipped
-    if combatMagic and combatMagic:IsValid() then
-        pcall(function() combatMagic.LastChainedSpell = nil end)
-    end
-    if hadActiveOrMagic then
+    if hadActiveCombo then
         logFn("Modifier RELEASED -> Cleanly reset combo & restored equipped element [" .. tostring(currentEquipped or "None") .. "]")
     elseif debugLogFn then
-        debugLogFn("Modifier RELEASED (no magic weapon/combo active)")
+        debugLogFn("Modifier RELEASED (no combo active)")
     end
 end
 
@@ -778,11 +780,13 @@ function CombatEngine.AdvanceLockedMacro(config, state, pawn, combatMagic, debug
         CombatEngine.ApplyStageSpeedAndPriming(config, state, combatMagic, macro.stages[state.StageIndex], 1, pawn, debugLogFn)
     else
         local lockedAnchor = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, state, debugLogFn)
+        local shouldContinue = state.ModifierHeld and lockedAnchor ~= nil
+            and ((config.TriggerComboOnModifierHold == true) or (state.PrimaryAttackHeld == true))
         state.AnchorElement = lockedAnchor
         state.ActiveMacro = nil
         state.StageIndex = 1
         state.StepInStage = 1
-        state.PendingAnchorReturn = (state.ModifierHeld and lockedAnchor ~= nil) and true or false
+        state.PendingAnchorReturn = shouldContinue and true or false
         state.StepInFlight = false
         state.InFlightSpellObj = nil
         state.LastObservedChainedSpell = nil

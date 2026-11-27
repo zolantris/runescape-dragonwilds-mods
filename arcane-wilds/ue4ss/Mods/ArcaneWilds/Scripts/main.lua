@@ -21,7 +21,8 @@ local Paths = {
     SPELL_NAMES_PATH   = MOD_DIR .. "spell_names.txt",
     CUSTOM_SPELLS_PATH = MOD_DIR .. "custom_spells.txt",
     QUICK_CAST_PATH    = MOD_DIR .. "quick_cast.txt",
-    DETECTED_PATH      = MOD_DIR .. "detected_spells.txt"
+    DETECTED_PATH      = MOD_DIR .. "detected_spells.txt",
+    DETECTED_VFX_PATH  = MOD_DIR .. "detected_vfx.txt"
 }
 
 local SpellScanner   = require("spell_scanner")
@@ -153,6 +154,7 @@ local function RunDebugInspection()
             end
         end
         TimelineRunner.InspectPlayerAnimSlotsAndMontages(pawn, Log)
+        TimelineRunner.ExportLoadedVfxFile(Paths.DETECTED_VFX_PATH, Log)
     end
 end
 
@@ -590,12 +592,15 @@ local function BindDebugHotkey()
     Log("Debug dump hotkey bound to: SHIFT + " .. tostring(normalized) .. " (set DebugHotkey=LISTEN in config.txt to rebind interactively)")
 end
 
-local function TickAnchorReturn(now, pawn, combatMagic)
+local function TickAnchorReturn(now, pc, pawn, combatMagic)
     local anchor = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, State, DebugLog)
-    if not anchor then
+    local wantsComboContinue = State.ModifierHeld and ((Config.TriggerComboOnModifierHold == true) or CombatEngine.IsPrimaryAttackDown(pc))
+    if not anchor or not wantsComboContinue then
         State.PendingAnchorReturn = false
-        State.StepInFlight = false
-        State.InFlightSpellObj = nil
+        if not State.ActiveMacro then
+            State.StepInFlight = false
+            State.InFlightSpellObj = nil
+        end
         return
     end
     local anchorChain = State.SpellChains[anchor:lower()]
@@ -614,16 +619,17 @@ local function TickAnchorReturn(now, pawn, combatMagic)
                 and starterEntry
                 or (anchor and State.SpellRegistry[anchor:lower()])
             if targetEntry and targetEntry.spellObj and targetEntry.spellObj:IsValid() then
-                State.LastTriggeredSpellTime = now
-                State.LastAutoAttackTime = now
-                State.StepInFlight = true
-                State.InFlightSpellObj = targetEntry.spellObj
-                State.InFlightStartedTime = now
-                CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, targetEntry, DebugLog, combatMagic)
-                DebugLog("Casting return-to-anchor spell [" .. tostring(anchor) .. "] before any re-roll")
+                if CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, targetEntry, DebugLog, combatMagic) then
+                    State.LastTriggeredSpellTime = now
+                    State.LastAutoAttackTime = now
+                    State.StepInFlight = true
+                    State.InFlightSpellObj = targetEntry.spellObj
+                    State.InFlightStartedTime = now
+                    DebugLog("Casting return-to-anchor spell [" .. tostring(anchor) .. "] before any re-roll")
+                end
             else
                 State.PendingAnchorReturn = false
-                if State.ModifierHeld then
+                if wantsComboContinue then
                     CombatEngine.RollAndEngageMacroForAnchor(Config, State, pawn, combatMagic, anchor, Log, DebugLog)
                 end
             end
@@ -637,11 +643,11 @@ local function TickAnchorReturn(now, pawn, combatMagic)
             State.InFlightSpellObj = nil
             State.PendingAnchorReturn = false
             pcall(function() combatMagic.LastChainedSpell = nil end)
-            if State.ModifierHeld then
+            if wantsComboContinue then
                 DebugLog("Anchor return cast finished -> Re-rolling combo strictly from [" .. tostring(anchor) .. "]")
                 CombatEngine.RollAndEngageMacroForAnchor(Config, State, pawn, combatMagic, anchor, Log, DebugLog)
             else
-                DebugLog("Anchor return cast finished (Modifier released) -> Staying cleanly on [" .. tostring(anchor) .. "]")
+                DebugLog("Anchor return cast finished (Attack/Modifier released) -> Staying cleanly on [" .. tostring(anchor) .. "]")
             end
         end
     end
@@ -765,15 +771,16 @@ end
 
 local function TickAutoAttack(now, pc, pawn, combatMagic)
     local atkDown = CombatEngine.IsPrimaryAttackDown(pc)
-    local modAutoTrigger = (Config.TriggerComboOnModifierHold ~= false) and State.ModifierHeld and (State.ActiveMacro ~= nil)
+    State.PrimaryAttackHeld = atkDown
+    local modAutoTrigger = (Config.TriggerComboOnModifierHold == true) and State.ModifierHeld and (State.ActiveMacro ~= nil)
     local modAtkTrigger = State.ModifierHeld and atkDown
     local holdAtkTrigger = Config.EnableAutoAttackHold and atkDown and (State.ModifierHeld or Config.AutoAttackAllCombos)
     if not modAutoTrigger and not modAtkTrigger and not holdAtkTrigger then
         return
     end
 
-    -- If holding Block/Modifier and pressing Attack while no macro is currently locked,
-    -- roll a fresh macro immediately from equipped staff/wand + equipped runes (no prior cast needed).
+    -- When holding Block/Modifier and pressing normal Attack, roll & lock the matching combo
+    -- immediately from equipped staff/wand + equipped runes (no prior cast needed).
     if State.ModifierHeld and not State.ActiveMacro and not State.PendingAnchorReturn and atkDown then
         if (now - (State._LastIdleComboReRollTime or 0)) >= 0.20 then
             State._LastIdleComboReRollTime = now
@@ -797,7 +804,7 @@ local function TickAutoAttack(now, pc, pawn, combatMagic)
         end)
     end
 
-    if State.ModifierHeld and State.ActiveMacro then
+    if State.ModifierHeld and State.ActiveMacro and (atkDown or Config.TriggerComboOnModifierHold == true) then
         local st = State.ActiveMacro.stages[State.StageIndex]
         local sd = st and (st.steps[State.StepInStage] or st.steps[1])
         local entry = sd and ConfigManager.ResolveStepEntry(State, st, sd)
@@ -813,7 +820,7 @@ local function TickAutoAttack(now, pc, pawn, combatMagic)
             State.InFlightSpellObj = entry.spellObj
             State.InFlightStartedTime = now
         end
-    elseif holdAtkTrigger then
+    elseif holdAtkTrigger and not State.ModifierHeld then
         if isBusy or (now - (State.LastTriggeredSpellTime or 0)) < 0.35 then
             return
         end
@@ -874,21 +881,27 @@ LoopAsync(50, function()
     end
 
     local modDown = CombatEngine.IsModifierDown(Config, pc)
+    State.PrimaryAttackHeld = CombatEngine.IsPrimaryAttackDown(pc)
     if modDown and not State.ModifierHeld then
         State.ModifierHeld = true
         State._AppliedPadForCurrentStep = false
-        CombatEngine.EngageModifierAndRollMacro(Config, State, pawn, combatMagic, Log, DebugLog)
-        if Config.TriggerComboOnModifierHold ~= false and State.ActiveMacro and pawn and pawn:IsValid() then
-            local st1 = State.ActiveMacro.stages[1]
-            local sd1 = st1 and (st1.steps[1])
-            local ent1 = sd1 and ConfigManager.ResolveStepEntry(State, st1, sd1)
-            if ent1 and ((ent1.spellObj and ent1.spellObj:IsValid()) or ent1.suppressBaseSpell) then
-                if CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, ent1, DebugLog, combatMagic) then
-                    State.LastAutoAttackTime = now
-                    State.LastTriggeredSpellTime = now
-                    State.StepInFlight = true
-                    State.InFlightSpellObj = ent1.spellObj
-                    State.InFlightStartedTime = now
+        -- Only auto-engage/fire on bare Block hold if TriggerComboOnModifierHold is explicitly enabled.
+        -- By default, holding Block alone lets normal blocking / staff special / Quick-Cast run untouched,
+        -- and combos only activate when Attack is pressed/held while blocking.
+        if Config.TriggerComboOnModifierHold == true then
+            CombatEngine.EngageModifierAndRollMacro(Config, State, pawn, combatMagic, Log, DebugLog)
+            if State.ActiveMacro and pawn and pawn:IsValid() then
+                local st1 = State.ActiveMacro.stages[1]
+                local sd1 = st1 and (st1.steps[1])
+                local ent1 = sd1 and ConfigManager.ResolveStepEntry(State, st1, sd1)
+                if ent1 and ((ent1.spellObj and ent1.spellObj:IsValid()) or ent1.suppressBaseSpell) then
+                    if CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, ent1, DebugLog, combatMagic) then
+                        State.LastAutoAttackTime = now
+                        State.LastTriggeredSpellTime = now
+                        State.StepInFlight = true
+                        State.InFlightSpellObj = ent1.spellObj
+                        State.InFlightStartedTime = now
+                    end
                 end
             end
         end
@@ -917,7 +930,7 @@ LoopAsync(50, function()
 
     local inPostSpecialPause = (State.SpecialPostPauseUntil or 0) > now
     if not quickCastFired and State.PendingAnchorReturn and not State.ActiveMacro and not inPostSpecialPause and combatMagic and combatMagic:IsValid() then
-        TickAnchorReturn(now, pawn, combatMagic)
+        TickAnchorReturn(now, pc, pawn, combatMagic)
     end
 
     if not quickCastFired and State.ModifierHeld and State.ActiveMacro and combatMagic and combatMagic:IsValid() then

@@ -30,6 +30,7 @@ Place `ue4ss/Mods/ArcaneWilds/` into your `RSDragonwilds/Binaries/Win64/` direct
 <!-- CHANGELOG:START -->
 ### v1.70.57
 
+- **2026-11-26** - Fix crash for offthread multicast delegate. Add support for timeline multi-animation combos ([9c28d97](https://github.com/zolantris/runescape-dragonwilds-mods/commit/9c28d97a015ae62aa85a56f66484ce0a73e66389))
 - **2026-11-26** - Fix hotkey spells so that player can still move ([39f8fd7](https://github.com/zolantris/runescape-dragonwilds-mods/commit/39f8fd7868d05af6745a606743be27a23b9e3de4))
 - **2026-11-26** - remove extra AOE flames of zamorak as it just cast another spell instead of doing an effect ([e237b95](https://github.com/zolantris/runescape-dragonwilds-mods/commit/e237b95e7b680d00fafb7741438a47f3fce66bda))
 - **2026-11-26** - attempt to fix how casting is done so it does not require a spell in flight to trigger combo matching ([09b3c0e](https://github.com/zolantris/runescape-dragonwilds-mods/commit/09b3c0efa487a3d7a9b8fe064953ef46de745678))
