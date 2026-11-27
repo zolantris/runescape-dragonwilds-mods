@@ -29,57 +29,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends lua5.4
           lua5.4 -v
 
-        - name: Validate JSON files & JSON Schemas
+      - name: Validate JSON files & JSON Schemas
         run: |
           python3 -m pip install --quiet jsonschema json5
-          python3 - <<'PY'
-          import json
-          import json5
-          from pathlib import Path
-          from jsonschema import Draft7Validator
-
-          root = Path("arcane-wilds")
-          mod_root = root / "ue4ss/Mods/ArcaneWilds"
-          jsonc_names = {
-              "custom_spells.json",
-              "combo_rules.json",
-              "combo_rules_examples.json",
-          }
-
-          def load_json_file(path: Path):
-              raw = path.read_text(encoding="utf-8-sig")
-              if path.name in jsonc_names:
-                  return json5.loads(raw)
-              return json.loads(raw)
-
-          # 1. Verify every .json file under arcane-wilds parses cleanly
-          for jf in sorted(root.rglob("*.json")):
-              if "Intermediate" in jf.parts or "Saved" in jf.parts:
-                  continue
-              load_json_file(jf)
-              kind = "JSONC" if jf.name in jsonc_names else "JSON"
-              print(f"{kind} OK: {jf}")
-
-          # 2. Validate configs against their Draft-07 JSON Schemas
-          pairs = [
-              (mod_root / "custom_spells.json", mod_root / "schemas/custom_spells.schema.json"),
-              (mod_root / "combo_rules.json", mod_root / "schemas/combo_rules.schema.json"),
-              (mod_root / "combo_rules_examples.json", mod_root / "schemas/combo_rules.schema.json"),
-          ]
-          for data_path, schema_path in pairs:
-              schema = load_json_file(schema_path)
-              Draft7Validator.check_schema(schema)
-              validator = Draft7Validator(schema)
-              data = load_json_file(data_path)
-              errors = sorted(validator.iter_errors(data), key=lambda e: list(e.path))
-              if errors:
-                  print(f"SCHEMA FAIL: {data_path}")
-                  for err in errors:
-                      loc = ".".join(str(p) for p in err.path) or "<root>"
-                      print(f"  - [{loc}] {err.message}")
-                  raise SystemExit(1)
-              print(f"SCHEMA OK: {data_path} -> {schema_path.name}")
-          PY
+          python3 scripts/validate_json.py
 
       - name: Run Lua unit & regression tests with coverage
         run: |
