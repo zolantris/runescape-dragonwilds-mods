@@ -57,6 +57,7 @@
           ],
           "class": "Magical",
           "force": 260,
+          "stun": 0.75,
           "scale": [
             0.35,
             0.35,
@@ -71,7 +72,7 @@
       "enabled": true,
       "displayName": "Storm of Armadyl",
       "description": "Fires an Air Bolt and erupts a windstorm AoE on impact.",
-      "requiredMagicLevel": 40,
+      "requiredMagicLevel": 77,
       "scaleWithStaff": true,
       "damageScaling": "full",
       "baseSpell": null,
@@ -87,7 +88,7 @@
       "cancelOnRelease": false,
       "overlapPolicy": "parallel",
       "autoTarget": {
-        "range": 700,
+        "range": 2500,
         "cone": 45
       },
       "cues": [
@@ -109,7 +110,10 @@
             140
           ],
           "class": "Magical",
-          "force": 260
+          "force": 260,
+          "pushback": 750,
+          "launchZ": 260,
+          "stun": 0.6
         },
         {
           "type": "vfx",
@@ -117,11 +121,11 @@
           "asset": "/Game/Art/VFX/Library/Spells/Windstep/NS_Windstep_Launch.NS_Windstep_Launch",
           "target": "impact",
           "scale": [
-            0.35,
-            0.35,
-            0.45
+            0.15,
+            0.15,
+            0.15
           ],
-          "duration": 1.1
+          "duration": 0.5
         }
       ]
     },

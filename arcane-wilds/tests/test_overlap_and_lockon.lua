@@ -429,7 +429,9 @@ T.Suite("overlap_and_lockon", function()
         })
 
         local defs = CustomSpells.ParseDefinitions(ReadFile(MOD_ROOT .. "/custom_spells.json"))
+        -- Explicitly test a cue with requireLock = true so we verify RequireLockOnForChainSpells gating independently
         local tl = TimelineParser.BuildTimeline(defs["saradominstrike"])
+        tl.cues[1].params.requireLock = true
         local entry = {
             shortName = "SaradominStrike",
             isCustomSpell = true,
@@ -447,21 +449,28 @@ T.Suite("overlap_and_lockon", function()
             end
         }
 
-        -- 1. With RequireLockOnForChainSpells = true (default) and no active lock / reticle -> MUST NOT FIRE!
+        -- 1. With RequireLockOnForChainSpells = true (default) and requireLock = true -> MUST NOT FIRE!
         local cfgStrict = ConfigManager.CreateDefaultConfig()
         T.AssertTrue(cfgStrict.RequireLockOnForChainSpells)
         local state1 = { ActiveTimelines = {} }
         local resStrict = TimelineRunner.StartSpellTimeline(cfgStrict, state1, pawn, nil, entry, 1.0, mockCustomSpells)
-        T.AssertNil(resStrict, "SaradominStrike should abort when RequireLockOnForChainSpells=true and not locked/looking")
+        T.AssertNil(resStrict, "SaradominStrike should abort when RequireLockOnForChainSpells=true, cue.requireLock=true, and not locked/looking")
         T.AssertEq(damageCalls, 0)
 
-        -- 2. With RequireLockOnForChainSpells = false -> fires via aim-cone auto-target without lock-on!
+        -- 2. With RequireLockOnForChainSpells = false -> fires via crosshair auto-target without lock-on!
         local cfgFree = ConfigManager.CreateDefaultConfig()
         cfgFree.RequireLockOnForChainSpells = false
         local state2 = { ActiveTimelines = {} }
         local resFree = TimelineRunner.StartSpellTimeline(cfgFree, state2, pawn, nil, entry, 1.0, mockCustomSpells)
         T.AssertNotNil(resFree, "SaradominStrike should fire when RequireLockOnForChainSpells=false")
         T.AssertEq(damageCalls, 1, "First chainstrike bolt should hit aimed enemy immediately")
+
+        -- 3. With RequireLockOnForChainSpells = true BUT cue.requireLock = false (parsed from JSON boolean false!) -> MUST FIRE!
+        tl.cues[1].params.requireLock = false
+        local state3 = { ActiveTimelines = {} }
+        local resCueFree = TimelineRunner.StartSpellTimeline(cfgStrict, state3, pawn, nil, entry, 1.0, mockCustomSpells)
+        T.AssertNotNil(resCueFree, "SaradominStrike with cue.requireLock=false should fire even when RequireLockOnForChainSpells=true")
+        T.AssertEq(damageCalls, 2)
     end)
 
     T.Test("ConfigManager persists and reloads RequireLockOnForChainSpells", function()
@@ -593,6 +602,7 @@ T.Suite("overlap_and_lockon", function()
 
         local defs = CustomSpells.ParseDefinitions(ReadFile(MOD_ROOT .. "/custom_spells.json"))
         local tl = TimelineParser.BuildTimeline(defs["saradominstrike"])
+        tl.cues[1].params.requireLock = true
         local entry = {
             shortName = "SaradominStrike",
             isCustomSpell = true,
@@ -609,5 +619,123 @@ T.Suite("overlap_and_lockon", function()
 
         local ok = CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, nil, nil)
         T.AssertFalse(ok, "Aborted SaradominStrike (no locked target) must return false and not trigger rune consumption / anchor return")
+    end)
+
+    T.Test("TimelineParser.ParseJsonCue preserves JSON boolean false for requireLock, los, preferUnique, scaleWithSpeed, trackImpact", function()
+        local cue, warn = TimelineParser.ParseJsonCue({
+            type = "chainstrike",
+            at = "@0.00",
+            asset = "lightning",
+            requireLock = false,
+            los = false,
+            preferUnique = false,
+            scaleWithSpeed = false,
+            trackImpact = false,
+            interrupt = false,
+            stun = 1.5,
+            root = 3.0,
+            pushback = 850,
+            launchZ = 240,
+            slow = { multiplier = 0.4, duration = 2.5 }
+        })
+        T.AssertNil(warn)
+        T.AssertNotNil(cue)
+        T.AssertFalse(cue.params.requireLock, "JSON false for requireLock must stay false (not default to true!)")
+        T.AssertFalse(cue.params.los, "JSON false for los must stay false")
+        T.AssertFalse(cue.params.preferUnique, "JSON false for preferUnique must stay false")
+        T.AssertFalse(cue.params.scaleWithSpeed, "JSON false for scaleWithSpeed must stay false")
+        T.AssertFalse(cue.params.trackImpact, "JSON false for trackImpact must stay false")
+        T.AssertFalse(cue.params.interrupt, "JSON false for interrupt must stay false")
+        T.AssertNear(cue.params.stun, 1.5)
+        T.AssertNear(cue.params.root, 3.0)
+        T.AssertNear(cue.params.pushback, 850)
+        T.AssertNear(cue.params.launchZ, 240)
+        T.AssertNear(cue.params.slowMultiplier, 0.4)
+        T.AssertNear(cue.params.slowDuration, 2.5)
+    end)
+
+    T.Test("ResolveAimTarget uses 3D crosshair ray priority over closer off-axis enemy", function()
+        Mock.Reset()
+        local pawn = MakeMockPawn(MakeVector(0, 0, 0), 0, MakeRot(0, 0, 0))
+        -- Close enemy off to the side (~20 degrees off crosshair at 5m)
+        local offAxisClose = MakeMockEnemy("Cow_OffAxis", MakeVector(470, 175, 0), 200)
+        -- Further enemy dead-center under crosshair at 20m (2000cm)
+        local deadCenterFar = MakeMockEnemy("Cow_DeadCenter", MakeVector(2000, 0, 0), 200)
+        Mock.RegisterClassInstance("DominionAICharacter", offAxisClose)
+        Mock.RegisterClassInstance("DominionAICharacter", deadCenterFar)
+
+        local cfg = ConfigManager.CreateDefaultConfig()
+        T.AssertNear(cfg.AutoTargetMaxDistance, 2500.0, 1e-4, "Default AutoTargetMaxDistance should be 2500cm (25m)")
+
+        local _, _, chosen, mode = TimelineRunner.ResolveAimTarget(pawn, nil, 60, nil, cfg, nil)
+        T.AssertEq(mode, "aimed")
+        T.AssertEq(chosen, deadCenterFar, "Crosshair-ray targeting should prefer enemy dead-center under crosshair over closer off-axis enemy")
+    end)
+
+    T.Test("ApplyCrowdControl and TickCrowdControl handle Stun, Root, Pushback, Slow, and expiry cleanly", function()
+        Mock.Reset()
+        CustomSpells.ClearAllCrowdControl()
+
+        local pawn = MakeMockPawn(MakeVector(0, 0, 0), 0)
+        local stoppedMontage = false
+        local animInst = Mock.MakeUObject("AnimInstance /Game/AI/ABP_Enemy")
+        function animInst:Montage_Stop() stoppedMontage = true end
+        local mesh = Mock.MakeUObject("SkeletalMeshComponent /Game/AI/Enemy:Mesh")
+        function mesh:GetAnimInstance() return animInst end
+
+        local moveStopped = false
+        local runSpeedOverride = nil
+        local runSpeedReset = false
+        local mc = Mock.MakeUObject("AiMovementComponent /Game/AI/Enemy:MoveComp", { MaxWalkSpeed = 400.0 })
+        function mc:StopMovementImmediately() moveStopped = true end
+        function mc:GetRunSpeed() return 500.0 end
+        function mc:OverrideMaxRunSpeed(spd) runSpeedOverride = spd end
+        function mc:ResetOverrideRunSpeed() runSpeedReset = true; runSpeedOverride = nil end
+
+        local enemy = MakeMockEnemy("Goblin_CC", MakeVector(500, 0, 0), 300)
+        enemy.Mesh = mesh
+        enemy.CharacterMovement = mc
+        enemy._moveDisabled = false
+        enemy._atkDisabled = false
+        enemy._lastLocker = nil
+        enemy._launchVel = nil
+        function enemy:SetMovementDisabled(b, locker) self._moveDisabled = b; self._lastLocker = locker end
+        function enemy:SetAttacksDisabled(b, locker) self._atkDisabled = b; self._lastLocker = locker end
+        function enemy:LaunchCharacter(vel, xyO, zO) self._launchVel = vel; self._launchXY = xyO; self._launchZ = zO end
+
+        local t0 = 100.0
+        local ok, summary = CustomSpells.ApplyCrowdControl(
+            enemy, pawn, MakeVector(0, 0, 0), MakeVector(500, 0, 0),
+            { stun = 1.0, root = 3.0, pushback = 800, launchZ = 220, slowMultiplier = 0.4, slowDuration = 2.0 },
+            nil, t0
+        )
+        T.AssertTrue(ok, "ApplyCrowdControl should report applied effects: " .. tostring(summary))
+        T.AssertTrue(stoppedMontage, "Stun should interrupt active enemy montage")
+        T.AssertTrue(moveStopped, "CC should call StopMovementImmediately")
+        T.AssertTrue(enemy._moveDisabled, "Stun/Root should lock movement")
+        T.AssertTrue(enemy._atkDisabled, "Stun should lock attacks")
+        T.AssertEq(enemy._lastLocker, pawn, "Locker should be instigator pawn UObject")
+        T.AssertNotNil(enemy._launchVel, "Pushback should invoke LaunchCharacter")
+        T.AssertNear(enemy._launchVel.X, 800.0, 1e-2, "Pushback should launch radially away (+X)")
+        T.AssertNear(enemy._launchVel.Y, 0.0, 1e-2)
+        T.AssertNear(enemy._launchVel.Z, 220.0, 1e-2)
+        T.AssertNear(runSpeedOverride, 200.0, 1e-2, "Slow 0.4x of 500 run speed should override to 200")
+
+        -- At t0 + 1.1s: Stun (1.0s) expired -> attacks unlock, but Root (3.0s) keeps movement locked and Slow (2.0s) still active!
+        CustomSpells.TickCrowdControl(t0 + 1.1)
+        T.AssertFalse(enemy._atkDisabled, "Attacks should unlock after 1.0s stun expires")
+        T.AssertTrue(enemy._moveDisabled, "Movement must remain locked until 3.0s root expires")
+        T.AssertFalse(runSpeedReset, "Slow should still be active at 1.1s")
+
+        -- At t0 + 2.1s: Slow (2.0s) expired -> run speed restored, Root still active!
+        CustomSpells.TickCrowdControl(t0 + 2.1)
+        T.AssertTrue(runSpeedReset, "Slow should reset run speed after 2.0s")
+        T.AssertTrue(enemy._moveDisabled, "Root must remain active until 3.0s")
+
+        -- At t0 + 3.1s: Root (3.0s) expired -> movement unlocked!
+        CustomSpells.TickCrowdControl(t0 + 3.1)
+        T.AssertFalse(enemy._moveDisabled, "Movement should unlock after 3.0s root expires")
+
+        CustomSpells.ClearAllCrowdControl()
     end)
 end)

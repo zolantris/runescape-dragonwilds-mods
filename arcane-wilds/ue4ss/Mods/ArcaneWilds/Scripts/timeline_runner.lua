@@ -851,11 +851,12 @@ end
 
 -- Unified 3-Tier Enemy Targeting:
 --   Tier 1: Actively locked-on enemy (ULockOnTargetingComponent / UEnemyTargetorComponent)
---   Tier 2: Closest alive enemy the player is pointing directly at within `maxRange` (default config.AutoTargetMaxDistance = 700)
+--   Tier 2: Best alive enemy aligned with the player's 3D camera crosshair ray within `maxRange` & `coneDeg`
+--           (default config.AutoTargetMaxDistance = 2500cm / 25m)
 --   Tier 3: Point `maxRange` ahead along the player's pointing direction (never strikes player's own feet)
 local function ResolveAimTarget(pawn, maxRange, coneDeg, fallbackDist, config, entry, debugLogFn)
     local pLoc, pRot, camLoc, camRot = GetPlayerAimOriginAndRot(pawn)
-    local cfgDist = tonumber(config and config.AutoTargetMaxDistance) or 700.0
+    local cfgDist = tonumber(config and config.AutoTargetMaxDistance) or 2500.0
     local cfgCone = tonumber(config and config.AutoTargetConeDeg) or 45.0
     local spellDist = tonumber(entry and entry.customDef and entry.customDef.autoTargetRange)
     local spellCone = tonumber(entry and entry.customDef and entry.customDef.autoTargetCone)
@@ -873,15 +874,19 @@ local function ResolveAimTarget(pawn, maxRange, coneDeg, fallbackDist, config, e
         return lockedLoc, pRot, lockedActor, "locked"
     end
 
-    -- Tier 2: Closest alive enemy the player is pointing directly at within effMaxDist & effConeDeg
+    -- Tier 2: Enemy best aligned with the player's 3D camera crosshair ray within effMaxDist & effConeDeg
     local rSq = effMaxDist * effMaxDist
-    local cosHalfCone = math.cos(math.rad(effConeDeg * 0.5))
-    -- Use camera yaw (horizontal pointing direction) so aiming slightly up/down in 3rd person still hits enemies ahead cleanly
+    local fullCircle = (effConeDeg >= 360.0)
+    local cosHalfCone = fullCircle and -1.0 or math.cos(math.rad(effConeDeg * 0.5))
+    local aimPitchRad = math.rad(camRot.Pitch or 0.0)
     local aimYawRad = math.rad(camRot.Yaw or pRot.Yaw or 0.0)
+    local rayX = math.cos(aimPitchRad) * math.cos(aimYawRad)
+    local rayY = math.cos(aimPitchRad) * math.sin(aimYawRad)
+    local rayZ = math.sin(aimPitchRad)
     local fwdX = math.cos(aimYawRad)
     local fwdY = math.sin(aimYawRad)
 
-    local bestActor, bestLoc, bestDistSq = nil, nil, math.huge
+    local bestActor, bestLoc, bestDistSq, bestScore, bestDot = nil, nil, math.huge, -math.huge, -1.0
     local pawnLow = SafeObjName(pawn):lower()
     pcall(function()
         local aiList = FindAllOf("DominionAICharacter")
@@ -894,10 +899,29 @@ local function ResolveAimTarget(pawn, maxRange, coneDeg, fallbackDist, config, e
                     local dz = aLoc.Z - pLoc.Z
                     local distSq = dx * dx + dy * dy + dz * dz
                     if distSq > 64.0 and distSq <= rSq then
+                        -- 3D vector from camera origin to enemy torso center
+                        local cx = aLoc.X - camLoc.X
+                        local cy = aLoc.Y - camLoc.Y
+                        local cz = (aLoc.Z + 70.0) - camLoc.Z
+                        local cLen = math.sqrt(cx * cx + cy * cy + cz * cz)
+                        local dot3D = (cLen > 1e-3) and ((cx * rayX + cy * rayY + cz * rayZ) / cLen) or -1.0
+
+                        -- Horizontal vector from player feet along camera yaw (protects close-range 3rd-person parallax)
                         local hLen = math.sqrt(dx * dx + dy * dy)
-                        if hLen > 1e-3 then
-                            local dot = (dx / hLen) * fwdX + (dy / hLen) * fwdY
-                            if dot >= cosHalfCone and distSq < bestDistSq then
+                        local dotH = (hLen > 1e-3) and ((dx / hLen) * fwdX + (dy / hLen) * fwdY) or 1.0
+
+                        local inCone = fullCircle
+                            or (dot3D >= cosHalfCone)
+                            or (distSq <= 62500.0 and dotH >= cosHalfCone)
+
+                        if inCone then
+                            local alignDot = (dot3D >= cosHalfCone) and dot3D or (dotH * 0.96)
+                            local dist = math.sqrt(distSq)
+                            -- Prioritize tightest crosshair-ray alignment, with slight preference for closer targets on ties
+                            local score = alignDot - (dist / math.max(1.0, effMaxDist)) * 0.015
+                            if score > bestScore or (math.abs(score - bestScore) < 1e-6 and distSq < bestDistSq) then
+                                bestScore = score
+                                bestDot = alignDot
                                 bestDistSq = distSq
                                 bestActor = ai
                                 bestLoc = aLoc
@@ -911,8 +935,9 @@ local function ResolveAimTarget(pawn, maxRange, coneDeg, fallbackDist, config, e
 
     if IsValidUObject(bestActor) and bestLoc then
         if debugLogFn then
-            debugLogFn(string.format("AutoTarget [AIMED-CLOSEST]: %s dist=%.0fcm (max=%.0fcm, cone=%.0fdeg)",
-                SafeObjName(bestActor), math.sqrt(bestDistSq), effMaxDist, effConeDeg))
+            local angDeg = math.deg(math.acos(math.max(-1.0, math.min(1.0, bestDot))))
+            debugLogFn(string.format("AutoTarget [CROSSHAIR-RAY]: %s dist=%.0fcm ang=%.1fdeg (max=%.0fcm, cone=%.0fdeg)",
+                SafeObjName(bestActor), math.sqrt(bestDistSq), angDeg, effMaxDist, effConeDeg))
         end
         return bestLoc, pRot, bestActor, "aimed"
     end
@@ -921,7 +946,7 @@ local function ResolveAimTarget(pawn, maxRange, coneDeg, fallbackDist, config, e
     local fDist = tonumber(fallbackDist) or effMaxDist
     local fallbackLoc = LocalOffsetToWorld(pLoc, MakeRot(0.0, camRot.Yaw or pRot.Yaw or 0.0, 0.0), MakeVec(fDist, 0.0, 0.0))
     if debugLogFn then
-        debugLogFn(string.format("AutoTarget [EMPTY-FORWARD]: dist=%.0fcm (no locked/pointed enemy within %.0fcm)", fDist, effMaxDist))
+        debugLogFn(string.format("AutoTarget [EMPTY-FORWARD]: dist=%.0fcm (no locked/aimed enemy within %.0fcm)", fDist, effMaxDist))
     end
     return fallbackLoc, pRot, nil, "forward"
 end
@@ -1144,6 +1169,12 @@ local function FireSingleChainStrike(tlInst, cue, cueState, pawn, customSpells, 
     local applied, trace = false, ""
     if customSpells and customSpells.ApplyDominionBlueprintDamage then
         applied, trace = customSpells.ApplyDominionBlueprintDamage(targetActor, pawn, rolledDmg, targetLoc, instLoc, effEntry, debugLogFn)
+    end
+    if customSpells and customSpells.ApplyCrowdControl then
+        customSpells.ApplyCrowdControl(targetActor, pawn, instLoc, targetLoc, p, debugLogFn, now)
+    end
+    if effDef.damageGE and effDef.damageGE ~= "" and customSpells and customSpells.ApplyGameplayEffectByName then
+        customSpells.ApplyGameplayEffectByName(targetActor, pawn, effDef.damageGE, debugLogFn)
     end
 
     -- Spawn scaled lightning / strike VFX directly on the struck enemy

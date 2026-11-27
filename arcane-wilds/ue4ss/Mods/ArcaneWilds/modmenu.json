@@ -293,19 +293,19 @@
       "key": "AutoTargetMaxDistance",
       "type": "slider",
       "label": "Auto-Target Max Distance (cm)",
-      "description": "Maximum distance (in UE units/cm; 700 = 7m) to auto-target the closest enemy you are pointing at when no enemy is locked on.",
-      "min": 200,
-      "max": 3000,
-      "step": 50,
-      "default": 700
+      "description": "Maximum distance (in UE cm; 100 = 1m / ~3.3ft, default 2500 = 25m / ~82ft) to auto-target enemies along your crosshair ray when not locked on.",
+      "min": 300,
+      "max": 6000,
+      "step": 100,
+      "default": 2500
     },
     {
       "key": "AutoTargetConeDeg",
       "type": "slider",
-      "label": "Auto-Target Pointing Cone (degrees)",
-      "description": "How directly you must point at an enemy for auto-targeting when not locked on (default 45 degrees).",
+      "label": "Auto-Target Crosshair Cone (degrees)",
+      "description": "Max angle from your crosshair ray to acquire an enemy when not locked on (default 45 degrees; prioritizes enemy closest to crosshair).",
       "min": 10,
-      "max": 120,
+      "max": 180,
       "step": 5,
       "default": 45
     },

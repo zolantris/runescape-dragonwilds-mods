@@ -819,6 +819,7 @@ local function RunMainGameThreadTick()
 
     if not Config.Enabled then
         InputBlocker.Clear(State, Log, DebugLog)
+        CustomSpells.ClearAllCrowdControl(DebugLog)
         return
     end
 
@@ -925,6 +926,7 @@ local function RunMainGameThreadTick()
     if State.ActiveTimelines and #State.ActiveTimelines > 0 then
         TimelineRunner.Tick(now, Config, State, pawn, combatMagic, CustomSpells, SpellScanner.SafeGetName, DebugLog)
     end
+    CustomSpells.TickCrowdControl(now, DebugLog)
 
     local inPostSpecialPause = (State.SpecialPostPauseUntil or 0) > now
     if not quickCastFired and State.PendingAnchorReturn and not State.ActiveMacro and not inPostSpecialPause and combatMagic and combatMagic:IsValid() then

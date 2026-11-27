@@ -205,7 +205,7 @@ function ConfigManager.CreateDefaultConfig()
         MaxSpecialCastRate = 1.8,
         PostSpecialPauseSec = 0.65,
         AnimRepeatPadSec = 0.45,
-        AutoTargetMaxDistance = 700.0,
+        AutoTargetMaxDistance = 2500.0,
         AutoTargetConeDeg = 45.0,
         RequireLockOnForChainSpells = true,
         EnableStaffDamageScaling = true,
@@ -758,8 +758,8 @@ function ConfigManager.LoadConfigFile(paths, config, state, logFn, forceRebuildM
                 elseif k == "MaxSpecialCastRate" then config.MaxSpecialCastRate = math.max(1.0, tonumber(v) or 1.8)
                 elseif k == "PostSpecialPauseSec" then config.PostSpecialPauseSec = math.max(0.0, tonumber(v) or 0.65)
                 elseif k == "AnimRepeatPadSec" then config.AnimRepeatPadSec = math.max(0.0, tonumber(v) or 0.45)
-                elseif k == "AutoTargetMaxDistance" then config.AutoTargetMaxDistance = math.max(100.0, tonumber(v) or 700.0)
-                elseif k == "AutoTargetConeDeg" then config.AutoTargetConeDeg = math.max(5.0, math.min(180.0, tonumber(v) or 45.0))
+                elseif k == "AutoTargetMaxDistance" then config.AutoTargetMaxDistance = math.max(100.0, tonumber(v) or 2500.0)
+                elseif k == "AutoTargetConeDeg" then config.AutoTargetConeDeg = math.max(5.0, math.min(360.0, tonumber(v) or 45.0))
                 elseif k == "RequireLockOnForChainSpells" then config.RequireLockOnForChainSpells = ConfigManager.ParseBool(v, true)
                 elseif k == "EnableStaffDamageScaling" then config.EnableStaffDamageScaling = ConfigManager.ParseBool(v, true)
                 elseif k == "StaffBaselineTier" then config.StaffBaselineTier = math.max(1, math.floor(tonumber(v) or 1))

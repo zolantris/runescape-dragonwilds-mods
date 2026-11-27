@@ -13,6 +13,7 @@ local CachedDamageFuncLib = nil
 local CachedFloatiesSubsystem = nil
 local CachedBridgeCDO = nil
 local CheckedBridgeAsset = false
+local ActiveCrowdControl = {}
 
 local function Trim(s)
     if not s then return "" end
@@ -2008,28 +2009,325 @@ local function ExecuteHitPulse(pawn, centerLoc, centerRot, hitParams, entry, saf
     for idx, h in ipairs(hits) do
         local rolledDmg = (hi > lo) and math.random(lo, hi) or lo
         local applied, trace = ApplyDominionBlueprintDamage(h.actor, pawn, rolledDmg, h.loc, instLoc or centerLoc, effEntry, logHb)
+        local ccOrigin = centerLoc or instLoc
+        if ccOrigin and h.loc then
+            local cdx = (h.loc.X or 0) - (ccOrigin.X or 0)
+            local cdy = (h.loc.Y or 0) - (ccOrigin.Y or 0)
+            if (cdx * cdx + cdy * cdy) < 25.0 and instLoc then
+                ccOrigin = instLoc
+            end
+        end
+        CustomSpells.ApplyCrowdControl(h.actor, pawn, ccOrigin, h.loc, p, logHb)
         if effDef.damageGE and effDef.damageGE ~= "" then
-            pcall(function()
-                local geName = tostring(effDef.damageGE)
-                local geObj = StaticFindObject(geName)
-                if not IsValidUObject(geObj) then
-                    geObj = FindAssetByKeywordOnDemand("Class", geName, SafeObjName)
-                        or FindAssetByKeywordOnDemand("BlueprintGeneratedClass", geName, SafeObjName)
-                end
-                local gComp = h.actor.GameplayEffectsComponent
-                if IsValidUObject(gComp) and IsValidUObject(geObj)
-                    and HasUFunc(gComp, "InstantiateGameplayEffect") and HasUFunc(gComp, "ApplyGameplayEffect") then
-                    local okInst, handle = pcall(function() return gComp:InstantiateGameplayEffect(geObj, nil, true) end)
-                    if okInst and handle ~= nil then
-                        pcall(function() gComp:ApplyGameplayEffect(pawn, pawn, handle, true) end)
-                    end
-                end
-            end)
+            CustomSpells.ApplyGameplayEffectByName(h.actor, pawn, effDef.damageGE, logHb)
         end
         logHb(string.format("  TimelineHit #%d [%s]: %s dist=%.1f dmg=%d applied=%s trace=[%s]",
             idx, tostring(effEntry.shortName), h.name, math.sqrt(h.distSq), rolledDmg, tostring(applied), tostring(trace)))
     end
     return #hits, hits
+end
+
+-- Apply a Dominion GameplayEffect class by path or keyword to a target actor.
+function CustomSpells.ApplyGameplayEffectByName(targetActor, instigatorPawn, geName, debugLogFn)
+    if not IsValidUObject(targetActor) or not geName or geName == "" then return false end
+    local applied = false
+    pcall(function()
+        local nameStr = tostring(geName)
+        local geObj = StaticFindObject(nameStr)
+        if not IsValidUObject(geObj) then
+            geObj = FindAssetByKeywordOnDemand("Class", nameStr, SafeObjName)
+                or FindAssetByKeywordOnDemand("BlueprintGeneratedClass", nameStr, SafeObjName)
+        end
+        local gComp = targetActor.GameplayEffectsComponent
+        if IsValidUObject(gComp) and IsValidUObject(geObj)
+            and HasUFunc(gComp, "InstantiateGameplayEffect") and HasUFunc(gComp, "ApplyGameplayEffect") then
+            local okInst, handle = pcall(function() return gComp:InstantiateGameplayEffect(geObj, nil, true) end)
+            if okInst and handle ~= nil then
+                local okApp, appRes = pcall(function() return gComp:ApplyGameplayEffect(instigatorPawn, instigatorPawn, handle, true) end)
+                applied = (okApp == true) and (appRes ~= false)
+            end
+        end
+        if debugLogFn then
+            debugLogFn(string.format("  GE [%s] on %s -> geObj=%s applied=%s",
+                nameStr, SafeObjName(targetActor), IsValidUObject(geObj) and SafeObjName(geObj) or "NIL", tostring(applied)))
+        end
+    end)
+    return applied
+end
+
+-- Apply native Dragonwilds/UE5 crowd control (Stun, Root, Pushback/Launch, Slow) to an enemy actor.
+-- All calls use primitive/pointer-only UFunctions (crash-safe in UE4SS Lua, zero .pak bridge required).
+function CustomSpells.ApplyCrowdControl(targetActor, instigatorPawn, originLoc, targetLoc, ccParams, debugLogFn, nowOverride)
+    if not IsValidUObject(targetActor) or targetActor == instigatorPawn or type(ccParams) ~= "table" then
+        return false, ""
+    end
+
+    local stunDur = math.max(0.0, tonumber(ccParams.stun) or 0.0)
+    local rootDur = math.max(0.0, tonumber(ccParams.root) or 0.0)
+    local pushSpeed = tonumber(ccParams.pushback) or 0.0
+    local hasPush = math.abs(pushSpeed) > 1.0
+    local launchZ = tonumber(ccParams.launchZ)
+    if launchZ == nil and hasPush then
+        -- Slight upward lift (180 cm/s) breaks ground/NavMesh friction so pushback visibly slides/launches enemies
+        launchZ = 180.0
+    end
+    local hasLaunch = hasPush or (launchZ ~= nil and math.abs(launchZ) > 1.0)
+    local slowDur = math.max(0.0, tonumber(ccParams.slowDuration) or 0.0)
+    local slowMult = math.max(0.05, math.min(0.99, tonumber(ccParams.slowMultiplier) or 0.45))
+    local shouldInterrupt = (ccParams.interrupt ~= false) and (stunDur > 0.0)
+
+    if stunDur <= 0.0 and rootDur <= 0.0 and not hasLaunch and slowDur <= 0.0 then
+        return false, ""
+    end
+
+    local hpComp = ResolveTargetHealthComponent(targetActor)
+    local hpNow = ReadActorHealth(hpComp)
+    local isDead = (hpNow ~= nil and hpNow <= 0.01)
+
+    local now = nowOverride or os.clock()
+    local key = SafeObjName(targetActor):lower()
+    if key == "" then key = tostring(targetActor) end
+
+    local rec = ActiveCrowdControl[key]
+    if not rec then
+        rec = {
+            actor = targetActor,
+            locker = IsValidUObject(instigatorPawn) and instigatorPawn or targetActor,
+            moveLocked = false,
+            attackLocked = false,
+            slowed = false,
+            usedOverrideRunSpeed = false,
+            savedMaxWalkSpeed = nil,
+            savedBaseRunSpeed = nil,
+            stunUntil = 0.0,
+            rootUntil = 0.0,
+            slowUntil = 0.0
+        }
+    end
+
+    local mc = nil
+    pcall(function() mc = targetActor.CharacterMovement end)
+
+    local appliedParts = {}
+
+    -- 1. Interrupt current attack/action montage on Stun
+    if shouldInterrupt and not isDead then
+        pcall(function()
+            local mesh = targetActor.Mesh
+            if IsValidUObject(mesh) and HasUFunc(mesh, "GetAnimInstance") then
+                local animInst = mesh:GetAnimInstance()
+                if IsValidUObject(animInst) and HasUFunc(animInst, "Montage_Stop") then
+                    animInst:Montage_Stop(0.12, nil)
+                end
+            end
+        end)
+    end
+
+    -- 2. Stun (disable both movement + attacks) and Root (disable movement)
+    if not isDead and stunDur > 0.0 then
+        rec.stunUntil = math.max(rec.stunUntil or 0.0, now + stunDur)
+        if not rec.attackLocked and HasUFunc(targetActor, "SetAttacksDisabled") then
+            local ok = pcall(function() targetActor:SetAttacksDisabled(true, rec.locker) end)
+            if ok then rec.attackLocked = true end
+        end
+        if not rec.moveLocked and HasUFunc(targetActor, "SetMovementDisabled") then
+            local ok = pcall(function() targetActor:SetMovementDisabled(true, rec.locker) end)
+            if ok then rec.moveLocked = true end
+        end
+        table.insert(appliedParts, string.format("stun=%.2fs", stunDur))
+    end
+
+    if not isDead and rootDur > 0.0 then
+        rec.rootUntil = math.max(rec.rootUntil or 0.0, now + rootDur)
+        if not rec.moveLocked and HasUFunc(targetActor, "SetMovementDisabled") then
+            local ok = pcall(function() targetActor:SetMovementDisabled(true, rec.locker) end)
+            if ok then rec.moveLocked = true end
+        end
+        table.insert(appliedParts, string.format("root=%.2fs", rootDur))
+    end
+
+    -- Stop existing locomotion velocity before applying root/stun or a clean directional launch
+    if (not isDead and (stunDur > 0.0 or rootDur > 0.0)) or hasLaunch then
+        if IsValidUObject(mc) and HasUFunc(mc, "StopMovementImmediately") then
+            pcall(function() mc:StopMovementImmediately() end)
+        end
+    end
+
+    -- 3. Slow (override AI run speed cleanly, restored automatically on expiry)
+    if not isDead and slowDur > 0.0 and IsValidUObject(mc) then
+        rec.slowUntil = math.max(rec.slowUntil or 0.0, now + slowDur)
+        if not rec.savedBaseRunSpeed then
+            local baseSpd = nil
+            if HasUFunc(mc, "GetRunSpeed") then
+                pcall(function() baseSpd = tonumber(mc:GetRunSpeed()) end)
+            end
+            if not baseSpd or baseSpd <= 1.0 then
+                pcall(function() baseSpd = tonumber(mc.MaxWalkSpeed) end)
+            end
+            rec.savedBaseRunSpeed = (baseSpd and baseSpd > 1.0) and baseSpd or 450.0
+        end
+        local slowedSpeed = math.max(25.0, rec.savedBaseRunSpeed * slowMult)
+        if HasUFunc(mc, "OverrideMaxRunSpeed") then
+            local ok = pcall(function() mc:OverrideMaxRunSpeed(slowedSpeed) end)
+            if ok then
+                rec.usedOverrideRunSpeed = true
+                rec.slowed = true
+            end
+        elseif mc.MaxWalkSpeed ~= nil then
+            if rec.savedMaxWalkSpeed == nil then
+                pcall(function() rec.savedMaxWalkSpeed = tonumber(mc.MaxWalkSpeed) end)
+            end
+            local ok = pcall(function() mc.MaxWalkSpeed = slowedSpeed end)
+            if ok then rec.slowed = true end
+        end
+        table.insert(appliedParts, string.format("slow=%.2fx/%.2fs", slowMult, slowDur))
+    end
+
+    -- 4. Pushback / Pull / Knockup via native ACharacter::LaunchCharacter (same path as SpellModule_LaunchCharacter)
+    if hasLaunch then
+        local tLoc = targetLoc
+        if not tLoc then
+            pcall(function() tLoc = targetActor:K2_GetActorLocation() end)
+        end
+        local oLoc = originLoc
+        if not oLoc and IsValidUObject(instigatorPawn) then
+            pcall(function() oLoc = instigatorPawn:K2_GetActorLocation() end)
+        end
+
+        local nx, ny = 1.0, 0.0
+        local haveDir = false
+        if tLoc and oLoc then
+            local dx = (tonumber(tLoc.X) or 0.0) - (tonumber(oLoc.X) or 0.0)
+            local dy = (tonumber(tLoc.Y) or 0.0) - (tonumber(oLoc.Y) or 0.0)
+            local hLen = math.sqrt(dx * dx + dy * dy)
+            if hLen > 5.0 then
+                nx = dx / hLen
+                ny = dy / hLen
+                haveDir = true
+            end
+        end
+        if not haveDir and IsValidUObject(instigatorPawn) then
+            pcall(function()
+                local rot = instigatorPawn:K2_GetActorRotation()
+                if rot and rot.Yaw then
+                    local yr = math.rad(tonumber(rot.Yaw) or 0.0)
+                    nx = math.cos(yr)
+                    ny = math.sin(yr)
+                end
+            end)
+        end
+
+        local vel = { X = nx * pushSpeed, Y = ny * pushSpeed, Z = launchZ or 0.0 }
+        local launched = false
+        if HasUFunc(targetActor, "LaunchCharacter") then
+            launched = pcall(function() targetActor:LaunchCharacter(vel, true, true) end)
+        elseif IsValidUObject(mc) and HasUFunc(mc, "AddImpulse") then
+            launched = pcall(function() mc:AddImpulse(vel, true) end)
+        end
+        if launched then
+            table.insert(appliedParts, string.format("push=%.0f(z=%.0f)", pushSpeed, launchZ or 0.0))
+        end
+    end
+
+    if rec.moveLocked or rec.attackLocked or rec.slowed then
+        ActiveCrowdControl[key] = rec
+    end
+
+    local summary = table.concat(appliedParts, ", ")
+    if #appliedParts > 0 and debugLogFn then
+        debugLogFn(string.format("  CC -> %s [%s]", SafeObjName(targetActor), summary))
+    end
+    return (#appliedParts > 0), summary
+end
+
+-- Release expired stun/root/slow locks cleanly on the Game Thread every tick.
+function CustomSpells.TickCrowdControl(nowOverride, debugLogFn)
+    if next(ActiveCrowdControl) == nil then return end
+    local now = nowOverride or os.clock()
+    local toRemove = {}
+
+    for key, rec in pairs(ActiveCrowdControl) do
+        local ai = rec.actor
+        if not IsValidUObject(ai) then
+            table.insert(toRemove, key)
+        else
+            local hpComp = ResolveTargetHealthComponent(ai)
+            local hpNow = ReadActorHealth(hpComp)
+            local isDead = (hpNow ~= nil and hpNow <= 0.01)
+
+            if rec.attackLocked and (isDead or now >= (rec.stunUntil or 0.0)) then
+                if HasUFunc(ai, "SetAttacksDisabled") then
+                    pcall(function() ai:SetAttacksDisabled(false, rec.locker) end)
+                end
+                rec.attackLocked = false
+                if debugLogFn and not isDead then
+                    debugLogFn("  CC expired [stun] on " .. SafeObjName(ai))
+                end
+            end
+
+            if rec.moveLocked and (isDead or (now >= (rec.stunUntil or 0.0) and now >= (rec.rootUntil or 0.0))) then
+                if HasUFunc(ai, "SetMovementDisabled") then
+                    pcall(function() ai:SetMovementDisabled(false, rec.locker) end)
+                end
+                rec.moveLocked = false
+                if debugLogFn and not isDead then
+                    debugLogFn("  CC expired [root/move] on " .. SafeObjName(ai))
+                end
+            end
+
+            if rec.slowed and (isDead or now >= (rec.slowUntil or 0.0)) then
+                pcall(function()
+                    local mc = ai.CharacterMovement
+                    if IsValidUObject(mc) then
+                        if rec.usedOverrideRunSpeed and HasUFunc(mc, "ResetOverrideRunSpeed") then
+                            mc:ResetOverrideRunSpeed()
+                        elseif rec.savedMaxWalkSpeed ~= nil then
+                            mc.MaxWalkSpeed = rec.savedMaxWalkSpeed
+                        end
+                    end
+                end)
+                rec.slowed = false
+                if debugLogFn and not isDead then
+                    debugLogFn("  CC expired [slow] on " .. SafeObjName(ai))
+                end
+            end
+
+            if isDead or (not rec.attackLocked and not rec.moveLocked and not rec.slowed) then
+                table.insert(toRemove, key)
+            end
+        end
+    end
+
+    for _, key in ipairs(toRemove) do
+        ActiveCrowdControl[key] = nil
+    end
+end
+
+function CustomSpells.ClearAllCrowdControl(debugLogFn)
+    for key, rec in pairs(ActiveCrowdControl) do
+        local ai = rec.actor
+        if IsValidUObject(ai) then
+            if rec.attackLocked and HasUFunc(ai, "SetAttacksDisabled") then
+                pcall(function() ai:SetAttacksDisabled(false, rec.locker) end)
+            end
+            if rec.moveLocked and HasUFunc(ai, "SetMovementDisabled") then
+                pcall(function() ai:SetMovementDisabled(false, rec.locker) end)
+            end
+            if rec.slowed then
+                pcall(function()
+                    local mc = ai.CharacterMovement
+                    if IsValidUObject(mc) then
+                        if rec.usedOverrideRunSpeed and HasUFunc(mc, "ResetOverrideRunSpeed") then
+                            mc:ResetOverrideRunSpeed()
+                        elseif rec.savedMaxWalkSpeed ~= nil then
+                            mc.MaxWalkSpeed = rec.savedMaxWalkSpeed
+                        end
+                    end
+                end)
+            end
+        end
+        ActiveCrowdControl[key] = nil
+    end
 end
 
 CustomSpells.ApplyDominionBlueprintDamage = ApplyDominionBlueprintDamage

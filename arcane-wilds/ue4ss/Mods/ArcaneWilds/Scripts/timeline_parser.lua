@@ -5,13 +5,14 @@
 local TimelineParser = {}
 
 local function Trim(s)
-    if not s then return "" end
+    if s == nil then return "" end
     return (tostring(s):gsub("^%s*(.-)%s*$", "%1"))
 end
 
 local function ParseBool(v, defaultVal)
     if v == nil then return defaultVal end
-    local l = Trim(v):lower()
+    if type(v) == "boolean" then return v end
+    local l = Trim(tostring(v)):lower()
     if l == "true" or l == "1" or l == "yes" or l == "on" then return true end
     if l == "false" or l == "0" or l == "no" or l == "off" then return false end
     return defaultVal
@@ -408,6 +409,30 @@ function TimelineParser.ParseCueLine(cueType, rawVal, defaultTarget)
                 params.damageClass = val
             elseif kl == "force" or kl == "knockback" then
                 params.force = tonumber(val)
+            elseif kl == "stun" or kl == "stunduration" or kl == "stunsec" then
+                params.stun = math.max(0.0, tonumber(val) or 0.0)
+            elseif kl == "root" or kl == "rootduration" or kl == "rootsec" or kl == "snare" then
+                params.root = math.max(0.0, tonumber(val) or 0.0)
+            elseif kl == "pushback" or kl == "push" or kl == "knockbackspeed" or kl == "launchspeed" then
+                params.pushback = tonumber(val) or 0.0
+            elseif kl == "launchz" or kl == "knockup" or kl == "launchup" or kl == "upforce" then
+                params.launchZ = tonumber(val) or 0.0
+            elseif kl == "slow" then
+                local mStr, dStr = val:match("^([%d%.]+)%s*:%s*([%d%.]+)$")
+                if mStr and dStr then
+                    params.slowMultiplier = math.max(0.05, math.min(0.99, tonumber(mStr) or 0.45))
+                    params.slowDuration = math.max(0.0, tonumber(dStr) or 0.0)
+                else
+                    params.slowDuration = math.max(0.0, tonumber(val) or 0.0)
+                    params.slowMultiplier = params.slowMultiplier or 0.45
+                end
+            elseif kl == "slowduration" or kl == "slowsec" then
+                params.slowDuration = math.max(0.0, tonumber(val) or 0.0)
+                params.slowMultiplier = params.slowMultiplier or 0.45
+            elseif kl == "slowmultiplier" or kl == "slowmult" or kl == "slowfactor" then
+                params.slowMultiplier = math.max(0.05, math.min(0.99, tonumber(val) or 0.45))
+            elseif kl == "interrupt" then
+                params.interrupt = ParseBool(val, true)
             elseif kl == "ge" or kl == "damagege" then
                 params.ge = val
             elseif kl == "vfx" then
@@ -739,6 +764,41 @@ function TimelineParser.ParseJsonCue(cueObj)
     if cueObj.class ~= nil then params.damageClass = tostring(cueObj.class) end
     if cueObj.damageClass ~= nil then params.damageClass = tostring(cueObj.damageClass) end
     if cueObj.force ~= nil then params.force = tonumber(cueObj.force) end
+    if cueObj.stun ~= nil then params.stun = math.max(0.0, tonumber(cueObj.stun) or 0.0) end
+    if cueObj.stunDuration ~= nil then params.stun = math.max(0.0, tonumber(cueObj.stunDuration) or 0.0) end
+    if cueObj.root ~= nil then params.root = math.max(0.0, tonumber(cueObj.root) or 0.0) end
+    if cueObj.rootDuration ~= nil then params.root = math.max(0.0, tonumber(cueObj.rootDuration) or 0.0) end
+    if cueObj.snare ~= nil then params.root = math.max(0.0, tonumber(cueObj.snare) or 0.0) end
+    if cueObj.pushback ~= nil then params.pushback = tonumber(cueObj.pushback) or 0.0 end
+    if cueObj.knockback ~= nil and cueObj.pushback == nil then params.pushback = tonumber(cueObj.knockback) or 0.0 end
+    if cueObj.launchZ ~= nil then params.launchZ = tonumber(cueObj.launchZ) or 0.0 end
+    if cueObj.knockup ~= nil and cueObj.launchZ == nil then params.launchZ = tonumber(cueObj.knockup) or 0.0 end
+    if cueObj.slow ~= nil then
+        if type(cueObj.slow) == "table" then
+            params.slowMultiplier = math.max(0.05, math.min(0.99, tonumber(cueObj.slow.multiplier or cueObj.slow.mult or cueObj.slow.factor) or 0.45))
+            params.slowDuration = math.max(0.0, tonumber(cueObj.slow.duration or cueObj.slow.dur) or 0.0)
+        elseif type(cueObj.slow) == "number" then
+            params.slowDuration = math.max(0.0, cueObj.slow)
+            params.slowMultiplier = params.slowMultiplier or 0.45
+        elseif type(cueObj.slow) == "string" then
+            local mStr, dStr = cueObj.slow:match("^([%d%.]+)%s*:%s*([%d%.]+)$")
+            if mStr and dStr then
+                params.slowMultiplier = math.max(0.05, math.min(0.99, tonumber(mStr) or 0.45))
+                params.slowDuration = math.max(0.0, tonumber(dStr) or 0.0)
+            else
+                params.slowDuration = math.max(0.0, tonumber(cueObj.slow) or 0.0)
+                params.slowMultiplier = params.slowMultiplier or 0.45
+            end
+        end
+    end
+    if cueObj.slowDuration ~= nil then
+        params.slowDuration = math.max(0.0, tonumber(cueObj.slowDuration) or 0.0)
+        params.slowMultiplier = params.slowMultiplier or 0.45
+    end
+    if cueObj.slowMultiplier ~= nil then
+        params.slowMultiplier = math.max(0.05, math.min(0.99, tonumber(cueObj.slowMultiplier) or 0.45))
+    end
+    if cueObj.interrupt ~= nil then params.interrupt = ParseBool(cueObj.interrupt, true) end
     if cueObj.ge ~= nil then params.ge = tostring(cueObj.ge) end
     if cueObj.vfx ~= nil then params.vfx = tostring(cueObj.vfx) end
     if cueObj.sfx ~= nil then params.sfx = tostring(cueObj.sfx) end
@@ -1157,6 +1217,14 @@ function TimelineParser.SerializeCue(cue)
     if p.dmgScale and p.dmgScale ~= "" then table.insert(parts, "scale=" .. tostring(p.dmgScale)) end
     if p.damageClass and p.damageClass ~= "" then table.insert(parts, "class=" .. tostring(p.damageClass)) end
     if p.force ~= nil then table.insert(parts, "force=" .. FormatNumber(p.force)) end
+    if p.stun ~= nil and p.stun > 0 then table.insert(parts, "stun=" .. FormatNumber(p.stun)) end
+    if p.root ~= nil and p.root > 0 then table.insert(parts, "root=" .. FormatNumber(p.root)) end
+    if p.pushback ~= nil and math.abs(p.pushback) > 1e-4 then table.insert(parts, "pushback=" .. FormatNumber(p.pushback)) end
+    if p.launchZ ~= nil and math.abs(p.launchZ) > 1e-4 then table.insert(parts, "launchZ=" .. FormatNumber(p.launchZ)) end
+    if p.slowDuration ~= nil and p.slowDuration > 0 then
+        table.insert(parts, "slow=" .. FormatNumber(p.slowMultiplier or 0.45) .. ":" .. FormatNumber(p.slowDuration))
+    end
+    if p.interrupt == false then table.insert(parts, "interrupt=false") end
     if p.ge and p.ge ~= "" then table.insert(parts, "ge=" .. tostring(p.ge)) end
     if p.vfx and p.vfx ~= "" then table.insert(parts, "vfx=" .. tostring(p.vfx)) end
     if p.sfx and p.sfx ~= "" then table.insert(parts, "sfx=" .. tostring(p.sfx)) end
@@ -1168,8 +1236,10 @@ function TimelineParser.SerializeCue(cue)
     if p.trackImpact == true then table.insert(parts, "trackImpact=true") end
     if p.impactTimeout ~= nil then table.insert(parts, "impactTimeout=" .. FormatNumber(p.impactTimeout)) end
     if p.range ~= nil then table.insert(parts, "range=" .. FormatNumber(p.range)) end
-    if p.requireLock == true then table.insert(parts, "requireLock=true") end
-    if p.los == true then table.insert(parts, "los=true") end
+    if p.requireLock == true then table.insert(parts, "requireLock=true")
+    elseif p.requireLock == false then table.insert(parts, "requireLock=false") end
+    if p.los == true then table.insert(parts, "los=true")
+    elseif p.los == false then table.insert(parts, "los=false") end
     if p.skill and p.skill ~= "" then table.insert(parts, "skill=" .. tostring(p.skill)) end
     if p.baseStrikes ~= nil then table.insert(parts, "baseStrikes=" .. tostring(p.baseStrikes)) end
     if p.levelsPerStrike ~= nil then table.insert(parts, "levelsPerStrike=" .. tostring(p.levelsPerStrike)) end
