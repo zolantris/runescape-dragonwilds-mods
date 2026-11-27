@@ -361,6 +361,8 @@ local function PlayAnimOnMesh(mesh, pawnForSlots, animObj, isMontage, cueParams,
     return playedMont, animInst, durSec, isDynamic
 end
 
+local IsEnemyAliveAndTargetable
+
 -- Gather nearby enemy ADominionAICharacter targets within radius (and optional forward cone).
 local function FindNearbyEnemyTargets(pawn, centerLoc, centerRot, radius, coneDeg, maxTargets)
     local results = {}
@@ -387,9 +389,9 @@ local function FindNearbyEnemyTargets(pawn, centerLoc, centerRot, radius, coneDe
     end)
 
     for _, ai in ipairs(candidates) do
-        if IsValidUObject(ai) and ai ~= pawn then
+        if IsEnemyAliveAndTargetable(ai, pawn, pawnLow) then
             local fLow = SafeObjName(ai):lower()
-            if fLow ~= "" and fLow ~= pawnLow and not fLow:find("bp_playercharacter", 1, true) and not seen[fLow] then
+            if not seen[fLow] then
                 seen[fLow] = true
                 local aLoc = nil
                 pcall(function() aLoc = ai:K2_GetActorLocation() end)
@@ -423,9 +425,66 @@ local function FindNearbyEnemyTargets(pawn, centerLoc, centerRot, radius, coneDe
     return results
 end
 
--- Resolve the NPC or world point the player is aiming at (crosshair ray vs ADominionAICharacter).
--- Never returns the player's own feet; falls back to `forward:<fallbackDist>` if no enemy is aimed at.
-local function ResolveAimTarget(pawn, maxRange, coneDeg, fallbackDist)
+-- Normalize Live View / catalog paths so any of these work seamlessly:
+--   "/Game/.../NS_Windstep_Launch.NS_Windstep_Launch"
+--   "NiagaraSystem /Game/.../NS_Windstep_Launch.NS_Windstep_Launch:Swirls_Ground_3"
+--   "/Game/.../NS_Windstep_Launch" -> "/Game/.../NS_Windstep_Launch.NS_Windstep_Launch"
+local function NormalizeUeAssetPath(raw)
+    if not raw or raw == "" then return "" end
+    local s = (tostring(raw):gsub("^%s*(.-)%s*$", "%1"))
+    -- Strip optional leading UE class name (e.g. "NiagaraSystem /Game/...")
+    local afterSpace = s:match("^[^/%s]+%s+(/.*)$")
+    if afterSpace then s = afterSpace end
+    if not s:find("/", 1, true) then
+        -- Strip any ":SubObject" suffix even on short names like "NS_Foo.NS_Foo:Emitter"
+        s = s:match("^([^:]+)") or s
+        return s
+    end
+    -- Strip inner sub-object (e.g. ":Swirls_Ground_3" inside a NiagaraSystem)
+    s = s:match("^([^:]+)") or s
+    -- If package path omits ".AssetName", append it automatically
+    local lastSeg = s:match("/([^/]+)$")
+    if lastSeg and not lastSeg:find(".", 1, true) then
+        s = s .. "." .. lastSeg
+    end
+    return s
+end
+
+-- Check that an AI enemy actor is alive and targetable (never lock onto dead corpses).
+IsEnemyAliveAndTargetable = function(ai, pawn, pawnLow)
+    if not IsValidUObject(ai) or ai == pawn then return false end
+    local fLow = SafeObjName(ai):lower()
+    if fLow == "" or fLow == pawnLow or fLow:find("bp_playercharacter", 1, true) then
+        return false
+    end
+    local targetable = true
+    pcall(function()
+        if ai.bIsTargetable == false then targetable = false end
+    end)
+    if not targetable then return false end
+    local alive = true
+    pcall(function()
+        local hComp = nil
+        if HasUFunc(ai, "GetAiHealthComponent") then
+            hComp = ai:GetAiHealthComponent()
+        else
+            hComp = ai.HealthComponent or ai.AiHealthComponent
+        end
+        if IsValidUObject(hComp) then
+            local hp = nil
+            if HasUFunc(hComp, "GetAuthoritativeHealth") then
+                hp = tonumber(hComp:GetAuthoritativeHealth())
+            elseif HasUFunc(hComp, "GetLocalHealth") then
+                hp = tonumber(hComp:GetLocalHealth())
+            end
+            if hp ~= nil and hp <= 0.01 then alive = false end
+        end
+    end)
+    return alive
+end
+
+-- Get player camera / aim origin & rotation for pointing direction checks.
+local function GetPlayerAimOriginAndRot(pawn)
     local pLoc, pRot = GetActorLocAndRot(pawn)
     local camLoc = pLoc
     local camRot = pRot
@@ -441,49 +500,174 @@ local function ResolveAimTarget(pawn, maxRange, coneDeg, fallbackDist)
             if cr then camRot = MakeRot(cr.Pitch, cr.Yaw, cr.Roll) end
         end
     end)
+    return pLoc, pRot, camLoc, camRot
+end
 
-    local range = tonumber(maxRange) or 2500.0
-    local rSq = range * range
-    local cosCone = math.cos(math.rad((tonumber(coneDeg) or 32.0) * 0.5))
-    local pitchRad = math.rad(camRot.Pitch or 0.0)
-    local yawRad   = math.rad(camRot.Yaw or 0.0)
-    local fwdX = math.cos(pitchRad) * math.cos(yawRad)
-    local fwdY = math.cos(pitchRad) * math.sin(yawRad)
-    local fwdZ = math.sin(pitchRad)
+-- Priority Tier 1: Detect the enemy the player is actively locked onto via Dragonwilds's
+-- ULockOnTargetingComponent and UEnemyTargetorComponent.
+local function ResolveLockedOnEnemy(pawn, maxLockDist)
+    if not IsValidUObject(pawn) then return nil, nil end
+    local pawnLow = SafeObjName(pawn):lower()
+    local pLoc, pRot, camLoc, camRot = GetPlayerAimOriginAndRot(pawn)
+    local lockRange = tonumber(maxLockDist) or 3000.0
+    local lockRangeSq = lockRange * lockRange
 
-    local bestActor, bestLoc, bestScore = nil, nil, -1.0
+    -- 1A. Check ULockOnTargetingComponent (active camera lock-on)
+    local lockComp = nil
+    pcall(function()
+        if HasUFunc(pawn, "GetLockOnTargetingComponent") then
+            lockComp = pawn:GetLockOnTargetingComponent()
+        else
+            lockComp = pawn.LockOnTargetingComponent
+        end
+    end)
+    if IsValidUObject(lockComp) then
+        local lockCamActor = nil
+        pcall(function() lockCamActor = lockComp.LockOnCameraActor end)
+        if IsValidUObject(lockCamActor) then
+            -- Check if LockOnCameraActor is attached directly to the target actor
+            local attActor = nil
+            pcall(function() attActor = lockCamActor.AttachedToActor end)
+            if IsEnemyAliveAndTargetable(attActor, pawn, pawnLow) then
+                local aLoc = select(1, GetActorLocAndRot(attActor))
+                return attActor, aLoc
+            end
+            -- Otherwise the lock-on camera is aimed dead-center at the locked enemy: match tightest enemy along lock-on ray!
+            local lcLoc, lcRot = camLoc, camRot
+            pcall(function()
+                local c = lockCamActor.Camera
+                if IsValidUObject(c) and HasUFunc(c, "K2_GetComponentLocation") and HasUFunc(c, "K2_GetComponentRotation") then
+                    local cl = c:K2_GetComponentLocation()
+                    local cr = c:K2_GetComponentRotation()
+                    if cl then lcLoc = MakeVec(cl.X, cl.Y, cl.Z) end
+                    if cr then lcRot = MakeRot(cr.Pitch, cr.Yaw, cr.Roll) end
+                end
+            end)
+            local lRange = lockRange
+            pcall(function()
+                local md = tonumber(lockComp.MaxTargetDistance)
+                if md and md > 100.0 then lRange = md end
+            end)
+            local lRangeSq = lRange * lRange
+            local pRad = math.rad(lcRot.Pitch or 0.0)
+            local yRad = math.rad(lcRot.Yaw or 0.0)
+            local fx = math.cos(pRad) * math.cos(yRad)
+            local fy = math.cos(pRad) * math.sin(yRad)
+            local fz = math.sin(pRad)
+            local bestActor, bestLoc, bestDot = nil, nil, math.cos(math.rad(18.0))
+            pcall(function()
+                local aiList = FindAllOf("DominionAICharacter")
+                if aiList then
+                    for _, ai in ipairs(aiList) do
+                        if IsEnemyAliveAndTargetable(ai, pawn, pawnLow) then
+                            local aLoc = select(1, GetActorLocAndRot(ai))
+                            local pdx, pdy, pdz = aLoc.X - pLoc.X, aLoc.Y - pLoc.Y, aLoc.Z - pLoc.Z
+                            if (pdx * pdx + pdy * pdy + pdz * pdz) <= lRangeSq then
+                                local cdx, cdy, cdz = aLoc.X - lcLoc.X, aLoc.Y - lcLoc.Y, (aLoc.Z + 60.0) - lcLoc.Z
+                                local cLen = math.sqrt(cdx * cdx + cdy * cdy + cdz * cdz)
+                                if cLen > 1e-3 then
+                                    local dot = (cdx * fx + cdy * fy + cdz * fz) / cLen
+                                    if dot > bestDot then
+                                        bestDot = dot
+                                        bestActor = ai
+                                        bestLoc = aLoc
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+            if IsValidUObject(bestActor) and bestLoc then
+                return bestActor, bestLoc
+            end
+        end
+    end
+
+    -- 1B. Check UEnemyTargetorComponent (native crosshair/reticle enemy lock)
+    local targetor = nil
+    pcall(function()
+        if HasUFunc(pawn, "GetEnemyTargetor") then
+            targetor = pawn:GetEnemyTargetor()
+        else
+            targetor = pawn.TargetorComponent
+        end
+    end)
+    if IsValidUObject(targetor) then
+        local curActor = nil
+        pcall(function() curActor = targetor.CurrentWorldActor end)
+        if not IsEnemyAliveAndTargetable(curActor, pawn, pawnLow) then
+            pcall(function()
+                local ct = targetor.CurrentTargetable
+                if IsValidUObject(ct) and HasUFunc(ct, "GetOwner") then
+                    curActor = ct:GetOwner()
+                end
+            end)
+        end
+        if IsEnemyAliveAndTargetable(curActor, pawn, pawnLow) then
+            local aLoc = select(1, GetActorLocAndRot(curActor))
+            local dx, dy, dz = aLoc.X - pLoc.X, aLoc.Y - pLoc.Y, aLoc.Z - pLoc.Z
+            if (dx * dx + dy * dy + dz * dz) <= lockRangeSq then
+                return curActor, aLoc
+            end
+        end
+    end
+
+    return nil, nil
+end
+
+-- Unified 3-Tier Enemy Targeting:
+--   Tier 1: Actively locked-on enemy (ULockOnTargetingComponent / UEnemyTargetorComponent)
+--   Tier 2: Closest alive enemy the player is pointing directly at within `maxRange` (default config.AutoTargetMaxDistance = 700)
+--   Tier 3: Point `maxRange` ahead along the player's pointing direction (never strikes player's own feet)
+local function ResolveAimTarget(pawn, maxRange, coneDeg, fallbackDist, config, entry, debugLogFn)
+    local pLoc, pRot, camLoc, camRot = GetPlayerAimOriginAndRot(pawn)
+    local cfgDist = tonumber(config and config.AutoTargetMaxDistance) or 700.0
+    local cfgCone = tonumber(config and config.AutoTargetConeDeg) or 45.0
+    local spellDist = tonumber(entry and entry.customDef and entry.customDef.autoTargetRange)
+    local spellCone = tonumber(entry and entry.customDef and entry.customDef.autoTargetCone)
+
+    local effMaxDist = tonumber(maxRange) or spellDist or cfgDist
+    local effConeDeg = tonumber(coneDeg) or spellCone or cfgCone
+
+    -- Tier 1: Locked-on enemy always takes priority!
+    local lockedActor, lockedLoc = ResolveLockedOnEnemy(pawn, math.max(3000.0, effMaxDist))
+    if IsValidUObject(lockedActor) and lockedLoc then
+        if debugLogFn then
+            local dx, dy, dz = lockedLoc.X - pLoc.X, lockedLoc.Y - pLoc.Y, lockedLoc.Z - pLoc.Z
+            debugLogFn(string.format("AutoTarget [LOCKED]: %s dist=%.0fcm", SafeObjName(lockedActor), math.sqrt(dx*dx+dy*dy+dz*dz)))
+        end
+        return lockedLoc, pRot, lockedActor, "locked"
+    end
+
+    -- Tier 2: Closest alive enemy the player is pointing directly at within effMaxDist & effConeDeg
+    local rSq = effMaxDist * effMaxDist
+    local cosHalfCone = math.cos(math.rad(effConeDeg * 0.5))
+    -- Use camera yaw (horizontal pointing direction) so aiming slightly up/down in 3rd person still hits enemies ahead cleanly
+    local aimYawRad = math.rad(camRot.Yaw or pRot.Yaw or 0.0)
+    local fwdX = math.cos(aimYawRad)
+    local fwdY = math.sin(aimYawRad)
+
+    local bestActor, bestLoc, bestDistSq = nil, nil, math.huge
     local pawnLow = SafeObjName(pawn):lower()
     pcall(function()
         local aiList = FindAllOf("DominionAICharacter")
         if aiList then
             for _, ai in ipairs(aiList) do
-                if IsValidUObject(ai) and ai ~= pawn then
-                    local fLow = SafeObjName(ai):lower()
-                    if fLow ~= "" and fLow ~= pawnLow and not fLow:find("bp_playercharacter", 1, true) then
-                        local aLoc = nil
-                        pcall(function() aLoc = ai:K2_GetActorLocation() end)
-                        if aLoc then
-                            local dx = (aLoc.X or 0) - pLoc.X
-                            local dy = (aLoc.Y or 0) - pLoc.Y
-                            local dz = (aLoc.Z or 0) - pLoc.Z
-                            local distSq = dx * dx + dy * dy + dz * dz
-                            if distSq > 100.0 and distSq <= rSq then
-                                local cdx = (aLoc.X or 0) - camLoc.X
-                                local cdy = (aLoc.Y or 0) - camLoc.Y
-                                local cdz = ((aLoc.Z or 0) + 60.0) - camLoc.Z
-                                local cLen = math.sqrt(cdx * cdx + cdy * cdy + cdz * cdz)
-                                if cLen > 1e-3 then
-                                    local dot = (cdx * fwdX + cdy * fwdY + cdz * fwdZ) / cLen
-                                    if dot >= cosCone then
-                                        -- Strongly prefer closest alignment to crosshair, with mild preference for nearer enemies
-                                        local score = dot * 100.0 - (math.sqrt(distSq) / range) * 15.0
-                                        if score > bestScore then
-                                            bestScore = score
-                                            bestActor = ai
-                                            bestLoc = MakeVec(aLoc.X, aLoc.Y, aLoc.Z)
-                                        end
-                                    end
-                                end
+                if IsEnemyAliveAndTargetable(ai, pawn, pawnLow) then
+                    local aLoc = select(1, GetActorLocAndRot(ai))
+                    local dx = aLoc.X - pLoc.X
+                    local dy = aLoc.Y - pLoc.Y
+                    local dz = aLoc.Z - pLoc.Z
+                    local distSq = dx * dx + dy * dy + dz * dz
+                    if distSq > 64.0 and distSq <= rSq then
+                        local hLen = math.sqrt(dx * dx + dy * dy)
+                        if hLen > 1e-3 then
+                            local dot = (dx / hLen) * fwdX + (dy / hLen) * fwdY
+                            if dot >= cosHalfCone and distSq < bestDistSq then
+                                bestDistSq = distSq
+                                bestActor = ai
+                                bestLoc = aLoc
                             end
                         end
                     end
@@ -492,11 +676,83 @@ local function ResolveAimTarget(pawn, maxRange, coneDeg, fallbackDist)
         end
     end)
 
-    if bestLoc then
-        return bestLoc, pRot, bestActor
+    if IsValidUObject(bestActor) and bestLoc then
+        if debugLogFn then
+            debugLogFn(string.format("AutoTarget [AIMED-CLOSEST]: %s dist=%.0fcm (max=%.0fcm, cone=%.0fdeg)",
+                SafeObjName(bestActor), math.sqrt(bestDistSq), effMaxDist, effConeDeg))
+        end
+        return bestLoc, pRot, bestActor, "aimed"
     end
-    local fDist = tonumber(fallbackDist) or 700.0
-    return LocalOffsetToWorld(pLoc, MakeRot(0.0, camRot.Yaw, 0.0), MakeVec(fDist, 0.0, 0.0)), pRot, nil
+
+    -- Tier 3: Empty space ahead along pointing direction at effMaxDist
+    local fDist = tonumber(fallbackDist) or effMaxDist
+    local fallbackLoc = LocalOffsetToWorld(pLoc, MakeRot(0.0, camRot.Yaw or pRot.Yaw or 0.0, 0.0), MakeVec(fDist, 0.0, 0.0))
+    if debugLogFn then
+        debugLogFn(string.format("AutoTarget [EMPTY-FORWARD]: dist=%.0fcm (no locked/pointed enemy within %.0fcm)", fDist, effMaxDist))
+    end
+    return fallbackLoc, pRot, nil, "forward"
+end
+
+-- Inspect a live ADominionSpellActor's SpellInstance.Graph for:
+--   1. Exact USpellModule_CollisionRuntime CollisionPoint (where the spell ACTUALLY hit!)
+--   2. Active USpellModule_SpawnActorRuntime.Actor (the actual flying Air Bolt / projectile actor!)
+local function InspectSpellActorCollisionAndProjectile(spellActor)
+    if not IsValidUObject(spellActor) then return nil, nil end
+    local hitPoint = nil
+    local spawnedProj = nil
+
+    local function scanModuleArray(arr)
+        if not arr or type(arr) ~= "userdata" then return end
+        pcall(function()
+            arr:ForEach(function(_, elemWrapper)
+                local mod = nil
+                pcall(function() mod = elemWrapper:get() end)
+                if not IsValidUObject(mod) then return end
+                local mName = SafeObjName(mod):lower()
+                -- Check USpellModule_CollisionRuntime::CollisionList for exact collision point
+                if not hitPoint and mName:find("collisionruntime", 1, true) then
+                    pcall(function()
+                        local cList = mod.CollisionList
+                        if cList and type(cList) == "userdata" then
+                            cList:ForEach(function(_, cWrap)
+                                if hitPoint then return end
+                                pcall(function()
+                                    local info = cWrap:get()
+                                    if info then
+                                        local ev = info.CollisionEvent
+                                        local pt = ev and ev.CollisionPoint
+                                        if pt then
+                                            local px, py, pz = tonumber(pt.X) or 0, tonumber(pt.Y) or 0, tonumber(pt.Z) or 0
+                                            if (info.bCollisionOccurred == true) or (math.abs(px) + math.abs(py) + math.abs(pz) > 1.0) then
+                                                hitPoint = MakeVec(px, py, pz)
+                                            end
+                                        end
+                                    end
+                                end)
+                            end)
+                        end
+                    end)
+                end
+                -- Check USpellModule_SpawnActorRuntime::Actor for the live flying projectile actor
+                if not spawnedProj and mName:find("spawnactor", 1, true) then
+                    pcall(function()
+                        local a = mod.Actor
+                        if IsValidUObject(a) then spawnedProj = a end
+                    end)
+                end
+            end)
+        end)
+    end
+
+    pcall(function()
+        local inst = spellActor.SpellInstance
+        if IsValidUObject(inst) and inst.Graph then
+            scanModuleArray(inst.Graph.ReplicatedRuntimeModules)
+            scanModuleArray(inst.Graph.NonReplicatedRuntimeModules)
+        end
+    end)
+
+    return hitPoint, spawnedProj
 end
 
 -- Apply transform scale AND common/explicit Niagara User Parameters so both local-space
@@ -556,21 +812,35 @@ local function ApplyNiagaraScaleAndParams(comp, scale, cueParams, isAttached)
 end
 
 -- Resolve spawn/effect transforms supporting target modes + spatial patterns (point/ring/line/arc).
-local function ComputeTargetTransforms(tlInst, pawn, cueParams)
+local function ComputeTargetTransforms(tlInst, pawn, cueParams, debugLogFn)
     local targetStr = (cueParams.target or "player"):lower()
     local baseLoc, baseRot = GetActorLocAndRot(pawn)
     local attachComp = nil
 
     if targetStr == "impact" then
-        if tlInst.impactLoc then
+        if tlInst.impactActor and IsValidUObject(tlInst.impactActor) then
+            -- Track the struck/locked enemy's live location if still valid
+            local fresh = select(1, GetActorLocAndRot(tlInst.impactActor))
+            baseLoc = fresh
+        elseif tlInst.impactLoc then
             baseLoc = tlInst.impactLoc
         else
-            local aimLoc, aimRot = ResolveAimTarget(pawn, cueParams.range or 2500.0, cueParams.cone or 32.0, 700.0)
+            local aimLoc, aimRot, aimActor = ResolveAimTarget(pawn, cueParams.range, cueParams.cone, nil, tlInst.config, tlInst.entry, debugLogFn)
             baseLoc, baseRot = aimLoc, aimRot
+            if IsValidUObject(aimActor) then tlInst.impactActor = aimActor end
+            tlInst.impactLoc = aimLoc
         end
-    elseif targetStr == "aim" or targetStr == "crosshair" or targetStr == "look" or targetStr == "aimed_enemy" then
-        local aimLoc, aimRot = ResolveAimTarget(pawn, cueParams.range or 2500.0, cueParams.cone or 32.0, 700.0)
-        baseLoc, baseRot = aimLoc, aimRot
+    elseif targetStr == "lock" or targetStr == "locked" or targetStr == "lockon" or targetStr == "auto_target"
+        or targetStr == "aim" or targetStr == "crosshair" or targetStr == "look" or targetStr == "aimed_enemy" then
+        -- Reuse a locked/aimed enemy latched earlier in this same timeline cast if still alive, else resolve fresh!
+        local pawnLow = SafeObjName(pawn):lower()
+        if IsEnemyAliveAndTargetable(tlInst.lockedTargetActor, pawn, pawnLow) then
+            baseLoc = select(1, GetActorLocAndRot(tlInst.lockedTargetActor))
+        else
+            local aimLoc, aimRot, aimActor = ResolveAimTarget(pawn, cueParams.range, cueParams.cone, nil, tlInst.config, tlInst.entry, debugLogFn)
+            baseLoc, baseRot = aimLoc, aimRot
+            if IsValidUObject(aimActor) then tlInst.lockedTargetActor = aimActor end
+        end
     elseif targetStr == "hit_targets" or targetStr == "hit_area" then
         if tlInst.lastHitTargets and #tlInst.lastHitTargets > 0 then
             local list = {}
@@ -595,7 +865,7 @@ local function ComputeTargetTransforms(tlInst, pawn, cueParams)
         elseif tlInst.impactLoc then
             baseLoc = tlInst.impactLoc
         else
-            local aimLoc, aimRot = ResolveAimTarget(pawn, cueParams.range or 2500.0, cueParams.cone or 32.0, 700.0)
+            local aimLoc, aimRot = ResolveAimTarget(pawn, cueParams.range, cueParams.cone, nil, tlInst.config, tlInst.entry, debugLogFn)
             baseLoc, baseRot = aimLoc, aimRot
         end
     elseif targetStr:find("^forward:") then
@@ -791,11 +1061,22 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
     elseif cType == "vfx" then
         local vfxObj = nil
         if cue.asset and cue.asset ~= "" then
+            local cleaned = NormalizeUeAssetPath(cue.asset)
+            local lookupPath = (state and state.VfxPathLookup and state.VfxPathLookup[cleaned:lower()]) or cleaned
+            lookupPath = NormalizeUeAssetPath(lookupPath)
             if customSpells and customSpells.FindObjectFast then
-                vfxObj = customSpells.FindObjectFast(cue.asset)
+                vfxObj = customSpells.FindObjectFast(lookupPath)
+            end
+            if not IsValidUObject(vfxObj) and lookupPath:find("/", 1, true) then
+                pcall(function() vfxObj = StaticFindObject(lookupPath) end)
+                if not IsValidUObject(vfxObj) and type(LoadAsset) == "function" then
+                    pcall(function() LoadAsset(lookupPath) end)
+                    pcall(function() vfxObj = StaticFindObject(lookupPath) end)
+                end
             end
             if not IsValidUObject(vfxObj) and customSpells and customSpells.FindAssetByKeywordOnDemand then
-                vfxObj = customSpells.FindAssetByKeywordOnDemand("NiagaraSystem", cue.asset, safeGetNameFn)
+                local kwSearch = cleaned:match("%.([^%.]+)$") or cleaned:match("/([^/]+)$") or cleaned
+                vfxObj = customSpells.FindAssetByKeywordOnDemand("NiagaraSystem", kwSearch, safeGetNameFn)
             end
         end
         if not IsValidUObject(vfxObj) then
@@ -808,7 +1089,7 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
         if not IsValidUObject(nsLib) then return end
 
         local scale = p.scale or MakeVec(1.0, 1.0, 1.0)
-        local transforms, defaultAttachComp = ComputeTargetTransforms(tlInst, pawn, p)
+        local transforms, defaultAttachComp = ComputeTargetTransforms(tlInst, pawn, p, debugLogFn)
         local wantsAttach = (p.attach ~= nil and p.attach:lower() ~= "world") or (p.socket ~= nil and p.socket ~= "")
         cueState.vfxComps = {}
 
@@ -1059,7 +1340,7 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
         end
 
     elseif cType == "hit" then
-        local transforms = ComputeTargetTransforms(tlInst, pawn, p)
+        local transforms = ComputeTargetTransforms(tlInst, pawn, p, debugLogFn)
         local centerTf = transforms[1] or { loc = select(1, GetActorLocAndRot(pawn)), rot = select(2, GetActorLocAndRot(pawn)) }
         tlInst.lastHitCenter = centerTf.loc
         if customSpells and customSpells.ExecuteHitPulse then
@@ -1267,6 +1548,7 @@ function TimelineRunner.StartSpellTimeline(config, state, pawn, combatMagic, ent
         spellName = tostring(entry.shortName or "CustomSpell"),
         spellKey = tostring(entry.shortName or "custom"):lower(),
         entry = entry,
+        config = config,
         timeline = entry.timeline,
         stageSpeed = effSpeed,
         startedAt = now,
@@ -1497,92 +1779,125 @@ function TimelineRunner.Tick(now, config, state, pawn, combatMagic, customSpells
                 end
             end
         elseif item.kind == "poll_spell_impact" then
-                local cs = item.cueState
-                local tl = item.tlInst
-                if cs.status == "active" then
-                    local age = item.now - (cs.startedAt or item.now)
-                    -- 1. Track newly spawned DominionSpellProjectile in flight
-                    if not IsValidUObject(cs.trackedProjectile) then
+            local cs = item.cueState
+            local tl = item.tlInst
+            if cs.status == "active" then
+                local age = item.now - (cs.startedAt or item.now)
+                local exactCollisionPoint = nil
+
+                -- 1. Inspect the active ADominionSpellActor's SpellInstance.Graph for:
+                --    (a) Exact USpellModule_CollisionRuntime::CollisionPoint (where the Air Spell ACTUALLY hit!)
+                --    (b) USpellModule_SpawnActorRuntime::Actor (the actual flying Air Bolt actor!)
+                if IsValidUObject(combatMagic) then
+                    pcall(function()
+                        local sa = combatMagic.CurrentSpellActor
+                        if IsValidUObject(sa) then
+                            cs.trackedSpellActor = sa
+                            cs.sawSpellActor = true
+                        end
+                    end)
+                end
+
+                if IsValidUObject(cs.trackedSpellActor) then
+                    local colPt, spawnedBolt = InspectSpellActorCollisionAndProjectile(cs.trackedSpellActor)
+                    if colPt then
+                        exactCollisionPoint = colPt
+                    end
+                    if IsValidUObject(spawnedBolt) then
+                        cs.trackedProjectile = spawnedBolt
+                        cs.sawSpellActor = true
+                    end
+                    if not exactCollisionPoint and HasUFunc(cs.trackedSpellActor, "GetTargetInfo") then
                         pcall(function()
-                            local projs = FindAllOf("DominionSpellProjectile")
-                            if projs then
-                                for _, pr in ipairs(projs) do
-                                    if IsValidUObject(pr) and not (cs.preExistingProj and cs.preExistingProj[SafeObjName(pr)]) then
-                                        cs.trackedProjectile = pr
-                                        cs.sawSpellActor = true
-                                        break
-                                    end
+                            local ti = cs.trackedSpellActor:GetTargetInfo()
+                            if ti and ti.Location then
+                                local lx, ly, lz = tonumber(ti.Location.X) or 0, tonumber(ti.Location.Y) or 0, tonumber(ti.Location.Z) or 0
+                                if math.abs(lx) + math.abs(ly) + math.abs(lz) > 1.0 then
+                                    cs.spellTargetInfoLoc = MakeVec(lx, ly, lz)
                                 end
                             end
                         end)
                     end
+                end
 
-                    local activeObj = nil
-                    if IsValidUObject(cs.trackedProjectile) then
-                        activeObj = cs.trackedProjectile
-                    elseif IsValidUObject(combatMagic) then
-                        pcall(function()
-                            local sa = combatMagic.CurrentSpellActor
-                            if IsValidUObject(sa) then
-                                activeObj = sa
-                                cs.sawSpellActor = true
-                                -- Also check DominionSpellActor::GetTargetInfo().Location
-                                if HasUFunc(sa, "GetTargetInfo") then
-                                    local ti = sa:GetTargetInfo()
-                                    if ti and ti.Location then
-                                        local lx, ly, lz = tonumber(ti.Location.X) or 0, tonumber(ti.Location.Y) or 0, tonumber(ti.Location.Z) or 0
-                                        if math.abs(lx) + math.abs(ly) + math.abs(lz) > 1.0 then
-                                            cs.spellTargetInfoLoc = MakeVec(lx, ly, lz)
-                                        end
-                                    end
+                -- 2. Also watch for newly spawned DominionSpellProjectile as secondary tracker
+                if not IsValidUObject(cs.trackedProjectile) then
+                    pcall(function()
+                        local projs = FindAllOf("DominionSpellProjectile")
+                        if projs then
+                            for _, pr in ipairs(projs) do
+                                if IsValidUObject(pr) and not (cs.preExistingProj and cs.preExistingProj[SafeObjName(pr)]) then
+                                    cs.trackedProjectile = pr
+                                    cs.sawSpellActor = true
+                                    break
                                 end
-                            end
-                        end)
-                    end
-
-                    local stillFlying = false
-                    if IsValidUObject(activeObj) then
-                        stillFlying = true
-                        pcall(function()
-                            local aLoc = activeObj:K2_GetActorLocation()
-                            if aLoc then
-                                local orig = cs.castOriginLoc or MakeVec(0, 0, 0)
-                                local dx = (aLoc.X or 0) - orig.X
-                                local dy = (aLoc.Y or 0) - orig.Y
-                                local dz = (aLoc.Z or 0) - orig.Z
-                                if (dx * dx + dy * dy + dz * dz) > 2500.0 then -- > 50cm away from player
-                                    cs.lastTrackedLoc = MakeVec(aLoc.X, aLoc.Y, aLoc.Z)
-                                end
-                            end
-                        end)
-                    end
-
-                    local impacted = item.forceFinish or (cs.sawSpellActor and not stillFlying and age >= 0.12) or (not cs.sawSpellActor and age >= 0.45)
-                    if impacted then
-                        local finalLoc = cs.lastTrackedLoc or cs.spellTargetInfoLoc
-                        -- If projectile never moved away from player, snap to aimed enemy/crosshair instead of player's feet!
-                        if not finalLoc then
-                            finalLoc = select(1, ResolveAimTarget(pawn, 2500.0, 32.0, 700.0))
-                        else
-                            -- Snap cleanly onto any nearby enemy within 250cm of impact so lightning frames the NPC!
-                            local nearEnemies = FindNearbyEnemyTargets(pawn, finalLoc, MakeRot(0, 0, 0), 250.0, nil, 1)
-                            if nearEnemies and nearEnemies[1] then
-                                finalLoc = nearEnemies[1].loc
                             end
                         end
-                        tl.impactLoc = finalLoc
-                        cs.trackingImpact = false
-                        cs.status = "done"
-                        cs.endedAt = item.now
-                        if debugLogFn and finalLoc then
-                            debugLogFn(string.format("Timeline [%s] Spell #%d impacted at [%.0f, %.0f, %.0f] (age=%.2fs)",
-                                tl.spellName, item.cue.index, finalLoc.X, finalLoc.Y, finalLoc.Z, age))
+                    end)
+                end
+
+                local activeObj = IsValidUObject(cs.trackedProjectile) and cs.trackedProjectile
+                    or (IsValidUObject(cs.trackedSpellActor) and cs.trackedSpellActor or nil)
+
+                local stillFlying = false
+                if IsValidUObject(activeObj) then
+                    stillFlying = true
+                    pcall(function()
+                        local aLoc = activeObj:K2_GetActorLocation()
+                        if aLoc then
+                            local orig = cs.castOriginLoc or MakeVec(0, 0, 0)
+                            local dx = (aLoc.X or 0) - orig.X
+                            local dy = (aLoc.Y or 0) - orig.Y
+                            local dz = (aLoc.Z or 0) - orig.Z
+                            if (dx * dx + dy * dy + dz * dz) > 2500.0 then -- > 50cm away from player
+                                cs.lastTrackedLoc = MakeVec(aLoc.X, aLoc.Y, aLoc.Z)
+                            end
                         end
+                    end)
+                end
+
+                -- Impacted the instant the Air Spell reports an exact CollisionPoint, OR when the flying projectile clears, OR timeout
+                local impacted = (exactCollisionPoint ~= nil)
+                    or item.forceFinish
+                    or (cs.sawSpellActor and not stillFlying and age >= 0.10)
+                    or (not cs.sawSpellActor and age >= 0.40)
+
+                if impacted then
+                    local finalLoc = exactCollisionPoint or cs.lastTrackedLoc or cs.spellTargetInfoLoc
+                    local sourceTag = exactCollisionPoint and "SPELL-COLLISION"
+                        or (cs.lastTrackedLoc and "PROJECTILE-END" or "TARGET-INFO")
+                    local hitEnemy = nil
+
+                    if finalLoc then
+                        -- If the Air Spell struck near an alive enemy, snap cleanly onto that enemy's center
+                        local nearEnemies = FindNearbyEnemyTargets(pawn, finalLoc, MakeRot(0, 0, 0), 220.0, nil, 1)
+                        if nearEnemies and nearEnemies[1] then
+                            hitEnemy = nearEnemies[1].actor
+                            finalLoc = nearEnemies[1].loc
+                        end
+                    else
+                        -- No collision/flight point recorded -> use Locked-On Enemy -> Closest Pointed Enemy within AutoTargetMaxDistance (700) -> Forward 700
+                        local aimLoc, _, aimActor, aimMode = ResolveAimTarget(pawn, item.cue.params and item.cue.params.range, item.cue.params and item.cue.params.cone, nil, tl.config, tl.entry, debugLogFn)
+                        finalLoc = aimLoc
+                        hitEnemy = aimActor
+                        sourceTag = "FALLBACK-" .. tostring(aimMode or "aim"):upper()
+                    end
+
+                    tl.impactLoc = finalLoc
+                    tl.impactActor = hitEnemy
+                    cs.trackingImpact = false
+                    cs.status = "done"
+                    cs.endedAt = item.now
+                    if debugLogFn and finalLoc then
+                        debugLogFn(string.format("Timeline [%s] Spell #%d hit [%s] at [%.0f, %.0f, %.0f] (enemy=%s, age=%.2fs)",
+                            tl.spellName, item.cue.index, sourceTag, finalLoc.X, finalLoc.Y, finalLoc.Z,
+                            hitEnemy and SafeObjName(hitEnemy) or "none", age))
                     end
                 end
             end
         end
     end
+end
 
 -- Debug Inspector: logs live PlayerAnimationManager body-part slot names, held weapon meshes,
 -- and currently playing montage metadata (SequenceLength, SlotAnimTracks, CompositeSections).
@@ -1657,120 +1972,246 @@ function TimelineRunner.InspectPlayerAnimSlotsAndMontages(pawn, logFn)
     logFn("  Active Montage inspection complete.")
 end
 
--- Export all currently loaded NiagaraSystems, ParticleSystems, SpellVFXActors, and Lightning classes
--- to detected_vfx.txt so authors can copy exact /Game/... paths without fighting UE4SS Live View.
-function TimelineRunner.ExportLoadedVfxFile(outPath, logFn)
-    if not outPath or outPath == "" then return end
+-- Parse an existing detected_vfx.txt or vfx_names.txt (shortName = /Game/... path) into a lookup table.
+function TimelineRunner.LoadVfxCatalogFile(filePath, outLookup)
+    local map = outLookup or {}
+    if not filePath or filePath == "" then return map end
+    local f = io.open(filePath, "r")
+    if not f then return map end
+    for line in f:lines() do
+        local clean = (line:gsub("^%s*(.-)%s*$", "%1"))
+        if clean ~= "" and not clean:match("^#") and not clean:match("^;") and not clean:match("^%[") and not clean:match("^===") then
+            local k, v = clean:match("^([^=]+)=(.+)$")
+            if k and v then
+                local kl = (k:gsub("^%s*(.-)%s*$", "%1")):lower()
+                local vp = (v:gsub("^%s*(.-)%s*$", "%1"))
+                if kl ~= "" and vp:find("/", 1, true) then
+                    map[kl] = vp
+                end
+            end
+        end
+    end
+    f:close()
+    return map
+end
 
-    local lines = {
-        "=== ArcaneWilds Loaded VFX & Spell Effect Asset Dump ===",
-        "Generated via SHIFT + DebugHotkey. Copy any /Game/... path directly into custom_spells.txt VFX= or Actor= lines!",
-        "UE4SS Live View Tip: Search 'NiagaraSystem' or 'NS_' or 'SpellVFXActor' in the Instances/Search box.",
-        ""
-    }
+-- Auto-discover & persist all loaded NiagaraSystems, SpellVFXActors, and LightningSubsystem VFX
+-- into detected_vfx.txt (merging with previously discovered paths so the catalog grows over time).
+-- Returns: (vfxLookupMap[shortLower] = fullPath, totalCount, newlyAddedCount)
+function TimelineRunner.ExportLoadedVfxFile(outPath, logFn, existingLookup)
+    if not outPath or outPath == "" then return existingLookup or {}, 0, 0 end
 
     local function ExtractObjectPath(fullName)
         if not fullName or fullName == "" then return "" end
-        -- Convert "NiagaraSystem /Game/Foo/NS_Bar.NS_Bar" -> "/Game/Foo/NS_Bar.NS_Bar"
         return (fullName:match("^[^%s]+%s+(.+)$") or fullName)
     end
 
-    -- 1. Highlight LightningSubsystem & ALightning VFX specifically
-    table.insert(lines, "=== LIGHTNING SUBSYSTEM ASSETS ===")
-    local foundSub = false
+    local function ExtractShortName(objPath)
+        if not objPath or objPath == "" then return "" end
+        local afterDot = objPath:match("%.([^%.]+)$") or objPath
+        return (afterDot:match("/([^/]+)$") or afterDot)
+    end
+
+    -- Load previously saved entries so VFX seen in earlier sessions stay available for LoadAsset!
+    local catalogByPath = {}
+    local lookup = {}
+    if existingLookup then
+        for k, v in pairs(existingLookup) do
+            lookup[k] = v
+            catalogByPath[v:lower()] = { short = k, path = v, kind = "niagara" }
+        end
+    end
+    local prevMap = TimelineRunner.LoadVfxCatalogFile(outPath, {})
+    for k, v in pairs(prevMap) do
+        lookup[k] = v
+        if not catalogByPath[v:lower()] then
+            catalogByPath[v:lower()] = { short = ExtractShortName(v), path = v, kind = "niagara" }
+        end
+    end
+
+    local prevCount = 0
+    for _ in pairs(catalogByPath) do prevCount = prevCount + 1 end
+
+    local function registerPath(rawPath, kind)
+        if not rawPath or rawPath == "" then return end
+        local low = rawPath:lower()
+        if low:find("default__", 1, true) or low:find("/engine/", 1, true) or low:find("transient", 1, true) then
+            return
+        end
+        if not rawPath:find("/", 1, true) then return end
+        local short = ExtractShortName(rawPath)
+        if short == "" then return end
+        if not catalogByPath[low] then
+            catalogByPath[low] = { short = short, path = rawPath, kind = kind or "niagara" }
+        end
+        local sLow = short:lower()
+        if not lookup[sLow] then
+            lookup[sLow] = rawPath
+        end
+    end
+
+    -- 1. LightningSubsystem & ALightning VFX
+    local lightningLines = {}
     pcall(function()
         local sub = FindFirstOf("LightningSubsystem")
         if IsValidUObject(sub) then
             local cls = sub.LoadedLightningClass
             if IsValidUObject(cls) then
-                foundSub = true
-                table.insert(lines, "  LoadedLightningClass: " .. ExtractObjectPath(SafeObjName(cls)))
+                local clsPath = ExtractObjectPath(SafeObjName(cls))
+                table.insert(lightningLines, "LoadedLightningClass = " .. clsPath)
                 pcall(function()
                     local cdo = cls:GetDefaultObject()
                     if IsValidUObject(cdo) then
                         if IsValidUObject(cdo.TriggerDamageVFX) and IsValidUObject(cdo.TriggerDamageVFX.Asset) then
-                            table.insert(lines, "  TriggerDamageVFX    : " .. ExtractObjectPath(SafeObjName(cdo.TriggerDamageVFX.Asset)))
+                            local p = ExtractObjectPath(SafeObjName(cdo.TriggerDamageVFX.Asset))
+                            table.insert(lightningLines, "TriggerDamageVFX     = " .. p)
+                            registerPath(p, "niagara")
                         end
                         if IsValidUObject(cdo.TelegraphDamageVFX) and IsValidUObject(cdo.TelegraphDamageVFX.Asset) then
-                            table.insert(lines, "  TelegraphDamageVFX  : " .. ExtractObjectPath(SafeObjName(cdo.TelegraphDamageVFX.Asset)))
+                            local p = ExtractObjectPath(SafeObjName(cdo.TelegraphDamageVFX.Asset))
+                            table.insert(lightningLines, "TelegraphDamageVFX   = " .. p)
+                            registerPath(p, "niagara")
                         end
                         if IsValidUObject(cdo.TriggerDamageSound) then
-                            table.insert(lines, "  TriggerDamageSound  : " .. ExtractObjectPath(SafeObjName(cdo.TriggerDamageSound)))
+                            table.insert(lightningLines, "TriggerDamageSound   = " .. ExtractObjectPath(SafeObjName(cdo.TriggerDamageSound)))
                         end
                     end
                 end)
             end
         end
     end)
-    if not foundSub then
-        table.insert(lines, "  (LightningSubsystem.LoadedLightningClass not loaded yet — cast/visit storm or check Niagara list below)")
-    end
-    table.insert(lines, "")
 
-    -- 2. All loaded NiagaraSystems (split into Combat/Elemental/Lightning highlights vs All)
-    local highlightVfx, otherVfx = {}, {}
-    local seen = {}
+    -- 2. Scan all loaded NiagaraSystem assets
     pcall(function()
         local allNs = FindAllOf("NiagaraSystem")
         if allNs then
             for _, ns in ipairs(allNs) do
                 if IsValidUObject(ns) then
-                    local path = ExtractObjectPath(SafeObjName(ns))
-                    local low = path:lower()
-                    if path ~= "" and not low:find("default__", 1, true) and not seen[low] then
-                        seen[low] = true
-                        if low:find("lightning", 1, true) or low:find("storm", 1, true) or low:find("thunder", 1, true)
-                            or low:find("spell", 1, true) or low:find("magic", 1, true) or low:find("fire", 1, true)
-                            or low:find("flame", 1, true) or low:find("water", 1, true) or low:find("ice", 1, true)
-                            or low:find("air", 1, true) or low:find("wind", 1, true) or low:find("earth", 1, true)
-                            or low:find("godsword", 1, true) or low:find("special", 1, true) or low:find("impact", 1, true)
-                            or low:find("hit", 1, true) or low:find("aoe", 1, true) or low:find("explosion", 1, true) then
-                            table.insert(highlightVfx, path)
-                        else
-                            table.insert(otherVfx, path)
-                        end
-                    end
+                    registerPath(ExtractObjectPath(SafeObjName(ns)), "niagara")
                 end
             end
         end
     end)
-    table.sort(highlightVfx)
-    table.sort(otherVfx)
 
-    table.insert(lines, string.format("=== COMBAT / ELEMENTAL / LIGHTNING NIAGARA VFX (%d) ===", #highlightVfx))
-    for _, p in ipairs(highlightVfx) do table.insert(lines, "  " .. p) end
-    table.insert(lines, "")
+    -- 3. Scan DominionSpellData modules for SpellVFXActor classes & SpawnActor classes
+    pcall(function()
+        local spells = FindAllOf("DominionSpellData")
+        if spells then
+            for _, sp in ipairs(spells) do
+                if IsValidUObject(sp) then
+                    pcall(function()
+                        local mods = sp.Modules
+                        if mods and mods.Modules then
+                            mods.Modules:ForEach(function(_, elemWrapper)
+                                local modObj = nil
+                                pcall(function() modObj = elemWrapper:get().Module end)
+                                if IsValidUObject(modObj) then
+                                    pcall(function()
+                                        local vfxCls = modObj.SpellVFXActorClass
+                                        if IsValidUObject(vfxCls) then
+                                            registerPath(ExtractObjectPath(SafeObjName(vfxCls)), "actor")
+                                        end
+                                    end)
+                                end
+                            end)
+                        end
+                    end)
+                end
+            end
+        end
+    end)
 
-    -- 3. SpellVFXActor classes
-    local vfxActors = {}
+    -- 4. Scan any loaded SpellVFXActor instances
     pcall(function()
         local allVfxA = FindAllOf("SpellVFXActor")
         if allVfxA then
             for _, a in ipairs(allVfxA) do
                 if IsValidUObject(a) then
-                    local path = ExtractObjectPath(SafeObjName(a))
-                    if path ~= "" then table.insert(vfxActors, path) end
+                    registerPath(ExtractObjectPath(SafeObjName(a)), "actor")
                 end
             end
         end
     end)
-    table.sort(vfxActors)
-    table.insert(lines, string.format("=== LOADED SPELL VFX ACTORS (%d) ===", #vfxActors))
-    for _, p in ipairs(vfxActors) do table.insert(lines, "  " .. p) end
-    table.insert(lines, "")
 
-    table.insert(lines, string.format("=== OTHER LOADED NIAGARA SYSTEMS (%d) ===", #otherVfx))
-    for _, p in ipairs(otherVfx) do table.insert(lines, "  " .. p) end
-    table.insert(lines, "")
+    -- Categorize cleanly so modders can browse by element/type and copy short names or full paths
+    local buckets = {
+        { title = "[Lightning & Storm]",         items = {} },
+        { title = "[Fire & Explosion]",          items = {} },
+        { title = "[Water & Ice]",               items = {} },
+        { title = "[Air & Wind]",                items = {} },
+        { title = "[Earth & Nature]",            items = {} },
+        { title = "[Combat, Spells & Specials]", items = {} },
+        { title = "[Spell VFX Actors]",          items = {} },
+        { title = "[Other Niagara VFX]",         items = {} }
+    }
+
+    local totalCount = 0
+    for _, entry in pairs(catalogByPath) do
+        totalCount = totalCount + 1
+        local low = entry.path:lower()
+        if entry.kind == "actor" then
+            table.insert(buckets[7].items, entry)
+        elseif low:find("lightning", 1, true) or low:find("storm", 1, true) or low:find("thunder", 1, true) or low:find("electric", 1, true) then
+            table.insert(buckets[1].items, entry)
+        elseif low:find("fire", 1, true) or low:find("flame", 1, true) or low:find("burn", 1, true) or low:find("meteor", 1, true) or low:find("explos", 1, true) or low:find("zamorak", 1, true) then
+            table.insert(buckets[2].items, entry)
+        elseif low:find("water", 1, true) or low:find("ice", 1, true) or low:find("frost", 1, true) or low:find("wave", 1, true) or low:find("tsunami", 1, true) then
+            table.insert(buckets[3].items, entry)
+        elseif low:find("air", 1, true) or low:find("wind", 1, true) or low:find("gust", 1, true) or low:find("vortex", 1, true) then
+            table.insert(buckets[4].items, entry)
+        elseif low:find("earth", 1, true) or low:find("rock", 1, true) or low:find("stone", 1, true) or low:find("boulder", 1, true) or low:find("vine", 1, true) or low:find("guthix", 1, true) then
+            table.insert(buckets[5].items, entry)
+        elseif low:find("spell", 1, true) or low:find("magic", 1, true) or low:find("godsword", 1, true) or low:find("saradomin", 1, true) or low:find("special", 1, true) or low:find("hit", 1, true) or low:find("impact", 1, true) or low:find("slash", 1, true) or low:find("aoe", 1, true) then
+            table.insert(buckets[6].items, entry)
+        else
+            table.insert(buckets[8].items, entry)
+        end
+    end
+
+    local newlyAdded = math.max(0, totalCount - prevCount)
+
+    local lines = {
+        "# ==============================================================================",
+        "# ArcaneWilds Auto-Detected VFX Catalog (detected_vfx.txt)",
+        "# ==============================================================================",
+        "# Auto-updated on world load, spell scans, and SHIFT + DebugHotkey!",
+        "# Previously discovered VFX are remembered across sessions and auto-loaded on demand.",
+        "#",
+        "# HOW TO USE IN custom_spells.txt:",
+        "#   Copy EITHER the short name (left of '=') OR full /Game/... path (right of '=')!",
+        "#   Example:",
+        "#     VFX = @0.00 | NS_Lightning_Strike | target=impact | scale=0.35 | dur=1.10",
+        "#     VFX = &     | /Game/Path/To/NS_FireBurst.NS_FireBurst | target=hit_targets",
+        "# ==============================================================================",
+        ""
+    }
+
+    if #lightningLines > 0 then
+        table.insert(lines, "[LightningSubsystem]")
+        for _, ll in ipairs(lightningLines) do table.insert(lines, ll) end
+        table.insert(lines, "")
+    end
+
+    for _, b in ipairs(buckets) do
+        if #b.items > 0 then
+            table.sort(b.items, function(a, c) return a.short:lower() < c.short:lower() end)
+            table.insert(lines, string.format("%s (%d)", b.title, #b.items))
+            for _, item in ipairs(b.items) do
+                table.insert(lines, string.format("%-42s = %s", item.short, item.path))
+            end
+            table.insert(lines, "")
+        end
+    end
 
     local f = io.open(outPath, "w")
     if f then
         f:write(table.concat(lines, "\n"))
         f:close()
-        if logFn then
-            logFn(string.format("Exported %d combat/lightning VFX + %d other NiagaraSystems to detected_vfx.txt", #highlightVfx, #otherVfx))
+        if logFn and (newlyAdded > 0 or prevCount == 0) then
+            logFn(string.format("Updated detected_vfx.txt (%d VFX indexed, +%d new)", totalCount, newlyAdded))
         end
     end
+    return lookup, totalCount, newlyAdded
 end
 
 return TimelineRunner

@@ -22,7 +22,8 @@ local Paths = {
     CUSTOM_SPELLS_PATH = MOD_DIR .. "custom_spells.txt",
     QUICK_CAST_PATH    = MOD_DIR .. "quick_cast.txt",
     DETECTED_PATH      = MOD_DIR .. "detected_spells.txt",
-    DETECTED_VFX_PATH  = MOD_DIR .. "detected_vfx.txt"
+    DETECTED_VFX_PATH  = MOD_DIR .. "detected_vfx.txt",
+    VFX_NAMES_PATH     = MOD_DIR .. "vfx_names.txt"
 }
 
 local SpellScanner   = require("spell_scanner")
@@ -76,7 +77,9 @@ local State = {
     GlobalNameMap = {},
     ParsedMacros = {},
     QuickCastBindings = {},
-    ActiveTimelines = {}
+    ActiveTimelines = {},
+    VfxPathLookup = {},
+    LastVfxScanTime = 0
 }
 
 local function Log(msg)
@@ -87,6 +90,16 @@ local function DebugLog(msg)
     if Config.DebugMode then
         print("[ArcaneWilds][DEBUG] " .. tostring(msg) .. "\n")
     end
+end
+
+local function RefreshVfxCatalog(forceLog)
+    local lookup = TimelineRunner.ExportLoadedVfxFile(
+        Paths.DETECTED_VFX_PATH,
+        forceLog and Log or DebugLog,
+        State.VfxPathLookup)
+    -- Overlay optional user-defined friendly aliases from vfx_names.txt on top
+    TimelineRunner.LoadVfxCatalogFile(Paths.VFX_NAMES_PATH, lookup)
+    State.VfxPathLookup = lookup
 end
 
 local function RefreshSpells()
@@ -113,6 +126,13 @@ local function RefreshSpells()
     if Config.DebugMode and not State._LoggedInitialSpellMap and next(State.SpellRegistry) ~= nil then
         State._LoggedInitialSpellMap = true
         ConfigManager.LogParsedMacrosSpellMapping(Config, State, Log, "Initial Spell Scan -> Direct Spell Asset Mapping")
+    end
+
+    local now = os.clock()
+    if State.LastVfxScanTime == 0 or (now - State.LastVfxScanTime) >= 12.0 then
+        State.LastVfxScanTime = now
+        RefreshVfxCatalog(State._ExportedVfxOnce ~= true)
+        State._ExportedVfxOnce = true
     end
 end
 
@@ -154,7 +174,7 @@ local function RunDebugInspection()
             end
         end
         TimelineRunner.InspectPlayerAnimSlotsAndMontages(pawn, Log)
-        TimelineRunner.ExportLoadedVfxFile(Paths.DETECTED_VFX_PATH, Log)
+        RefreshVfxCatalog(true)
     end
 end
 
@@ -966,6 +986,8 @@ NotifyOnNewObject("/Script/Dominion.DominionSpellData", function()
 end)
 
 ConfigManager.LoadConfigFile(Paths, Config, State, Log, true)
+TimelineRunner.LoadVfxCatalogFile(Paths.DETECTED_VFX_PATH, State.VfxPathLookup)
+TimelineRunner.LoadVfxCatalogFile(Paths.VFX_NAMES_PATH, State.VfxPathLookup)
 EquipmentRunes.InstallEquipmentSwapHooks(State, nil, Log, DebugLog)
 BindDebugHotkey()
 Log("v" .. MOD_VERSION .. " initialized cleanly (modular architecture).")

@@ -239,6 +239,10 @@ function CustomSpells.ParseDefinitions(rawText)
                             current.overlapPolicy = val and val:lower() or "replace"
                         elseif key == "scaletimelinewithspeed" or key == "scaletimeline" then
                             current.scaleTimelineWithSpeed = ParseBool(val, true)
+                        elseif key == "autotargetrange" or key == "autotargetmaxdistance" or key == "targetrange" then
+                            current.autoTargetRange = val and tonumber(val) or nil
+                        elseif key == "autotargetcone" or key == "autotargetconedeg" then
+                            current.autoTargetCone = val and tonumber(val) or nil
                         elseif key == "basespell" or key == "spell" or key == "base" then
                             if val and (val:lower() == "none" or val:lower() == "nil" or val:lower() == "false") then
                                 current.baseSpell = nil

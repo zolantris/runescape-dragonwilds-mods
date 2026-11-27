@@ -95,6 +95,7 @@ local ORDERED_CONFIG_KEYS = {
     "DefaultComboCutoff", "BonusSpeedVariancePct",
     "UnlockAir", "UnlockFire", "UnlockWater", "UnlockEarth",
     "UnlockModdedCombat", "UnlockUtilitySpells", "KeepGroundSmashAnchored", "MaxFinisherSpeedClamp", "InjectSpecialBarOnSpecials", "SpecialBarInjectAmount", "RequireSpecialEnergyForSpecials", "MinSpecialEnergyCost", "AllowFastSpecialCast", "MaxSpecialCastRate", "PostSpecialPauseSec", "AnimRepeatPadSec",
+    "AutoTargetMaxDistance", "AutoTargetConeDeg",
     "MaxMoveSpeed", "ActiveComboRulesCount", "DetectedSpellsSummary"
 }
 
@@ -154,6 +155,8 @@ function ConfigManager.CreateDefaultConfig()
         MaxSpecialCastRate = 1.8,
         PostSpecialPauseSec = 0.65,
         AnimRepeatPadSec = 0.45,
+        AutoTargetMaxDistance = 700.0,
+        AutoTargetConeDeg = 45.0,
         MaxMoveSpeed = 600.0,
         ActiveComboRulesCount = "Loading combo_rules.txt...",
         DetectedSpellsSummary = "Auto-detecting on world load..."
@@ -591,6 +594,8 @@ function ConfigManager.LoadConfigFile(paths, config, state, logFn, forceRebuildM
                 elseif k == "MaxSpecialCastRate" then config.MaxSpecialCastRate = math.max(1.0, tonumber(v) or 1.8)
                 elseif k == "PostSpecialPauseSec" then config.PostSpecialPauseSec = math.max(0.0, tonumber(v) or 0.65)
                 elseif k == "AnimRepeatPadSec" then config.AnimRepeatPadSec = math.max(0.0, tonumber(v) or 0.45)
+                elseif k == "AutoTargetMaxDistance" then config.AutoTargetMaxDistance = math.max(100.0, tonumber(v) or 700.0)
+                elseif k == "AutoTargetConeDeg" then config.AutoTargetConeDeg = math.max(5.0, math.min(180.0, tonumber(v) or 45.0))
                 elseif k == "MaxMoveSpeed" then config.MaxMoveSpeed = tonumber(v) or 600.0
                 elseif k == "ActiveComboRulesCount" then config.ActiveComboRulesCount = v
                 elseif k == "DetectedSpellsSummary" then config.DetectedSpellsSummary = v

@@ -273,6 +273,30 @@
     },
     {
       "type": "header",
+      "label": "Custom Spell Auto-Targeting & Lock-On"
+    },
+    {
+      "key": "AutoTargetMaxDistance",
+      "type": "slider",
+      "label": "Auto-Target Max Distance (cm)",
+      "description": "Maximum distance (in UE units/cm; 700 = 7m) to auto-target the closest enemy you are pointing at when no enemy is locked on.",
+      "min": 200,
+      "max": 3000,
+      "step": 50,
+      "default": 700
+    },
+    {
+      "key": "AutoTargetConeDeg",
+      "type": "slider",
+      "label": "Auto-Target Pointing Cone (degrees)",
+      "description": "How directly you must point at an enemy for auto-targeting when not locked on (default 45 degrees).",
+      "min": 10,
+      "max": 120,
+      "step": 5,
+      "default": 45
+    },
+    {
+      "type": "header",
       "label": "Diagnostics & Debug"
     },
     {

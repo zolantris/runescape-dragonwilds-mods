@@ -419,8 +419,8 @@ function TimelineParser.ParseCueLine(cueType, rawVal, defaultTarget)
                 params.trackImpact = ParseBool(val, true)
             elseif kl == "impacttimeout" then
                 params.impactTimeout = tonumber(val) or 2.5
-            elseif kl == "range" or kl == "maxrange" then
-                params.range = tonumber(val) or 2500.0
+            elseif kl == "range" or kl == "maxrange" or kl == "maxdist" or kl == "maxdistance" then
+                params.range = tonumber(val) or 700.0
             elseif kl == "vfxfloat" or kl == "paramfloat" then
                 -- Syntax: vfxFloat=Name:Val (multiple allowed via semicolon, e.g. Scale:0.35;Width:0.4)
                 params.vfxFloats = params.vfxFloats or {}

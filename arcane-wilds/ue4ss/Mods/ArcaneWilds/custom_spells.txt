@@ -19,11 +19,14 @@ TimelineDuration = auto
 StepAdvanceAt    = 0.90
 CancelOnRelease  = false
 OverlapPolicy    = replace
-# 1. Fire the Air Bolt projectile and track where it impacts (or aimed NPC if instant)
+AutoTargetRange  = 700
+AutoTargetCone   = 45
+# 1. Fire the Air Bolt spell and track its exact collision point (SpellModule_CollisionRuntime)
+#    If the Air Bolt doesn't collide, falls back to: Locked-On Enemy -> Closest Enemy pointed at within AutoTargetRange (700) -> Forward 700.
 Spell = @0.00 | DA_Spell_Primary_Air_01 | id=bolt | trackImpact=true | impactTimeout=1.8
-# 2. On projectile impact (>bolt), deal AoE damage at the impact/NPC location (NOT on the player!)
+# 2. On Air Bolt hit (>bolt), deal AoE damage at the exact impact / locked enemy location!
 Hit   = >bolt | target=impact | radius=350 | dmg=120..240 | class=Magical | force=260
-# 3. Spawn scaled-down lightning VFX & SFX at the impact area + directly on each hit NPC
+# 3. Spawn scaled-down lightning VFX & SFX where the Air Bolt hit + directly on each hit NPC
 VFX   = &     | lightning | target=impact      | scale=0.35,0.35,0.45 | dur=1.10
 VFX   = &+0.05| lightning | target=hit_targets | scale=0.30,0.30,0.40 | dur=1.00
 SFX   = &     | lightning | target=impact      | vol=1.0 | pitch=1.05
