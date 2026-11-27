@@ -6,7 +6,6 @@ param(
     [ValidateSet("", "patch", "minor", "major")]
     [string]$Bump = "",
     [string]$EngineDir = "C:\Program Files\Epic Games\UE_5.6",
-    [switch]$SkipChangelog,
     [switch]$SkipPak,
     [switch]$ForceRebuildPak
 )
@@ -180,16 +179,6 @@ if (-not $SkipPak -and (Test-Path $staticPaksDir)) {
     $builtPakFiles += @(Get-ChildItem -Path $staticPaksDir -File | Where-Object { $_.Extension -in ".pak", ".utoc", ".ucas" } | ForEach-Object { $_.FullName })
 }
 
-# Invoke standalone changelog generator before staging README.md
-if (-not $SkipChangelog) {
-    $changelogScript = Join-Path $PSScriptRoot "update-changelog.ps1"
-    if (Test-Path $changelogScript) {
-        & $changelogScript -ModFolder $ModFolder -Version $fullVersion
-    } else {
-        Write-Warning "Changelog script not found at '$changelogScript'; skipping changelog update."
-    }
-}
-
 $stageRoot = Join-Path $env:TEMP "rsdw-build-$modName"
 if (Test-Path $stageRoot) { Remove-Item $stageRoot -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $stageRoot | Out-Null
@@ -249,7 +238,7 @@ if (Test-Path $stagedMain) {
     Set-Content -Path $stagedMain -Value $luaText -Encoding UTF8 -NoNewline
 }
 
-# Copy updated top-level README.md into staged mod folder
+# Copy top-level README.md into staged mod folder
 $readme = Join-Path $modRoot "README.md"
 if (Test-Path $readme) {
     Copy-Item -Path $readme -Destination (Join-Path $stagedModDir "README.md") -Force

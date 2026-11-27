@@ -134,7 +134,7 @@ Usage:
 Commands:
   build        <mod>   Build archive ONLY (does not touch game folder) (aliases: b, archive)
                        Options: -Bump <patch|minor|major>, -Version <ver>, -Channel <ch>,
-                                -EngineDir <path>, -SkipPak, -ForceRebuildPak, -SkipChangelog
+                                -EngineDir <path>, -SkipPak, -ForceRebuildPak
   deploy       <mod>   Cleanly wipe old mod files & deploy built archive ONLY (alias: d)
                        Options: -GameDir <path>, -ArchivePath <zip>, -Version <ver>, -Channel <ch>, -WhatIf
   build-deploy <mod>   Build archive AND cleanly wipe + deploy to game folder (alias: bd)
@@ -236,7 +236,7 @@ switch ($cmd) {
 
     { $_ -in @("build", "b", "archive") } {
         $parsed = Parse-CliArgs -RawArgs $RemainingArgs -SwitchNames @(
-            "SkipChangelog", "SkipPak", "ForceRebuildPak", "Verbose", "Debug"
+            "SkipPak", "ForceRebuildPak", "Verbose", "Debug"
         )
         $params = $parsed.Named
         if (-not $params.ContainsKey("ModFolder")) {
@@ -252,7 +252,7 @@ switch ($cmd) {
 
     { $_ -in @("build-deploy", "bd") } {
         $parsed = Parse-CliArgs -RawArgs $RemainingArgs -SwitchNames @(
-            "SkipChangelog", "SkipPak", "ForceRebuildPak", "WhatIf", "Confirm", "Verbose", "Debug"
+            "SkipPak", "ForceRebuildPak", "WhatIf", "Confirm", "Verbose", "Debug"
         )
         $all = $parsed.Named
         if (-not $all.ContainsKey("ModFolder")) {
@@ -263,7 +263,7 @@ switch ($cmd) {
         }
         $modFolder = Resolve-ModFolderName $all["ModFolder"]
 
-        $buildKeys  = @("Version", "Channel", "Bump", "EngineDir", "SkipChangelog", "SkipPak", "ForceRebuildPak")
+        $buildKeys  = @("Version", "Channel", "Bump", "EngineDir", "SkipPak", "ForceRebuildPak")
         $deployKeys = @("GameDir", "Version", "Channel", "WhatIf", "Confirm")
 
         $buildParams  = @{ ModFolder = $modFolder }

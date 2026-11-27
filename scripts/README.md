@@ -47,11 +47,11 @@ Run everything from the repo root through the unified **[`mod.ps1`](../mod.ps1)*
 | Script | Purpose | Key Parameters |
 | :--- | :--- | :--- |
 | **`..\mod.ps1`** | Unified root CLI that delegates `build`, `deploy`, `build-deploy` (`bd`), `wipe`, `release`, `changelog`, `backup`, `list`, and `help` to the scripts below (accepts either folder name like `arcane-wilds` or mod name like `ArcaneWilds`). | `<command> [mod] [options]` |
-| **`build-mod.ps1`** | Builds the `.zip` archive **only** (never touches your game folder). Reads `<ModFolder>/version.json`, optionally bumps the semantic version, updates `README.md`, syncs version numbers into `modmenu.json` and `Scripts/main.lua`, builds & cooks any UE Blueprint `.pak` declared in `<ModFolder>/pak.json`, strips debug snapshots/logs, and outputs `archives/<ModName>-v<Version>.zip`. | `-ModFolder` *(required)*, `-Version`, `-Channel`, `-Bump` (`patch` \| `minor` \| `major`), `-EngineDir`, `-SkipChangelog`, `-SkipPak`, `-ForceRebuildPak` |
+| **`build-mod.ps1`** | Builds the `.zip` archive **only** (never touches your game folder or mutates `README.md`). Reads `<ModFolder>/version.json`, optionally bumps the semantic version, syncs version numbers into staged `modmenu.json` and `Scripts/main.lua`, builds & cooks any UE Blueprint `.pak` declared in `<ModFolder>/pak.json`, strips debug snapshots/logs, and outputs `archives/<ModName>-v<Version>.zip`. | `-ModFolder` *(required)*, `-Version`, `-Channel`, `-Bump` (`patch` \| `minor` \| `major`), `-EngineDir`, `-SkipPak`, `-ForceRebuildPak` |
 | **`deploy-mod.ps1`** | Cleanly deploys a built mod `.zip` archive into your game directory (supports both Combo UE4SS + `.pak` and UE4SS-only archives). Always wipes **only that mod's** UE4SS folder and `.pak` files first so no stale files persist across deploys. Pass `-Wipe` to remove the mod without redeploying. | `-ModFolder` *(required)*, `-GameDir`, `-ArchivePath`, `-Version`, `-Channel`, `-Wipe`, `-WhatIf` |
 | **`sync-ue-damage-stubs.ps1`** | Extracts only the minimal `/Script/Dominion` damage & floaties UHT headers from gitignored `UHTHeaderDump/` into `unreal-engine/RSDragonwilds/Source/Dominion/` (invoked automatically by `build-mod.ps1` when needed). | `-HeaderDumpDir`, `-TargetModuleDir` |
-| **`update-changelog.ps1`** | Updates the `# Title` version header and injects folder-scoped Git commits into the `<!-- CHANGELOG:START -->` ... `<!-- CHANGELOG:END -->` block of `<ModFolder>/README.md`. | `-ModFolder` *(required)*, `-Version`, `-MaxCommits` *(default: `30`)* |
-| **`publish-release.ps1`** | Builds the release archive, creates an annotated Git tag (`<ModName>-v<Version>`), pushes the tag, and publishes a GitHub Release with the `.zip` asset and extracted changelog notes via `gh`. Bails out if the tag/release already exists unless `--force-update` is passed. | `-ModFolder` *(required)*, `-Version`, `-Channel`, `--force-update` (`-ForceUpdate`), `--dry-run` (`-DryRun`), `-SkipBuild` |
+| **`update-changelog.ps1`** | Updates the `# Title` version header and injects folder-scoped Git commits into the `<!-- CHANGELOG:START -->` ... `<!-- CHANGELOG:END -->` block of `<ModFolder>/README.md`. | `-ModFolder` *(required)*, `-Version`, `-MaxCommits` *(default: `50`)* |
+| **`publish-release.ps1`** | Updates `<ModFolder>/README.md` changelog via `update-changelog.ps1`, builds the release archive, commits & pushes updated release metadata (`README.md` / `version.json`), creates an annotated Git tag (`<ModName>-v<Version>`), pushes the tag, and publishes a GitHub Release with the `.zip` asset and extracted changelog notes via `gh`. Bails out if the tag/release already exists unless `--force-update` is passed. | `-ModFolder` *(required)*, `-Version`, `-Channel`, `--force-update` (`-ForceUpdate`), `--dry-run` (`-DryRun`), `-SkipBuild` |
 | **`auto-backup-saves.ps1`** | Local utility script for backing up *RuneScape: Dragonwilds* character and world save files. | *(Run directly via PowerShell)* |
 
 ---
@@ -80,7 +80,7 @@ Wipes only the target mod's `ue4ss\Mods\<ModName>` folder and `.pak` files witho
 ```
 
 ### 3. Bump Version & Build (or Build & Deploy)
-Increments the `patch` (`1.3.4` -> `1.3.5`), `minor`, or `major` version in `version.json`, updates the README title and changelog, and packages the archive:
+Increments the `patch` (`1.3.4` -> `1.3.5`), `minor`, or `major` version in `version.json` and packages the archive (without modifying `README.md`):
 ```powershell
 .\mod.ps1 build ultra-wide-menu-alignment -Bump patch
 .\mod.ps1 build-deploy ultra-wide-menu-alignment -Bump patch
