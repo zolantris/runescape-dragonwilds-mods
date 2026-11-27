@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Arcane Wilds — Spell &amp; Combo Creator</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-icon" aria-hidden="true">✦</div>
+      <div>
+        <h1>Arcane Wilds Studio</h1>
+        <p class="subtitle">Custom Spell &amp; Combo Creator</p>
+      </div>
+    </div>
+
+    <nav class="tab-nav" role="tablist" aria-label="Editor sections">
+      <button id="tab-btn-combos" class="tab-btn active" role="tab" aria-selected="true" data-tab="combos">
+        Combos <span id="badge-combos-count" class="count-pill">0</span>
+      </button>
+      <button id="tab-btn-spells" class="tab-btn" role="tab" aria-selected="false" data-tab="spells">
+        Spells <span id="badge-spells-count" class="count-pill">0</span>
+      </button>
+    </nav>
+
+    <div class="header-status">
+      <div class="catalog-stats" id="catalog-stats" title="Detected game assets from detected_catalog.json">
+        <span>Spells: <strong id="stat-spells">0</strong></span>
+        <span>VFX: <strong id="stat-vfx">0</strong></span>
+        <span>SFX: <strong id="stat-sfx">0</strong></span>
+        <span>Anims: <strong id="stat-montages">0</strong></span>
+      </div>
+      <button id="btn-refresh-catalog" class="btn btn-ghost btn-sm" title="Re-read detected_catalog.json from mod folder">
+        ↻ Refresh Assets
+      </button>
+      <span id="connection-badge" class="status-pill status-connecting">Connecting…</span>
+      <span id="schema-badge" class="status-pill status-schema" title="Current JSON schema version">Schema v1</span>
+    </div>
+  </header>
+
+  <div id="standalone-banner" class="banner hidden">
+    <strong>Standalone Mode:</strong> Opened directly without the local launcher. Run
+    <code>Launch-ArcaneWilds-Editor.bat</code> (or <code>.\mod.ps1 editor arcane-wilds</code>) for 1-click Save to mod folder and automatic Windows Explorer reveal on Export.
+    <button id="btn-load-catalog-file" class="btn btn-sm btn-secondary">Load detected_catalog.json</button>
+  </div>
+
+  <main class="app-main">
+    <!-- COMBOS TAB -->
+    <section id="panel-combos" class="tab-panel active" role="tabpanel">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <h2>Spell Combos</h2>
+          <input id="combo-search" type="search" class="input search-input" placeholder="Filter combos by name or spell…" />
+        </div>
+        <div class="toolbar-actions">
+          <button id="btn-add-combo" class="btn btn-primary">+ Add Combo</button>
+          <button id="btn-combo-new-spell" class="btn btn-secondary">+ New Custom Spell</button>
+          <button id="btn-import-combos" class="btn btn-secondary">Import JSON</button>
+          <div class="export-group">
+            <button id="btn-export-combos" class="btn btn-secondary" title="Export combo_rules.json and open Windows Explorer">Export &amp; Reveal</button>
+            <button id="btn-export-bundle-1" class="btn btn-ghost btn-sm" title="Export both Spells + Combos into one bundle JSON">Bundle</button>
+          </div>
+          <button id="btn-save-combos" class="btn btn-success">Save Combos</button>
+        </div>
+      </div>
+
+      <div id="combos-list" class="combos-list"></div>
+    </section>
+
+    <!-- SPELLS TAB -->
+    <section id="panel-spells" class="tab-panel" role="tabpanel">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <h2>Custom Spells</h2>
+          <input id="spell-search" type="search" class="input search-input" placeholder="Filter custom spells…" />
+        </div>
+        <div class="toolbar-actions">
+          <button id="btn-add-spell" class="btn btn-primary">+ New Spell</button>
+          <button id="btn-import-spells" class="btn btn-secondary">Import JSON</button>
+          <div class="export-group">
+            <button id="btn-export-spells" class="btn btn-secondary" title="Export custom_spells.json and open Windows Explorer">Export &amp; Reveal</button>
+            <button id="btn-export-bundle-2" class="btn btn-ghost btn-sm" title="Export both Spells + Combos into one bundle JSON">Bundle</button>
+          </div>
+          <button id="btn-save-spells" class="btn btn-success">Save Spells</button>
+        </div>
+      </div>
+
+      <div class="spells-layout">
+        <aside class="spells-sidebar">
+          <div id="spells-list" class="spells-list"></div>
+        </aside>
+        <section id="spell-editor-container" class="spell-editor-container"></section>
+      </div>
+    </section>
+  </main>
+
+  <!-- IMPORT / EXPORT MODAL -->
+  <div id="io-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="io-modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="io-modal-title">Import JSON</h3>
+        <button id="io-modal-close" class="btn btn-ghost btn-sm" aria-label="Close">✕</button>
+      </div>
+      <div id="io-modal-body" class="modal-body"></div>
+      <div id="io-modal-footer" class="modal-footer"></div>
+    </div>
+  </div>
+
+  <!-- HIDDEN FILE INPUTS -->
+  <input id="file-input-catalog" type="file" accept=".json" class="hidden" />
+
+  <!-- TOAST CONTAINER -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

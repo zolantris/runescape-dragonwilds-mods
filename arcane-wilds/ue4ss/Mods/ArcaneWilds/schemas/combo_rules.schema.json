@@ -11,6 +11,24 @@
       "type": "string",
       "description": "Path to the JSON Schema for editor validation and autocomplete."
     },
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Schema version for forward-compatible migrations (current: 1)."
+    },
+    "format": {
+      "type": "string",
+      "const": "arcane-wilds.combo_rules",
+      "description": "Optional format identifier used on exported JSON files."
+    },
+    "modVersion": {
+      "type": "string",
+      "description": "Optional Arcane Wilds mod version that generated this file."
+    },
+    "exportedAt": {
+      "type": "string",
+      "description": "Optional ISO-8601 timestamp when exported from the editor."
+    },
     "rules": {
       "type": "array",
       "description": "List of weighted combo rules. Stage 1 determines which equipped element or starting spell triggers each rule.",

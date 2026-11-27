@@ -68,6 +68,8 @@ end
 
 require("test_coverage")
 require("test_json")
+require("test_schema_migrator")
+require("test_asset_catalog")
 require("test_custom_spells")
 require("test_combo_rules")
 require("test_config_hotreload")

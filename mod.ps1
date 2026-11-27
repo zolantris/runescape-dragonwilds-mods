@@ -148,6 +148,8 @@ Commands:
   test         <mod>   Validate JSON configs and run offline Lua unit/regression tests + coverage (alias: t)
                        Options: -LuaExe <path>, -NoCoverage, -CoverageDetails, -MinCoverage <pct>,
                                 -LcovPath <path>, -CoverageMarkdownPath <path>
+  editor       <mod>   Launch the Web/HTML Spell & Combo Editor GUI (alias: gui)
+                       Options: -Deployed, -GameDir <path>, -Port <n>, -NoBrowser
   backup               Back up local RuneScape: Dragonwilds saves
   list                 List mods in this repo, versions, pak status, and local deploy status (aliases: ls, status)
                        Options: -GameDir <path>
@@ -371,6 +373,56 @@ switch ($cmd) {
         }
         $params["ModFolder"] = Resolve-ModFolderName $params["ModFolder"]
         & (Join-Path $scriptsDir "test-mod.ps1") @params
+        return
+    }
+
+    { $_ -in @("editor", "gui") } {
+        $parsed = Parse-CliArgs -RawArgs $RemainingArgs -SwitchNames @("Deployed", "NoBrowser", "Verbose", "Debug")
+        $params = $parsed.Named
+        $modFolder = if ($params.ContainsKey("ModFolder")) {
+            Resolve-ModFolderName ([string]$params["ModFolder"])
+        } elseif ($parsed.Positional.Count -ge 1) {
+            Resolve-ModFolderName ([string]$parsed.Positional[0])
+        } else {
+            "arcane-wilds"
+        }
+
+        $mods = Get-RepoMods
+        $modInfo = $mods | Where-Object { $_.Folder -ieq $modFolder } | Select-Object -First 1
+        if (-not $modInfo) {
+            throw "Mod '$modFolder' not found in '$repoRoot'."
+        }
+
+        $repoModDir = Join-Path $repoRoot "$($modInfo.Folder)\ue4ss\Mods\$($modInfo.ModName)"
+        $serverScript = Join-Path $repoModDir "editor\server.ps1"
+        if (-not (Test-Path -LiteralPath $serverScript -PathType Leaf)) {
+            throw "Editor server not found at '$serverScript'."
+        }
+
+        $targetModDir = $repoModDir
+        if ($params.ContainsKey("Deployed") -and $params["Deployed"]) {
+            $gameDir = if ($params.ContainsKey("GameDir")) {
+                [string]$params["GameDir"]
+            } elseif ($env:RSDW_GAME_DIR) {
+                $env:RSDW_GAME_DIR
+            } else {
+                "C:\steam\steamapps\common\RSDragonwilds"
+            }
+            $gameSub = if (Test-Path -LiteralPath (Join-Path $gameDir "RSDragonwilds\Binaries\Win64")) {
+                Join-Path $gameDir "RSDragonwilds"
+            } else {
+                $gameDir
+            }
+            $targetModDir = Join-Path $gameSub "Binaries\Win64\ue4ss\Mods\$($modInfo.ModName)"
+            if (-not (Test-Path -LiteralPath $targetModDir -PathType Container)) {
+                throw "Deployed mod folder not found at '$targetModDir'."
+            }
+        }
+
+        $srvParams = @{ ModDir = $targetModDir }
+        if ($params.ContainsKey("Port")) { $srvParams["Port"] = [int]$params["Port"] }
+        if ($params.ContainsKey("NoBrowser") -and $params["NoBrowser"]) { $srvParams["NoBrowser"] = $true }
+        & $serverScript @srvParams
         return
     }
 

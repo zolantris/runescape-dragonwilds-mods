@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://arcanewilds.local/schemas/detected_catalog.schema.json",
+  "title": "Arcane Wilds Detected Asset Catalog",
+  "description": "Auto-discovered spells, VFX, SFX, and animation montages exported by Arcane Wilds for the Web GUI.",
+  "type": "object",
+  "required": ["schemaVersion", "categories", "spells", "vfx", "sfx", "montages"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "format": {
+      "type": "string",
+      "const": "arcane-wilds.detected_catalog"
+    },
+    "modVersion": {
+      "type": "string"
+    },
+    "generatedAt": {
+      "type": "string"
+    },
+    "categories": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "spells": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["shortName"],
+        "additionalProperties": false,
+        "properties": {
+          "shortName": { "type": "string" },
+          "fullName": { "type": "string" },
+          "category": { "type": "string" },
+          "stepIndex": { "type": "integer", "minimum": 0 },
+          "montage": { "type": ["string", "null"] },
+          "aliases": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "isModded": { "type": "boolean" },
+          "isSpecial": { "type": "boolean" }
+        }
+      }
+    },
+    "vfx": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["shortName", "path"],
+        "additionalProperties": false,
+        "properties": {
+          "shortName": { "type": "string" },
+          "path": { "type": "string" },
+          "kind": { "type": "string" },
+          "aliases": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "sfx": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["shortName", "path"],
+        "additionalProperties": false,
+        "properties": {
+          "shortName": { "type": "string" },
+          "path": { "type": "string" },
+          "kind": { "type": "string" },
+          "aliases": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "montages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["shortName", "path"],
+        "additionalProperties": false,
+        "properties": {
+          "shortName": { "type": "string" },
+          "path": { "type": "string" }
+        }
+      }
+    }
+  }
+}

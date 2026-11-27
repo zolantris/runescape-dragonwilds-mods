@@ -5,6 +5,7 @@
 local TimelineParser = require("timeline_parser")
 local ProgressionScaling = require("progression_scaling")
 local Json = require("json")
+local SchemaMigrator = require("schema_migrator")
 
 local CustomSpells = {}
 local ObjectLookupCache = {}
@@ -374,6 +375,12 @@ function CustomSpells.ParseJsonDefinitions(rawJson)
     if type(doc) ~= "table" then
         return nil, "root JSON value must be an object with a 'spells' map"
     end
+
+    local migratedDoc, migErr = SchemaMigrator.Migrate("custom_spells", doc)
+    if migErr then
+        return nil, migErr
+    end
+    doc = migratedDoc
 
     local defs = {}
     local spellsMap = doc.spells

@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://arcanewilds.local/schemas/export_bundle.schema.json",
+  "title": "Arcane Wilds Combined Export Bundle",
+  "description": "Combined export containing both custom spells and combo rules with schema versioning metadata.",
+  "type": "object",
+  "required": ["schemaVersion", "format"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "format": {
+      "type": "string",
+      "const": "arcane-wilds.bundle"
+    },
+    "modVersion": {
+      "type": "string"
+    },
+    "exportedAt": {
+      "type": "string"
+    },
+    "spells": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "./custom_spells.schema.json#/definitions/CustomSpell"
+      }
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "$ref": "./combo_rules.schema.json#/definitions/ComboRule"
+      }
+    }
+  }
+}

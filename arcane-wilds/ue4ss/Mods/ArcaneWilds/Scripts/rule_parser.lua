@@ -1,6 +1,7 @@
 -- Arcane Wilds - Direct Spell Name & Combo Rule Parser (JSON Schema + Legacy DSL)
 
 local Json = require("json")
+local SchemaMigrator = require("schema_migrator")
 local RuleParser = {}
 
 local function Trim(s)
@@ -273,6 +274,12 @@ function RuleParser.ParseJsonMacros(rawJson, nameMapByCat, globalNameMap, discov
     if type(doc) ~= "table" then
         return nil, "root JSON value must be an object with a 'rules' array"
     end
+
+    local migratedDoc, migErr = SchemaMigrator.Migrate("combo_rules", doc)
+    if migErr then
+        return nil, migErr
+    end
+    doc = migratedDoc
 
     local rulesList = doc.rules
     if type(rulesList) ~= "table" then

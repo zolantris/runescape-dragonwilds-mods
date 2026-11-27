@@ -1,5 +1,6 @@
 {
   "$schema": "./schemas/combo_rules.schema.json",
+  "schemaVersion": 1,
   "rules": [
     {
       "name": "Air Full Chain",

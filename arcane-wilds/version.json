@@ -1,4 +1,11 @@
 {
   "version": "1.0.0",
-  "mod": "ArcaneWilds"
+  "mod": "ArcaneWilds",
+  "schemaVersion": 1,
+  "schemaVersions": {
+    "customSpells": 1,
+    "comboRules": 1,
+    "detectedCatalog": 1,
+    "bundle": 1
+  }
 }

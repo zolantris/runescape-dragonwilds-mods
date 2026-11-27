@@ -63,6 +63,7 @@ local DEFAULT_SPELL_NAMES_CONTENT = table.concat({
 
 local DEFAULT_COMBO_RULES_JSON_CONTENT = [[{
   "$schema": "./schemas/combo_rules.schema.json",
+  "schemaVersion": 1,
   "rules": [
     {
       "name": "Air Full Chain",
@@ -113,6 +114,7 @@ local DEFAULT_COMBO_RULES_JSON_CONTENT = [[{
 
 local DEFAULT_CUSTOM_SPELLS_JSON_CONTENT = [[{
   "$schema": "./schemas/custom_spells.schema.json",
+  "schemaVersion": 1,
   "spells": {}
 }
 ]]

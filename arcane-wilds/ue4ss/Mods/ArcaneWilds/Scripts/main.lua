@@ -25,7 +25,9 @@ local Paths = {
     QUICK_CAST_PATH         = MOD_DIR .. "quick_cast.txt",
     DETECTED_PATH           = MOD_DIR .. "detected_spells.txt",
     DETECTED_VFX_PATH       = MOD_DIR .. "detected_vfx.txt",
-    VFX_NAMES_PATH          = MOD_DIR .. "vfx_names.txt"
+    DETECTED_CATALOG_PATH   = MOD_DIR .. "detected_catalog.json",
+    VFX_NAMES_PATH          = MOD_DIR .. "vfx_names.txt",
+    SFX_NAMES_PATH          = MOD_DIR .. "sfx_names.txt"
 }
 
 local SpellScanner   = require("spell_scanner")
@@ -36,6 +38,7 @@ local EquipmentRunes = require("equipment_runes")
 local CombatEngine   = require("combat_engine")
 local ProgressionScaling = require("progression_scaling")
 local InputBlocker   = require("input_blocker")
+local AssetCatalog   = require("asset_catalog")
 
 local Config = ConfigManager.CreateDefaultConfig()
 
@@ -104,6 +107,18 @@ local function RefreshVfxCatalog(forceLog)
     -- Overlay optional user-defined friendly aliases from vfx_names.txt on top
     TimelineRunner.LoadVfxCatalogFile(Paths.VFX_NAMES_PATH, lookup)
     State.VfxPathLookup = lookup
+
+    -- Export unified detected_catalog.json (Spells, VFX, SFX, Montages) for the Web GUI
+    AssetCatalog.ExportCatalogFile(Paths.DETECTED_CATALOG_PATH, {
+        modVersion = MOD_VERSION,
+        baseSpellRegistry = State.BaseSpellRegistry,
+        orderedChains = State.AllChainsList,
+        nameMapByCat = State.NameMapByCat,
+        globalNameMap = State.GlobalNameMap,
+        vfxPathLookup = State.VfxPathLookup,
+        vfxNamesPath = Paths.VFX_NAMES_PATH,
+        sfxNamesPath = Paths.SFX_NAMES_PATH,
+    }, forceLog and Log or DebugLog)
 end
 
 local function RefreshSpells()

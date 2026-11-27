@@ -1,5 +1,6 @@
 {
   "$schema": "./schemas/custom_spells.schema.json",
+  "schemaVersion": 1,
   "spells": {
     "FlamesOfZamorak": {
       "enabled": true,
