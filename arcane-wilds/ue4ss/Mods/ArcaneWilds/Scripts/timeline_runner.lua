@@ -6,6 +6,9 @@
 local TimelineRunner = {}
 
 local TimelineInstanceCounter = 0
+local CachedUeClasses = {}
+local LoggedMismatchWarnings = {}
+local NormalizeUeAssetPath
 
 local function IsValidUObject(obj)
     if not obj then return false end
@@ -30,6 +33,112 @@ local function HasUFunc(obj, name)
         return (not okV) or (valid == true)
     end
     return false
+end
+
+local function GetCachedClass(classPath)
+    local cached = CachedUeClasses[classPath]
+    if cached ~= nil then
+        if cached == false then return nil end
+        if IsValidUObject(cached) then return cached end
+        CachedUeClasses[classPath] = nil
+    end
+    local cls = nil
+    pcall(function() cls = StaticFindObject(classPath) end)
+    CachedUeClasses[classPath] = IsValidUObject(cls) and cls or false
+    return IsValidUObject(cls) and cls or nil
+end
+
+local function ObjectIsClass(obj, classPath)
+    if not IsValidUObject(obj) then return false end
+    local cls = GetCachedClass(classPath)
+    if not IsValidUObject(cls) then return false end
+    local res = false
+    pcall(function()
+        if HasUFunc(obj, "IsA") then
+            res = (obj:IsA(cls) == true)
+        else
+            local gp = StaticFindObject("/Script/Engine.Default__GameplayStatics")
+            if IsValidUObject(gp) and HasUFunc(gp, "ObjectIsA") then
+                res = (gp:ObjectIsA(obj, cls) == true)
+            end
+        end
+    end)
+    return res
+end
+
+local function ClassIsSubclassOf(testClassObj, parentClassPath)
+    if not IsValidUObject(testClassObj) then return false end
+    -- Must actually be a UClass (not an instance or CDO!)
+    if not ObjectIsClass(testClassObj, "/Script/CoreUObject.Class") then
+        return false
+    end
+    local parentCls = GetCachedClass(parentClassPath)
+    if not IsValidUObject(parentCls) then return false end
+    local res = false
+    pcall(function()
+        local mathLib = StaticFindObject("/Script/Engine.Default__KismetMathLibrary")
+        if IsValidUObject(mathLib) and HasUFunc(mathLib, "ClassIsChildOf") then
+            res = (mathLib:ClassIsChildOf(testClassObj, parentCls) == true)
+        end
+    end)
+    return res
+end
+
+local function LogMismatchOnce(key, msg)
+    if LoggedMismatchWarnings[key] then return end
+    LoggedMismatchWarnings[key] = true
+    pcall(function() print("[ArcaneWilds][ERROR] " .. tostring(msg) .. "\n") end)
+end
+
+-- Strict runtime asset type guard: rejects wrong UE asset types (e.g. SoundWave in Anim=, AnimMontage in VFX=,
+-- non-Actor in Actor=) cleanly with a one-time log error and ZERO UE5/UE4SS crash risk.
+local function ValidateCueAssetType(obj, expectedKind, spellName, cueIdx, rawAsset)
+    if not IsValidUObject(obj) then return false end
+    local full = SafeObjName(obj)
+    if full:lower():find("default__", 1, true) then
+        LogMismatchOnce(tostring(spellName) .. ":" .. tostring(cueIdx) .. ":" .. tostring(rawAsset),
+            string.format("CustomSpell [%s] Cue #%d (%s): '%s' resolved to a CDO (%s); skipping safely.",
+                tostring(spellName), tonumber(cueIdx) or 0, tostring(expectedKind), tostring(rawAsset), full))
+        return false
+    end
+
+    local ok = false
+    local expectedDesc = expectedKind
+    if expectedKind == "anim" then
+        expectedDesc = "AnimMontage or AnimSequenceBase"
+        ok = ObjectIsClass(obj, "/Script/Engine.AnimMontage") or ObjectIsClass(obj, "/Script/Engine.AnimSequenceBase")
+    elseif expectedKind == "vfx" then
+        expectedDesc = "NiagaraSystem"
+        ok = ObjectIsClass(obj, "/Script/Niagara.NiagaraSystem")
+    elseif expectedKind == "sfx" then
+        expectedDesc = "SoundBase (SoundWave/SoundCue/MetaSound)"
+        ok = ObjectIsClass(obj, "/Script/Engine.SoundBase")
+    elseif expectedKind == "spell" then
+        expectedDesc = "DominionSpellData"
+        ok = ObjectIsClass(obj, "/Script/Dominion.DominionSpellData")
+    elseif expectedKind == "decal" then
+        expectedDesc = "MaterialInterface"
+        ok = ObjectIsClass(obj, "/Script/Engine.MaterialInterface")
+    elseif expectedKind == "actor" then
+        expectedDesc = "Actor Class (SubclassOf<AActor>)"
+        ok = ClassIsSubclassOf(obj, "/Script/Engine.Actor")
+    elseif expectedKind == "shake" then
+        expectedDesc = "CameraShakeBase Class (SubclassOf<UCameraShakeBase>)"
+        ok = ClassIsSubclassOf(obj, "/Script/Engine.CameraShakeBase")
+    end
+
+    if not ok then
+        local actualClass = full:match("^([^%s]+)") or "Unknown"
+        LogMismatchOnce(tostring(spellName) .. ":" .. tostring(cueIdx) .. ":" .. tostring(rawAsset),
+            string.format("CustomSpell [%s] Cue #%d (%s): incompatible asset '%s' -> got %s, expected %s! Skipping safely.",
+                tostring(spellName), tonumber(cueIdx) or 0, tostring(expectedKind), tostring(rawAsset), actualClass, expectedDesc))
+        return false
+    end
+    return true
+end
+
+function TimelineRunner.ClearValidationCache()
+    LoggedMismatchWarnings = {}
 end
 
 local function MakeVec(x, y, z)
@@ -212,26 +321,31 @@ local function ResolveSlotFName(pawn, slotStr)
     return FName(slotStr)
 end
 
--- Resolve animation asset (AnimMontage or AnimSequenceBase) with caching.
+-- Resolve animation asset (AnimMontage or AnimSequenceBase) with caching & path normalization.
 local function ResolveAnimAsset(assetName, customSpells, safeGetNameFn)
     if not assetName or assetName == "" then return nil, false end
+    local cleaned = NormalizeUeAssetPath(assetName)
     local obj = nil
     if customSpells and customSpells.FindObjectFast then
-        obj = customSpells.FindObjectFast(assetName)
+        obj = customSpells.FindObjectFast(cleaned)
     end
-    if not IsValidUObject(obj) and assetName:find("/", 1, true) then
-        pcall(function() obj = StaticFindObject(assetName) end)
+    if not IsValidUObject(obj) and cleaned:find("/", 1, true) then
+        pcall(function() obj = StaticFindObject(cleaned) end)
+        if not IsValidUObject(obj) and type(LoadAsset) == "function" then
+            pcall(function() LoadAsset(cleaned) end)
+            pcall(function() obj = StaticFindObject(cleaned) end)
+        end
     end
     if not IsValidUObject(obj) and customSpells and customSpells.FindAssetByKeywordOnDemand then
-        obj = customSpells.FindAssetByKeywordOnDemand("AnimMontage", assetName, safeGetNameFn)
+        local kw = cleaned:match("%.([^%.]+)$") or cleaned:match("/([^/]+)$") or cleaned
+        obj = customSpells.FindAssetByKeywordOnDemand("AnimMontage", kw, safeGetNameFn)
         if not IsValidUObject(obj) then
-            obj = customSpells.FindAssetByKeywordOnDemand("AnimSequence", assetName, safeGetNameFn)
+            obj = customSpells.FindAssetByKeywordOnDemand("AnimSequence", kw, safeGetNameFn)
         end
     end
     if not IsValidUObject(obj) then return nil, false end
 
-    local fullName = SafeObjName(obj):lower()
-    local isMontage = fullName:find("animmontage", 1, true) ~= nil or HasUFunc(obj, "GetFirstAnimReference")
+    local isMontage = ObjectIsClass(obj, "/Script/Engine.AnimMontage")
     return obj, isMontage
 end
 
@@ -429,7 +543,7 @@ end
 --   "/Game/.../NS_Windstep_Launch.NS_Windstep_Launch"
 --   "NiagaraSystem /Game/.../NS_Windstep_Launch.NS_Windstep_Launch:Swirls_Ground_3"
 --   "/Game/.../NS_Windstep_Launch" -> "/Game/.../NS_Windstep_Launch.NS_Windstep_Launch"
-local function NormalizeUeAssetPath(raw)
+NormalizeUeAssetPath = function(raw)
     if not raw or raw == "" then return "" end
     local s = (tostring(raw):gsub("^%s*(.-)%s*$", "%1"))
     -- Strip optional leading UE class name (e.g. "NiagaraSystem /Game/...")
@@ -450,13 +564,22 @@ local function NormalizeUeAssetPath(raw)
     return s
 end
 
--- Check that an AI enemy actor is alive and targetable (never lock onto dead corpses).
+local function IsNonZeroWorldLoc(v)
+    if not v then return false end
+    local x, y, z = tonumber(v.X) or 0.0, tonumber(v.Y) or 0.0, tonumber(v.Z) or 0.0
+    return (math.abs(x) + math.abs(y) + math.abs(z)) > 5.0
+end
+
+-- Check that an AI enemy actor is alive, targetable, and actually placed in the world (not a dead/pooled actor at 0,0,0).
 IsEnemyAliveAndTargetable = function(ai, pawn, pawnLow)
     if not IsValidUObject(ai) or ai == pawn then return false end
     local fLow = SafeObjName(ai):lower()
     if fLow == "" or fLow == pawnLow or fLow:find("bp_playercharacter", 1, true) then
         return false
     end
+    local aLoc = nil
+    pcall(function() aLoc = ai:K2_GetActorLocation() end)
+    if not IsNonZeroWorldLoc(aLoc) then return false end
     local targetable = true
     pcall(function()
         if ai.bIsTargetable == false then targetable = false end
@@ -466,9 +589,13 @@ IsEnemyAliveAndTargetable = function(ai, pawn, pawnLow)
     pcall(function()
         local hComp = nil
         if HasUFunc(ai, "GetAiHealthComponent") then
-            hComp = ai:GetAiHealthComponent()
-        else
-            hComp = ai.HealthComponent or ai.AiHealthComponent
+            pcall(function() hComp = ai:GetAiHealthComponent() end)
+        end
+        if not IsValidUObject(hComp) then
+            pcall(function() hComp = ai.HealthComponent end)
+        end
+        if not IsValidUObject(hComp) then
+            pcall(function() hComp = ai.AiHealthComponent end)
         end
         if IsValidUObject(hComp) then
             local hp = nil
@@ -952,10 +1079,16 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
     if cType == "anim" then
         local animObj, isMontage = ResolveAnimAsset(cue.asset, customSpells, safeGetNameFn)
         if not IsValidUObject(animObj) then
-            if debugLogFn then debugLogFn("Timeline [" .. tlInst.spellName .. "] Anim asset not found: " .. tostring(cue.asset)) end
+            LogMismatchOnce(tlInst.spellName .. ":" .. tostring(cue.index) .. ":missing:" .. tostring(cue.asset),
+                string.format("CustomSpell [%s] Cue #%d (anim): asset '%s' not found; skipping safely.", tlInst.spellName, cue.index, tostring(cue.asset)))
             cueState.expectedDur = 0.0
             return
         end
+        if not ValidateCueAssetType(animObj, "anim", tlInst.spellName, cue.index, cue.asset) then
+            cueState.expectedDur = 0.0
+            return
+        end
+        isMontage = ObjectIsClass(animObj, "/Script/Engine.AnimMontage")
 
         local baseRate = tonumber(p.rate) or 1.0
         local effectiveRate = scaleSpeed and (baseRate * stageSpeed) or baseRate
@@ -1080,7 +1213,12 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
             end
         end
         if not IsValidUObject(vfxObj) then
-            if debugLogFn then debugLogFn("Timeline [" .. tlInst.spellName .. "] VFX asset not found: " .. tostring(cue.asset)) end
+            LogMismatchOnce(tlInst.spellName .. ":" .. tostring(cue.index) .. ":missing:" .. tostring(cue.asset),
+                string.format("CustomSpell [%s] Cue #%d (vfx): NiagaraSystem '%s' not found; skipping safely.", tlInst.spellName, cue.index, tostring(cue.asset)))
+            cueState.expectedDur = 0.0
+            return
+        end
+        if not ValidateCueAssetType(vfxObj, "vfx", tlInst.spellName, cue.index, cue.asset) then
             cueState.expectedDur = 0.0
             return
         end
@@ -1148,8 +1286,16 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
     elseif cType == "sfx" then
         local sfxObj = nil
         if cue.asset and cue.asset ~= "" then
+            local cleaned = NormalizeUeAssetPath(cue.asset)
             if customSpells and customSpells.FindObjectFast then
-                sfxObj = customSpells.FindObjectFast(cue.asset)
+                sfxObj = customSpells.FindObjectFast(cleaned)
+            end
+            if not IsValidUObject(sfxObj) and cleaned:find("/", 1, true) then
+                pcall(function() sfxObj = StaticFindObject(cleaned) end)
+                if not IsValidUObject(sfxObj) and type(LoadAsset) == "function" then
+                    pcall(function() LoadAsset(cleaned) end)
+                    pcall(function() sfxObj = StaticFindObject(cleaned) end)
+                end
             end
             if not IsValidUObject(sfxObj) and customSpells and customSpells.FindAssetByKeywordOnDemand then
                 sfxObj = customSpells.FindAssetByKeywordOnDemand("SoundBase", cue.asset, safeGetNameFn)
@@ -1157,6 +1303,12 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
             end
         end
         if not IsValidUObject(sfxObj) then
+            LogMismatchOnce(tlInst.spellName .. ":" .. tostring(cue.index) .. ":missing:" .. tostring(cue.asset),
+                string.format("CustomSpell [%s] Cue #%d (sfx): SoundBase '%s' not found; skipping safely.", tlInst.spellName, cue.index, tostring(cue.asset)))
+            cueState.expectedDur = 0.0
+            return
+        end
+        if not ValidateCueAssetType(sfxObj, "sfx", tlInst.spellName, cue.index, cue.asset) then
             cueState.expectedDur = 0.0
             return
         end
@@ -1213,7 +1365,11 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
                 or customSpells.FindAssetByKeywordOnDemand("Class", cue.asset, safeGetNameFn)
         end
         if not IsValidUObject(actorClass) then
-            if debugLogFn then debugLogFn("Timeline [" .. tlInst.spellName .. "] Actor class not found: " .. tostring(cue.asset)) end
+            LogMismatchOnce(tlInst.spellName .. ":" .. tostring(cue.index) .. ":missing:" .. tostring(cue.asset),
+                string.format("CustomSpell [%s] Cue #%d (actor): Actor class '%s' not found; skipping safely.", tlInst.spellName, cue.index, tostring(cue.asset)))
+            return
+        end
+        if not ValidateCueAssetType(actorClass, "actor", tlInst.spellName, cue.index, cue.asset) then
             return
         end
 
@@ -1291,7 +1447,7 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
         if not IsValidUObject(spObj) and customSpells and customSpells.FindAssetByKeywordOnDemand then
             spObj = customSpells.FindAssetByKeywordOnDemand("DominionSpellData", cue.asset, safeGetNameFn)
         end
-        if IsValidUObject(spObj) then
+        if IsValidUObject(spObj) and ValidateCueAssetType(spObj, "spell", tlInst.spellName, cue.index, cue.asset) then
             pcall(function()
                 local bpLib = StaticFindObject("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary")
                 if IsValidUObject(bpLib) and HasUFunc(bpLib, "TriggerModularAbilityForPlayer") then
@@ -1301,6 +1457,9 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
             if debugLogFn then
                 debugLogFn(string.format("Timeline [%s] Spell #%d triggered: %s", tlInst.spellName, cue.index, tostring(cue.asset)))
             end
+        elseif not IsValidUObject(spObj) then
+            LogMismatchOnce(tlInst.spellName .. ":" .. tostring(cue.index) .. ":missing:" .. tostring(cue.asset),
+                string.format("CustomSpell [%s] Cue #%d (spell): DominionSpellData '%s' not found; skipping safely.", tlInst.spellName, cue.index, tostring(cue.asset)))
         end
 
         -- Enable projectile/spell impact tracking if requested explicitly OR if any later cue uses target=impact or waits on >thisSpell
@@ -1344,7 +1503,7 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
         local centerTf = transforms[1] or { loc = select(1, GetActorLocAndRot(pawn)), rot = select(2, GetActorLocAndRot(pawn)) }
         tlInst.lastHitCenter = centerTf.loc
         if customSpells and customSpells.ExecuteHitPulse then
-            local _, hitList = customSpells.ExecuteHitPulse(pawn, centerTf.loc, centerTf.rot, p, tlInst.entry, safeGetNameFn, debugLogFn)
+            local _, hitList = customSpells.ExecuteHitPulse(pawn, centerTf.loc, centerTf.rot, p, tlInst.entry, safeGetNameFn, debugLogFn, tlInst.config)
             tlInst.lastHitTargets = hitList or {}
         end
         cueState.expectedDur = (p.dur ~= nil) and (scaleSpeed and (p.dur / stageSpeed) or p.dur) or 0.0
@@ -1358,7 +1517,7 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
         if not IsValidUObject(matObj) and customSpells and customSpells.FindAssetByKeywordOnDemand then
             matObj = customSpells.FindAssetByKeywordOnDemand("MaterialInterface", cue.asset, safeGetNameFn)
         end
-        if not IsValidUObject(matObj) then return end
+        if not IsValidUObject(matObj) or not ValidateCueAssetType(matObj, "decal", tlInst.spellName, cue.index, cue.asset) then return end
         local gpStatics = StaticFindObject("/Script/Engine.Default__GameplayStatics")
         if not IsValidUObject(gpStatics) or not HasUFunc(gpStatics, "SpawnDecalAtLocation") then return end
 
@@ -1386,7 +1545,7 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
             shakeClass = customSpells.FindAssetByKeywordOnDemand("BlueprintGeneratedClass", cue.asset, safeGetNameFn)
                 or customSpells.FindAssetByKeywordOnDemand("Class", cue.asset, safeGetNameFn)
         end
-        if not IsValidUObject(shakeClass) then return end
+        if not IsValidUObject(shakeClass) or not ValidateCueAssetType(shakeClass, "shake", tlInst.spellName, cue.index, cue.asset) then return end
         local gpStatics = StaticFindObject("/Script/Engine.Default__GameplayStatics")
         if IsValidUObject(gpStatics) and HasUFunc(gpStatics, "PlayWorldCameraShake") then
             local transforms = ComputeTargetTransforms(tlInst, pawn, p)
@@ -1844,12 +2003,14 @@ function TimelineRunner.Tick(now, config, state, pawn, combatMagic, customSpells
                     stillFlying = true
                     pcall(function()
                         local aLoc = activeObj:K2_GetActorLocation()
-                        if aLoc then
+                        if IsNonZeroWorldLoc(aLoc) then
                             local orig = cs.castOriginLoc or MakeVec(0, 0, 0)
                             local dx = (aLoc.X or 0) - orig.X
                             local dy = (aLoc.Y or 0) - orig.Y
                             local dz = (aLoc.Z or 0) - orig.Z
-                            if (dx * dx + dy * dy + dz * dz) > 2500.0 then -- > 50cm away from player
+                            local dSq = dx * dx + dy * dy + dz * dz
+                            -- Must be > 50cm away from player and within reasonable 80m range (rejects pooled/origin actors!)
+                            if dSq > 2500.0 and dSq < 64000000.0 then
                                 cs.lastTrackedLoc = MakeVec(aLoc.X, aLoc.Y, aLoc.Z)
                             end
                         end
@@ -1863,9 +2024,12 @@ function TimelineRunner.Tick(now, config, state, pawn, combatMagic, customSpells
                     or (not cs.sawSpellActor and age >= 0.40)
 
                 if impacted then
-                    local finalLoc = exactCollisionPoint or cs.lastTrackedLoc or cs.spellTargetInfoLoc
-                    local sourceTag = exactCollisionPoint and "SPELL-COLLISION"
-                        or (cs.lastTrackedLoc and "PROJECTILE-END" or "TARGET-INFO")
+                    local finalLoc = (IsNonZeroWorldLoc(exactCollisionPoint) and exactCollisionPoint)
+                        or (IsNonZeroWorldLoc(cs.lastTrackedLoc) and cs.lastTrackedLoc)
+                        or (IsNonZeroWorldLoc(cs.spellTargetInfoLoc) and cs.spellTargetInfoLoc)
+                        or nil
+                    local sourceTag = IsNonZeroWorldLoc(exactCollisionPoint) and "SPELL-COLLISION"
+                        or (IsNonZeroWorldLoc(cs.lastTrackedLoc) and "PROJECTILE-END" or "TARGET-INFO")
                     local hitEnemy = nil
 
                     if finalLoc then

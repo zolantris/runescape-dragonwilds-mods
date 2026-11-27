@@ -96,6 +96,8 @@ local ORDERED_CONFIG_KEYS = {
     "UnlockAir", "UnlockFire", "UnlockWater", "UnlockEarth",
     "UnlockModdedCombat", "UnlockUtilitySpells", "KeepGroundSmashAnchored", "MaxFinisherSpeedClamp", "InjectSpecialBarOnSpecials", "SpecialBarInjectAmount", "RequireSpecialEnergyForSpecials", "MinSpecialEnergyCost", "AllowFastSpecialCast", "MaxSpecialCastRate", "PostSpecialPauseSec", "AnimRepeatPadSec",
     "AutoTargetMaxDistance", "AutoTargetConeDeg",
+    "EnableStaffDamageScaling", "StaffBaselineTier", "StaffTierStep", "StaffMasterworkBonus", "NoStaffDamageMultiplier",
+    "EnforceSpellLevelRequirements", "DefaultCustomSpellRequiredMagicLevel", "NotifyOnLockedSpellCast", "LockedSpellNotifyStyle", "LockedSpellNotifyCooldownSec",
     "MaxMoveSpeed", "ActiveComboRulesCount", "DetectedSpellsSummary"
 }
 
@@ -157,6 +159,16 @@ function ConfigManager.CreateDefaultConfig()
         AnimRepeatPadSec = 0.45,
         AutoTargetMaxDistance = 700.0,
         AutoTargetConeDeg = 45.0,
+        EnableStaffDamageScaling = true,
+        StaffBaselineTier = 1,
+        StaffTierStep = 0.30,
+        StaffMasterworkBonus = 0.15,
+        NoStaffDamageMultiplier = 0.50,
+        EnforceSpellLevelRequirements = true,
+        DefaultCustomSpellRequiredMagicLevel = 0,
+        NotifyOnLockedSpellCast = true,
+        LockedSpellNotifyStyle = "auto",
+        LockedSpellNotifyCooldownSec = 1.5,
         MaxMoveSpeed = 600.0,
         ActiveComboRulesCount = "Loading combo_rules.txt...",
         DetectedSpellsSummary = "Auto-detecting on world load..."
@@ -326,6 +338,7 @@ function ConfigManager.LoadComboRulesFile(paths, config, state, logFn, forceRebu
     local customChanged = ConfigManager.LoadCustomSpellsFile(paths, state, logFn)
     if customChanged then
         CustomSpells.ClearCache()
+        pcall(function() require("timeline_runner").ClearValidationCache() end)
         if next(state.BaseSpellRegistry) ~= nil then
             ConfigManager.RebuildMergedRegistry(state)
         end
@@ -596,6 +609,16 @@ function ConfigManager.LoadConfigFile(paths, config, state, logFn, forceRebuildM
                 elseif k == "AnimRepeatPadSec" then config.AnimRepeatPadSec = math.max(0.0, tonumber(v) or 0.45)
                 elseif k == "AutoTargetMaxDistance" then config.AutoTargetMaxDistance = math.max(100.0, tonumber(v) or 700.0)
                 elseif k == "AutoTargetConeDeg" then config.AutoTargetConeDeg = math.max(5.0, math.min(180.0, tonumber(v) or 45.0))
+                elseif k == "EnableStaffDamageScaling" then config.EnableStaffDamageScaling = ConfigManager.ParseBool(v, true)
+                elseif k == "StaffBaselineTier" then config.StaffBaselineTier = math.max(1, math.floor(tonumber(v) or 1))
+                elseif k == "StaffTierStep" then config.StaffTierStep = math.max(0.0, tonumber(v) or 0.30)
+                elseif k == "StaffMasterworkBonus" then config.StaffMasterworkBonus = math.max(0.0, tonumber(v) or 0.15)
+                elseif k == "NoStaffDamageMultiplier" then config.NoStaffDamageMultiplier = math.max(0.1, tonumber(v) or 0.50)
+                elseif k == "EnforceSpellLevelRequirements" then config.EnforceSpellLevelRequirements = ConfigManager.ParseBool(v, true)
+                elseif k == "DefaultCustomSpellRequiredMagicLevel" then config.DefaultCustomSpellRequiredMagicLevel = math.max(0, math.floor(tonumber(v) or 0))
+                elseif k == "NotifyOnLockedSpellCast" then config.NotifyOnLockedSpellCast = ConfigManager.ParseBool(v, true)
+                elseif k == "LockedSpellNotifyStyle" then config.LockedSpellNotifyStyle = (v ~= "" and v:lower() or "auto")
+                elseif k == "LockedSpellNotifyCooldownSec" then config.LockedSpellNotifyCooldownSec = math.max(0.25, tonumber(v) or 1.5)
                 elseif k == "MaxMoveSpeed" then config.MaxMoveSpeed = tonumber(v) or 600.0
                 elseif k == "ActiveComboRulesCount" then config.ActiveComboRulesCount = v
                 elseif k == "DetectedSpellsSummary" then config.DetectedSpellsSummary = v

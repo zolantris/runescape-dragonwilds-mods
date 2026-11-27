@@ -1,78 +1,109 @@
 # Arcane Wilds Custom Spells (Test Config)
 
 [FlamesOfZamorak]
-BaseSpell = DA_ZamorakStaff_Special
-Category  = Fire
-Speed     = 1.8
-Clamp     = true
-RuneCost  = fire
-RuneCount = 2
+DisplayName        = Flames of Zamorak
+RequiredMagicLevel = 20
+BaseSpell          = DA_ZamorakStaff_Special
+Category           = Fire
+Speed              = 1.8
+Clamp              = true
+RuneCost           = fire
+RuneCount          = 2
 
 [SaradominStrike]
-BaseSpell        = none
-Category         = Air
-Speed            = 1.6
-Clamp            = true
-RuneCost         = air
-RuneCount        = 2
-TimelineDuration = auto
-StepAdvanceAt    = 0.90
-CancelOnRelease  = false
-OverlapPolicy    = replace
-AutoTargetRange  = 700
-AutoTargetCone   = 45
+DisplayName        = Saradomin Strike
+RequiredMagicLevel = 30
+ScaleWithStaff     = true
+DamageScaling      = full
+BaseSpell          = none
+Category           = Air
+Speed              = 1.6
+Clamp              = true
+RuneCost           = air
+RuneCount          = 2
+TimelineDuration   = auto
+StepAdvanceAt      = 0.90
+CancelOnRelease    = false
+OverlapPolicy      = replace
+AutoTargetRange    = 700
+AutoTargetCone     = 45
 # 1. Fire the Air Bolt spell and track its exact collision point (SpellModule_CollisionRuntime)
 #    If the Air Bolt doesn't collide, falls back to: Locked-On Enemy -> Closest Enemy pointed at within AutoTargetRange (700) -> Forward 700.
 Spell = @0.00 | DA_Spell_Primary_Air_01 | id=bolt | trackImpact=true | impactTimeout=1.8
 # 2. On Air Bolt hit (>bolt), deal AoE damage at the exact impact / locked enemy location!
-Hit   = >bolt | target=impact | radius=350 | dmg=120..240 | class=Magical | force=260
+#    Base dmg=65..125 scales automatically with equipped staff Tier/DamageMultiplier + Magic Skill + Magic/Staff Attributes.
+Hit   = >bolt | target=impact | radius=350 | dmg=65..125 | class=Magical | force=260
 # 3. Spawn scaled-down lightning VFX & SFX where the Air Bolt hit + directly on each hit NPC
 VFX   = &     | lightning | target=impact      | scale=0.35,0.35,0.45 | dur=1.10
 VFX   = &+0.05| lightning | target=hit_targets | scale=0.30,0.30,0.40 | dur=1.00
 SFX   = &     | lightning | target=impact      | vol=1.0 | pitch=1.05
 
 [StormOfArmadyl]
-BaseSpell        = none
-Category         = Air
-Speed            = 1.6
-Clamp            = true
-RuneCost         = air
-RuneCount        = 2
-TimelineDuration = auto
-StepAdvanceAt    = 0.90
-CancelOnRelease  = false
-OverlapPolicy    = replace
-AutoTargetRange  = 700
-AutoTargetCone   = 45
+DisplayName        = Storm of Armadyl
+RequiredMagicLevel = 40
+ScaleWithStaff     = true
+DamageScaling      = full
+BaseSpell          = none
+Category           = Air
+Speed              = 1.6
+Clamp              = true
+RuneCost           = air
+RuneCount          = 2
+TimelineDuration   = auto
+StepAdvanceAt      = 0.90
+CancelOnRelease    = false
+OverlapPolicy      = replace
+AutoTargetRange    = 700
+AutoTargetCone     = 45
 # 1. Fire the Air Bolt spell and track its exact collision point (SpellModule_CollisionRuntime)
 #    If the Air Bolt doesn't collide, falls back to: Locked-On Enemy -> Closest Enemy pointed at within AutoTargetRange (700) -> Forward 700.
 Spell = @0.00 | DA_Spell_Primary_Air_01 | id=bolt | trackImpact=true | impactTimeout=1.8
 # 2. On Air Bolt hit (>bolt), deal AoE damage at the exact impact / locked enemy location!
-Hit   = >bolt | target=impact | radius=350 | dmg=120..240 | class=Magical | force=260
-# 3. Spawn scaled-down lightning VFX & SFX where the Air Bolt hit + directly on each hit NPC
+#    Base dmg=75..140 scales automatically with equipped staff Tier/DamageMultiplier + Magic Skill + Magic/Staff Attributes.
+Hit   = >bolt | target=impact | radius=350 | dmg=75..140 | class=Magical | force=260
+# 3. Spawn scaled-down windstorm VFX where the Air Bolt hit
 VFX   = &     | /Game/Art/VFX/Library/Spells/Windstep/NS_Windstep_Launch.NS_Windstep_Launch | target=impact      | scale=0.35,0.35,0.45 | dur=1.10
 # TODO need to find sound for wind
 #SFX   = &     | DA_Spell_Primary_Air_01 | vol=0.1 | pitch=2
 
 [SaradominGodsword]
-BaseSpell          = none
-Category           = Air
-SpawnActor         = BP_Godsword_Special_Saradomin_C
-Montage            = AM_PlayerM_Attack_2H_Greatsword_Secondary
-SpinHitbox         = true
-HitRadius          = 400
-HitDamageMin       = 85
-HitDamageMax       = 165
-HitDelaySec        = 0.35
-DamageClass        = Melee
-DamageForce        = 260
-FloatieOffsetZ     = 90
+DisplayName          = Saradomin Godsword
+# RequiredMagicLevel = 0
+ScaleWithStaff       = false
+BaseSpell            = none
+Category             = Air
+SpawnActor           = BP_Godsword_Special_Saradomin_C
+Montage              = AM_PlayerM_Attack_2H_Greatsword_Secondary
+SpinHitbox           = true
+HitRadius            = 400
+HitDamageMin         = 85
+HitDamageMax         = 165
+HitDelaySec          = 0.35
+DamageClass          = Melee
+DamageForce          = 260
+FloatieOffsetZ       = 90
 SuppressDirectHealth = false
-Speed              = 1.5
-Clamp              = true
-RuneCost           = air
-RuneCount          = 1
+Speed                = 1.5
+Clamp                = true
+RuneCost             = air
+RuneCount            = 1
 
+# Optional progression & staff damage scaling keys for custom spells:
+#   DisplayName        = Storm of Armadyl   (friendly name used in locked-spell HUD notifications)
+#   RequiredMagicLevel = 40                 (locked by default until player's Magic skill >= 40)
+#   RequiredSkill      = Magic              (optional skill name, or shorthand e.g. Magic:40 / Attack:25)
+#   UnlockedByDefault  = false              (automatically false whenever RequiredMagicLevel > 0)
+#   ScaleWithStaff     = true | false       (scales Hit / Impact / SpinHitbox damage by equipped staff)
+#   DamageScaling      = full | staff | magic | none
+#                        full  = equipped staff (Tier + DamageMultiplier + Masterwork + StaffBonus) * Magic skill * Magic/Staff/Element attributes
+#                        staff = equipped staff stats only
+#                        magic = Magic skill + player magic attributes only
+#                        none  = flat dmg=min..max
+#   StaffBaselineTier  = 1                  (staff tier where tier multiplier = 1.0x; default from config.txt)
+#   StaffTierStep      = 0.30               (multiplier added per staff tier above baseline; default from config.txt)
+#   StaffBonus         = Armadyl:1.35, Zamorak:1.25  (optional substring bonus multipliers for specific staves)
+#   Per-Hit override:  Hit = ... | dmg=75..140 | scale=full|staff|magic|none
+#
 # Optional damage tuning keys for custom spells:
 #   DamageClass    = Melee | Magical | Ranged | None
 #   DamageForce    = 260

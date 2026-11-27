@@ -145,6 +145,9 @@ local CUE_KEY_MAP = {
     decal      = { cueType = "decal", alwaysCue = true,  defaultTarget = "player" },
     shake      = { cueType = "shake", alwaysCue = true,  defaultTarget = "player" },
     camerashake= { cueType = "shake", alwaysCue = true,  defaultTarget = "player" },
+    chainstrike= { cueType = "chainstrike", alwaysCue = true, defaultTarget = "lock" },
+    strike     = { cueType = "chainstrike", alwaysCue = true, defaultTarget = "lock" },
+    barrage    = { cueType = "chainstrike", alwaysCue = true, defaultTarget = "lock" },
     cue        = { cueType = "cue",   alwaysCue = true,  defaultTarget = nil }
 }
 
@@ -368,8 +371,14 @@ function TimelineParser.ParseCueLine(cueType, rawVal, defaultTarget)
                 params.rot = ParseRot3(val)
                 params.rotRaw = val
             elseif kl == "scale" then
-                params.scale = ParseVec3(val, 1.0, 1.0, 1.0)
-                params.scaleRaw = val
+                if resolvedType == "hit" then
+                    params.dmgScale = val:lower()
+                else
+                    params.scale = ParseVec3(val, 1.0, 1.0, 1.0)
+                    params.scaleRaw = val
+                end
+            elseif kl == "dmgscale" or kl == "damagescale" or kl == "damagescaling" or kl == "scalewithstaff" then
+                params.dmgScale = val:lower()
             elseif kl == "size" then
                 params.size = ParseVec3(val, 128.0, 256.0, 256.0)
                 params.sizeRaw = val
@@ -421,6 +430,24 @@ function TimelineParser.ParseCueLine(cueType, rawVal, defaultTarget)
                 params.impactTimeout = tonumber(val) or 2.5
             elseif kl == "range" or kl == "maxrange" or kl == "maxdist" or kl == "maxdistance" then
                 params.range = tonumber(val) or 700.0
+            elseif kl == "requirelock" or kl == "lockonly" or kl == "targetlockonly" then
+                params.requireLock = ParseBool(val, true)
+            elseif kl == "los" or kl == "lineofsight" or kl == "requirelos" then
+                params.los = ParseBool(val, true)
+            elseif kl == "skill" or kl == "scaleskill" then
+                params.skill = val:lower()
+            elseif kl == "basestrikes" or kl == "minstrikes" then
+                params.baseStrikes = math.max(1, math.floor(tonumber(val) or 1))
+            elseif kl == "levelsperstrike" or kl == "levelsper" or kl == "perlevels" then
+                params.levelsPerStrike = math.max(1, math.floor(tonumber(val) or 10))
+            elseif kl == "maxstrikes" or kl == "strikeCap" or kl == "strikecap" then
+                params.maxStrikes = math.max(1, math.floor(tonumber(val) or 10))
+            elseif kl == "interval" or kl == "strikedelay" or kl == "spacing" then
+                params.interval = math.max(0.02, tonumber(val) or 0.15)
+            elseif kl == "chainradius" or kl == "spreadradius" or kl == "bounceradius" then
+                params.chainRadius = math.max(50.0, tonumber(val) or 650.0)
+            elseif kl == "preferunique" or kl == "uniqueFirst" or kl == "uniquefirst" then
+                params.preferUnique = ParseBool(val, true)
             elseif kl == "vfxfloat" or kl == "paramfloat" then
                 -- Syntax: vfxFloat=Name:Val (multiple allowed via semicolon, e.g. Scale:0.35;Width:0.4)
                 params.vfxFloats = params.vfxFloats or {}
@@ -741,7 +768,8 @@ local SERIALIZE_KEY_LABELS = {
     spell = "Spell",
     hit   = "Hit",
     decal = "Decal",
-    shake = "Shake"
+    shake = "Shake",
+    chainstrike = "ChainStrike"
 }
 
 local function FormatVec3(v)
@@ -811,6 +839,7 @@ function TimelineParser.SerializeCue(cue)
             table.insert(parts, "dmg=" .. FormatNumber(p.dmgMin))
         end
     end
+    if p.dmgScale and p.dmgScale ~= "" then table.insert(parts, "scale=" .. tostring(p.dmgScale)) end
     if p.damageClass and p.damageClass ~= "" then table.insert(parts, "class=" .. tostring(p.damageClass)) end
     if p.force ~= nil then table.insert(parts, "force=" .. FormatNumber(p.force)) end
     if p.ge and p.ge ~= "" then table.insert(parts, "ge=" .. tostring(p.ge)) end
@@ -824,6 +853,15 @@ function TimelineParser.SerializeCue(cue)
     if p.trackImpact == true then table.insert(parts, "trackImpact=true") end
     if p.impactTimeout ~= nil then table.insert(parts, "impactTimeout=" .. FormatNumber(p.impactTimeout)) end
     if p.range ~= nil then table.insert(parts, "range=" .. FormatNumber(p.range)) end
+    if p.requireLock == true then table.insert(parts, "requireLock=true") end
+    if p.los == true then table.insert(parts, "los=true") end
+    if p.skill and p.skill ~= "" then table.insert(parts, "skill=" .. tostring(p.skill)) end
+    if p.baseStrikes ~= nil then table.insert(parts, "baseStrikes=" .. tostring(p.baseStrikes)) end
+    if p.levelsPerStrike ~= nil then table.insert(parts, "levelsPerStrike=" .. tostring(p.levelsPerStrike)) end
+    if p.maxStrikes ~= nil then table.insert(parts, "maxStrikes=" .. tostring(p.maxStrikes)) end
+    if p.interval ~= nil then table.insert(parts, "interval=" .. FormatNumber(p.interval)) end
+    if p.chainRadius ~= nil then table.insert(parts, "chainRadius=" .. FormatNumber(p.chainRadius)) end
+    if p.preferUnique == false then table.insert(parts, "preferUnique=false") end
     if p.vfxFloatRaw and p.vfxFloatRaw ~= "" then table.insert(parts, "vfxFloat=" .. p.vfxFloatRaw) end
     if p.vfxVecRaw and p.vfxVecRaw ~= "" then table.insert(parts, "vfxVec=" .. p.vfxVecRaw) end
 
@@ -844,6 +882,30 @@ function TimelineParser.SerializeSpell(def, timeline)
     if def.clamp then table.insert(lines, "Clamp            = true") end
     if def.runeCost then table.insert(lines, "RuneCost         = " .. tostring(def.runeCost)) end
     if def.runeCount and def.runeCount > 1 then table.insert(lines, "RuneCount        = " .. tostring(def.runeCount)) end
+    if def.displayName and def.displayName ~= "" then table.insert(lines, "DisplayName      = " .. tostring(def.displayName)) end
+    if def.requiredSkill and def.requiredSkill ~= "" and def.requiredSkill:lower() ~= "magic" then
+        table.insert(lines, "RequiredSkill    = " .. tostring(def.requiredSkill))
+    end
+    if def.requiredMagicLevel and def.requiredMagicLevel > 0 then
+        table.insert(lines, "RequiredMagicLevel = " .. tostring(def.requiredMagicLevel))
+    elseif def.unlockedByDefault == false then
+        table.insert(lines, "UnlockedByDefault = false")
+    end
+    if def.scaleWithStaff ~= nil then
+        table.insert(lines, "ScaleWithStaff   = " .. tostring(def.scaleWithStaff))
+    end
+    if def.damageScaling and def.damageScaling ~= "" then
+        table.insert(lines, "DamageScaling    = " .. tostring(def.damageScaling))
+    end
+    if def.staffBaselineTier ~= nil then
+        table.insert(lines, "StaffBaselineTier = " .. FormatNumber(def.staffBaselineTier))
+    end
+    if def.staffTierStep ~= nil then
+        table.insert(lines, "StaffTierStep    = " .. FormatNumber(def.staffTierStep))
+    end
+    if def.staffBonus and def.staffBonus ~= "" then
+        table.insert(lines, "StaffBonus       = " .. tostring(def.staffBonus))
+    end
 
     local tl = timeline or TimelineParser.BuildTimeline(def)
     if tl then

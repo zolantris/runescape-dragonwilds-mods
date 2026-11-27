@@ -32,6 +32,7 @@ local TimelineRunner = require("timeline_runner")
 local ConfigManager  = require("config_manager")
 local EquipmentRunes = require("equipment_runes")
 local CombatEngine   = require("combat_engine")
+local ProgressionScaling = require("progression_scaling")
 
 local Config = ConfigManager.CreateDefaultConfig()
 
@@ -155,7 +156,7 @@ local function RunDebugInspection()
     ConfigManager.LoadConfigFile(Paths, Config, State, Log, true)
     RefreshSpells()
     Log("=== DEBUG DUMP (combo_rules.txt & spell_names.txt reloaded; detected_spells.txt updated) ===")
-    local _, pawn, combatMagic, actionPerformer = GetPlayerPawnAndComponents()
+    local pc, pawn, combatMagic, actionPerformer = GetPlayerPawnAndComponents()
     if pawn and pawn:IsValid() then
         EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, State, DebugLog)
     end
@@ -165,6 +166,7 @@ local function RunDebugInspection()
         .. " | AnchorCategory=" .. tostring(State.AnchorElement)
         .. " | LastKnownEquipped=" .. tostring(State.LastKnownEquippedElement)
         .. " | LoadedRules=" .. tostring(#State.ParsedMacros))
+    ProgressionScaling.LogDebugSummary(Config, State, pc, pawn, Log)
     ConfigManager.LogParsedMacrosSpellMapping(Config, State, Log, "SHIFT+DebugHotkey: Combo Rules -> Direct Spell Asset Mapping")
     if pawn and pawn:IsValid() then
         local targets = { combatMagic, actionPerformer, pawn.InputBuffer }
@@ -507,42 +509,57 @@ local function PollQuickCastHotkeys(now, pc, pawn, combatMagic)
                         local ruleStr = targetStr:match(";$") and targetStr or (targetStr .. ";")
                         local parsed = RuleParser.ParseWeightedMacros(ruleStr, State.NameMapByCat, State.GlobalNameMap, State.DiscoveredLookup)
                         if parsed and parsed[1] then
-                            State._LastQuickCastTime = now
-                            State.ActiveMacro = parsed[1]
-                            State.StageIndex = 1
-                            State.StepInStage = 1
-                            State.StepInFlight = false
-                            State.InFlightSpellObj = nil
-                            State._LastTriggeredSpellPtr = nil
-                            Log(string.format("QuickCast #%d [%s%s] -> Combo: %s", idx, prefix, tostring(triggeredKey), targetStr))
-                            local st1 = parsed[1].stages[1]
-                            local sd1 = st1 and st1.steps[1]
-                            local ent1 = sd1 and ConfigManager.ResolveStepEntry(State, st1, sd1)
-                            CombatEngine.ApplyStageSpeedAndPriming(Config, State, combatMagic, st1, 1, pawn, DebugLog)
-                            if ent1 then
-                                State.LastAutoAttackTime = now
-                                State.LastTriggeredSpellTime = now
-                                State.StepInFlight = true
-                                State.InFlightSpellObj = ent1.spellObj
-                                State.InFlightStartedTime = now
-                                CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, ent1, DebugLog, combatMagic)
+                            local macroUnlocked, lockInfo = ProgressionScaling.CheckMacroUnlocked(
+                                Config, pc, pawn, State, parsed[1], ConfigManager.ResolveStepEntry)
+                            if not macroUnlocked then
+                                State._LastQuickCastTime = now
+                                ProgressionScaling.NotifySpellLocked(Config, pc, pawn, lockInfo, Log)
+                                firedAny = true
+                            else
+                                State._LastQuickCastTime = now
+                                State.ActiveMacro = parsed[1]
+                                State.StageIndex = 1
+                                State.StepInStage = 1
+                                State.StepInFlight = false
+                                State.InFlightSpellObj = nil
+                                State._LastTriggeredSpellPtr = nil
+                                Log(string.format("QuickCast #%d [%s%s] -> Combo: %s", idx, prefix, tostring(triggeredKey), targetStr))
+                                local st1 = parsed[1].stages[1]
+                                local sd1 = st1 and st1.steps[1]
+                                local ent1 = sd1 and ConfigManager.ResolveStepEntry(State, st1, sd1)
+                                CombatEngine.ApplyStageSpeedAndPriming(Config, State, combatMagic, st1, 1, pawn, DebugLog)
+                                if ent1 then
+                                    State.LastAutoAttackTime = now
+                                    State.LastTriggeredSpellTime = now
+                                    State.StepInFlight = true
+                                    State.InFlightSpellObj = ent1.spellObj
+                                    State.InFlightStartedTime = now
+                                    CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, ent1, DebugLog, combatMagic, true)
+                                end
+                                firedAny = true
                             end
-                            firedAny = true
                         else
                             Log(string.format("QuickCast #%d [%s%s]: combo '%s' failed to parse", idx, prefix, tostring(triggeredKey), targetStr))
                         end
                     else
                         local entry = ResolveQuickCastEntry(targetStr)
                         if entry then
-                            State._LastQuickCastTime = now
-                            State.LastAutoAttackTime = now
-                            State.LastTriggeredSpellTime = now
-                            State._LastTriggeredSpellPtr = nil
-                            State.StepInFlight = false
-                            State.InFlightSpellObj = nil
-                            Log(string.format("QuickCast #%d [%s%s] -> %s", idx, prefix, tostring(triggeredKey), tostring(entry.shortName or targetStr)))
-                            CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, entry, DebugLog, combatMagic)
-                            firedAny = true
+                            local spellUnlocked, lockInfo = ProgressionScaling.CheckSpellUnlocked(Config, pc, pawn, entry)
+                            if not spellUnlocked then
+                                State._LastQuickCastTime = now
+                                ProgressionScaling.NotifySpellLocked(Config, pc, pawn, lockInfo, Log)
+                                firedAny = true
+                            else
+                                State._LastQuickCastTime = now
+                                State.LastAutoAttackTime = now
+                                State.LastTriggeredSpellTime = now
+                                State._LastTriggeredSpellPtr = nil
+                                State.StepInFlight = false
+                                State.InFlightSpellObj = nil
+                                Log(string.format("QuickCast #%d [%s%s] -> %s", idx, prefix, tostring(triggeredKey), tostring(entry.shortName or targetStr)))
+                                CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, entry, DebugLog, combatMagic, true)
+                                firedAny = true
+                            end
                         else
                             Log(string.format("QuickCast #%d [%s%s]: spell '%s' not found in loaded/custom spells", idx, prefix, tostring(triggeredKey), targetStr))
                         end
@@ -953,25 +970,38 @@ local function RunMainGameThreadTick()
         TickActiveMacro(now, pawn, combatMagic)
     end
 
-    CustomSpells.TickProjectileImpactAoE(State, pawn, combatMagic)
+    CustomSpells.TickProjectileImpactAoE(State, pawn, combatMagic, Config)
     if not quickCastFired then
         TickAutoAttack(now, pc, pawn, combatMagic)
     end
 end
 
--- Single 25ms (~40Hz) scheduler that dispatches serially to the Game Thread with re-entrancy guard.
+-- Persistent module-level GameThread callback (never creates per-tick closures that UE4SS Lua registry can GC!)
+local function RunMainGameThreadTickGuarded()
+    local ok, err = pcall(RunMainGameThreadTick)
+    State._TickInFlight = false
+    if not ok then
+        Log("[ERROR] Main tick error: " .. tostring(err))
+    end
+end
+
+-- Single 25ms (~40Hz) scheduler with re-entrancy lock + 0.50s watchdog so a dropped UE4SS callback can NEVER stall hotkeys.
 LoopAsync(25, function()
-    if State._TickInFlight then return false end
-    State._TickInFlight = true
-    local function guardedRun()
-        pcall(RunMainGameThreadTick)
+    local now = os.clock()
+    if State._TickInFlight then
+        if (now - (State._TickInFlightAt or 0)) < 0.50 then
+            return false
+        end
+        -- Watchdog recovery: previous ExecuteInGameThread callback was dropped by UE4SS
         State._TickInFlight = false
     end
+    State._TickInFlight = true
+    State._TickInFlightAt = now
     if type(ExecuteInGameThread) == "function" then
-        local ok = pcall(function() ExecuteInGameThread(guardedRun) end)
+        local ok = pcall(function() ExecuteInGameThread(RunMainGameThreadTickGuarded) end)
         if not ok then State._TickInFlight = false end
     else
-        guardedRun()
+        RunMainGameThreadTickGuarded()
     end
     return false
 end)

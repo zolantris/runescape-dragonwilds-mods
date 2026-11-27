@@ -3,6 +3,7 @@
 -- and resolves base DominionSpellData + optional VFX/SFX/Montage overrides safely without heavy FindAllOf scans.
 
 local TimelineParser = require("timeline_parser")
+local ProgressionScaling = require("progression_scaling")
 
 local CustomSpells = {}
 local ObjectLookupCache = {}
@@ -170,6 +171,7 @@ function CustomSpells.ClearCache()
     CachedFloatiesSubsystem = nil
     CachedBridgeCDO = nil
     CheckedBridgeAsset = false
+    ProgressionScaling.ClearCache()
 end
 
 function CustomSpells.ParseDefinitions(rawText)
@@ -208,7 +210,16 @@ function CustomSpells.ParseDefinitions(rawText)
                             stepAdvanceAt = nil,
                             cancelOnRelease = false,
                             overlapPolicy = "replace",
-                            scaleTimelineWithSpeed = true
+                            scaleTimelineWithSpeed = true,
+                            requiredMagicLevel = 0,
+                            requiredSkill = "Magic",
+                            unlockedByDefault = true,
+                            displayName = nil,
+                            scaleWithStaff = nil,
+                            damageScaling = nil,
+                            staffBaselineTier = nil,
+                            staffTierStep = nil,
+                            staffBonus = nil
                         }
                         defs[current.nameLower] = current
                     end
@@ -322,6 +333,42 @@ function CustomSpells.ParseDefinitions(rawText)
                             current.forceDamageFloatie = ParseBool(val, false)
                         elseif key == "bridgeblueprint" or key == "damagebridge" then
                             current.bridgeBlueprint = val
+                        elseif key == "requiredmagiclevel" or key == "minmagiclevel" or key == "magiclevel"
+                            or key == "unlocklevel" or key == "requiredlevel" or key == "minlevel" then
+                            local lv = tonumber(val)
+                            if lv then
+                                current.requiredMagicLevel = math.max(0, math.floor(lv))
+                                if current.requiredMagicLevel > 0 then
+                                    current.unlockedByDefault = false
+                                end
+                            end
+                        elseif key == "requiredskill" or key == "skillrequirement" or key == "unlockskill" then
+                            if val then
+                                local sk, lvStr = val:match("^([^:]+):(%d+)$")
+                                if sk and lvStr then
+                                    current.requiredSkill = Trim(sk)
+                                    current.requiredMagicLevel = math.max(0, math.floor(tonumber(lvStr) or 0))
+                                    if current.requiredMagicLevel > 0 then
+                                        current.unlockedByDefault = false
+                                    end
+                                else
+                                    current.requiredSkill = val
+                                end
+                            end
+                        elseif key == "unlockedbydefault" or key == "availablebydefault" then
+                            current.unlockedByDefault = ParseBool(val, true)
+                        elseif key == "displayname" or key == "friendlyname" then
+                            current.displayName = val
+                        elseif key == "scalewithstaff" or key == "staffscaling" or key == "scaledamagewithstaff" then
+                            current.scaleWithStaff = ParseBool(val, true)
+                        elseif key == "damagescaling" or key == "scalemode" or key == "dmgscale" then
+                            current.damageScaling = val and val:lower() or nil
+                        elseif key == "staffbaselinetier" or key == "baselinetier" then
+                            current.staffBaselineTier = tonumber(val)
+                        elseif key == "stafftierstep" or key == "tierstep" then
+                            current.staffTierStep = tonumber(val)
+                        elseif key == "staffbonus" or key == "staffmultipliers" then
+                            current.staffBonus = val
                         end
                     end
                 end
@@ -547,7 +594,12 @@ function CustomSpells.BuildCustomRegistryEntries(defs, spellRegistry, spellChain
                 customOverrideSpeed = def.speed,
                 timeline = timeline,
                 hasTimeline = hasTimelineCues,
-                stepAdvanceAt = timeline and timeline.stepAdvanceAt or nil
+                stepAdvanceAt = timeline and timeline.stepAdvanceAt or nil,
+                requiredMagicLevel = def.requiredMagicLevel or 0,
+                requiredSkill = def.requiredSkill or "Magic",
+                unlockedByDefault = (def.unlockedByDefault ~= false),
+                scaleWithStaff = def.scaleWithStaff,
+                damageScaling = def.damageScaling
             }
 
             if def.impactAoE and def.impactAoE ~= "" then
@@ -1068,11 +1120,16 @@ local function ApplyDominionBlueprintDamage(targetActor, instigatorPawn, dmgAmou
     return damageApplied, summary
 end
 
-local function ApplyRolledImpactDamage(pawn, loc, minDmg, maxDmg, radius, entry, logFn)
+local function ApplyRolledImpactDamage(pawn, loc, minDmg, maxDmg, radius, entry, logFn, config)
     if not loc or not minDmg then return end
-    local lo = math.floor(tonumber(minDmg) or 100)
-    local hi = math.max(lo, math.floor(tonumber(maxDmg) or lo))
+    local scaleMult, scaleBrk = ProgressionScaling.ComputeDamageMultiplier(config, nil, pawn, entry, nil)
+    local lo, hi = ProgressionScaling.ScaleDamageRange(minDmg, maxDmg or minDmg, scaleMult)
     local rolledDmg = (hi > lo) and math.random(lo, hi) or lo
+    if logFn and scaleBrk and scaleBrk.mode ~= "none" then
+        logFn(string.format("ImpactDamage [%s] scaled %d..%d -> %d..%d (%.2fx: staff=%.2fx[T%d] * skill=%.2fx * attr=%.2fx)",
+            tostring(entry and entry.shortName), math.floor(tonumber(minDmg) or 0), math.floor(tonumber(maxDmg or minDmg) or 0),
+            lo, hi, scaleMult, scaleBrk.staffMult, scaleBrk.tier, scaleBrk.skillMult, scaleBrk.attrMult))
+    end
     local rad = tonumber(radius) or 350.0
     local rSq = rad * rad
 
@@ -1132,7 +1189,7 @@ local function ApplyRolledImpactDamage(pawn, loc, minDmg, maxDmg, radius, entry,
     end
 end
 
-local function FireImpactAtLocation(pawn, pending, loc)
+local function FireImpactAtLocation(pawn, pending, loc, config)
     if not pending then return end
 
     -- 1. Trigger the ground smash ability/animation (e.g. DA_Spell_Primary_Air_04 / Death From Above)
@@ -1199,7 +1256,7 @@ local function FireImpactAtLocation(pawn, pending, loc)
         -- 4. Roll damage on targets hit around the impact location (must run on GameThread for LoadAsset/UFunctions)
         if pending.damageMin then
             local function runImpactDmg()
-                ApplyRolledImpactDamage(pawn, loc, pending.damageMin, pending.damageMax, pending.damageRadius, pending.entry)
+                ApplyRolledImpactDamage(pawn, loc, pending.damageMin, pending.damageMax, pending.damageRadius, pending.entry, nil, config)
             end
             if type(ExecuteInGameThread) == "function" then
                 pcall(function() ExecuteInGameThread(runImpactDmg) end)
@@ -1212,7 +1269,7 @@ end
 
 -- Called on tick: tracks the flying projectile/spell actor location and triggers the AoE at the impact point
 -- once the projectile actor detaches/impacts (or after flight completes).
-function CustomSpells.TickProjectileImpactAoE(state, pawn, combatMagic)
+function CustomSpells.TickProjectileImpactAoE(state, pawn, combatMagic, config)
     local p = state.PendingImpactAoE
     if not p then return end
 
@@ -1243,7 +1300,7 @@ function CustomSpells.TickProjectileImpactAoE(state, pawn, combatMagic)
         local targetLoc = p.lastKnownLoc
         state.PendingImpactAoE = nil
         if pawn and pawn:IsValid() then
-            FireImpactAtLocation(pawn, p, targetLoc)
+            FireImpactAtLocation(pawn, p, targetLoc, config)
         end
     elseif age >= 4.0 then
         state.PendingImpactAoE = nil
@@ -1352,7 +1409,7 @@ function CustomSpells.PlayEntryMontageOnPawn(pawn, entry, rate, state)
     return true
 end
 
-local function ExecuteAroundPlayerHitbox(pawn, entry, debugLogFn)
+local function ExecuteAroundPlayerHitbox(pawn, entry, debugLogFn, config)
     if not pawn or not pawn:IsValid() or not entry then return end
     local function logHb(msg)
         if debugLogFn then
@@ -1371,12 +1428,12 @@ local function ExecuteAroundPlayerHitbox(pawn, entry, debugLogFn)
         local rad = tonumber(entry.hitRadius) or tonumber(entry.impactRadius) or 400.0
         local minD = tonumber(entry.hitDamageMin) or tonumber(entry.impactDamageMin) or 65
         local maxD = tonumber(entry.hitDamageMax) or tonumber(entry.impactDamageMax) or minD
-        local lo = math.floor(tonumber(minD) or 65)
-        local hi = math.max(lo, math.floor(tonumber(maxD) or lo))
+        local scaleMult, scaleBrk = ProgressionScaling.ComputeDamageMultiplier(config, nil, pawn, entry, nil)
+        local lo, hi = ProgressionScaling.ScaleDamageRange(minD, maxD, scaleMult)
         local rolledDmg = (hi > lo) and math.random(lo, hi) or lo
 
-        logHb(string.format("SpinHitbox firing [%s] around player (%.1f,%.1f,%.1f) radius=%.1f dmg=%d class=%d",
-            tostring(entry.shortName), loc.X or 0, loc.Y or 0, loc.Z or 0, rad, rolledDmg, ResolveDamageClassByte(entry)))
+        logHb(string.format("SpinHitbox firing [%s] around player (%.1f,%.1f,%.1f) radius=%.1f dmg=%d (%d..%d, scale=%.2fx[%s]) class=%d",
+            tostring(entry.shortName), loc.X or 0, loc.Y or 0, loc.Z or 0, rad, rolledDmg, lo, hi, scaleMult, tostring(scaleBrk and scaleBrk.mode or "none"), ResolveDamageClassByte(entry)))
 
         if entry.hitVfxObj and entry.hitVfxObj:IsValid() then
             pcall(function()
@@ -1544,7 +1601,7 @@ local function ExecuteAroundPlayerHitbox(pawn, entry, debugLogFn)
     end)
 end
 
-function CustomSpells.TriggerCustomPresentation(pawn, entry, safeGetNameFn)
+function CustomSpells.TriggerCustomPresentation(pawn, entry, safeGetNameFn, config)
     if not entry or not entry.isCustomSpell then return end
     if pawn and pawn:IsValid() then
         if entry.spinHitbox or entry.hitDamageMin then
@@ -1554,17 +1611,17 @@ function CustomSpells.TriggerCustomPresentation(pawn, entry, safeGetNameFn)
                 pcall(function()
                     ExecuteWithDelay(delayMs, function()
                         if type(ExecuteInGameThread) == "function" then
-                            ExecuteInGameThread(function() ExecuteAroundPlayerHitbox(pawn, entry) end)
+                            ExecuteInGameThread(function() ExecuteAroundPlayerHitbox(pawn, entry, nil, config) end)
                         else
-                            ExecuteAroundPlayerHitbox(pawn, entry)
+                            ExecuteAroundPlayerHitbox(pawn, entry, nil, config)
                         end
                     end)
                 end)
             else
                 if type(ExecuteInGameThread) == "function" then
-                    pcall(function() ExecuteInGameThread(function() ExecuteAroundPlayerHitbox(pawn, entry) end) end)
+                    pcall(function() ExecuteInGameThread(function() ExecuteAroundPlayerHitbox(pawn, entry, nil, config) end) end)
                 else
-                    ExecuteAroundPlayerHitbox(pawn, entry)
+                    ExecuteAroundPlayerHitbox(pawn, entry, nil, config)
                 end
             end
         end
@@ -1606,7 +1663,7 @@ function CustomSpells.TriggerCustomPresentation(pawn, entry, safeGetNameFn)
 end
 
 -- Reusable timed AoE/cone hit pulse executor used by timeline_runner.lua `Hit` cues.
-local function ExecuteHitPulse(pawn, centerLoc, centerRot, hitParams, entry, safeGetNameFn, debugLogFn)
+local function ExecuteHitPulse(pawn, centerLoc, centerRot, hitParams, entry, safeGetNameFn, debugLogFn, config)
     if not IsValidUObject(pawn) or not centerLoc then return 0 end
     local function logHb(msg)
         if debugLogFn then
@@ -1620,10 +1677,17 @@ local function ExecuteHitPulse(pawn, centerLoc, centerRot, hitParams, entry, saf
     local rad = tonumber(p.radius) or tonumber(entry and entry.hitRadius) or tonumber(entry and entry.impactRadius) or 400.0
     local minD = tonumber(p.dmgMin) or tonumber(entry and entry.hitDamageMin) or tonumber(entry and entry.impactDamageMin) or 65
     local maxD = tonumber(p.dmgMax) or tonumber(entry and entry.hitDamageMax) or minD
-    local lo = math.floor(minD)
-    local hi = math.max(lo, math.floor(maxD))
+    local scaleMult, scaleBrk = ProgressionScaling.ComputeDamageMultiplier(config, nil, pawn, entry, p)
+    local lo, hi = ProgressionScaling.ScaleDamageRange(minD, maxD, scaleMult)
     local coneDeg = tonumber(p.cone)
     local maxTargets = tonumber(p.maxTargets)
+
+    if scaleBrk and scaleBrk.mode ~= "none" then
+        logHb(string.format("TimelineHit Scale [%s]: base=%d..%d -> scaled=%d..%d (%.2fx [%s]: weapon=%s T%d*%.2f, skill=%.2fx, attr=%.2fx)",
+            tostring(entry and entry.shortName or "TimelineHit"), math.floor(minD), math.floor(maxD), lo, hi,
+            scaleMult, tostring(scaleBrk.mode), tostring(scaleBrk.weaponName), tonumber(scaleBrk.tier) or 0,
+            tonumber(scaleBrk.weaponMult) or 1.0, tonumber(scaleBrk.skillMult) or 1.0, tonumber(scaleBrk.attrMult) or 1.0))
+    end
 
     -- Build a lightweight effective entry overlay so cue-level class/force/GE overrides apply cleanly
     local effDef = {}

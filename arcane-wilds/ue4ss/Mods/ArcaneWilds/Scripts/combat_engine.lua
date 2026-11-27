@@ -7,6 +7,7 @@ local CustomSpells = require("custom_spells")
 local TimelineRunner = require("timeline_runner")
 local ConfigManager = require("config_manager")
 local EquipmentRunes = require("equipment_runes")
+local ProgressionScaling = require("progression_scaling")
 
 local CombatEngine = {}
 
@@ -55,8 +56,14 @@ local function DetectActiveStartingSpell(pawn, combatMagic, state)
     return spellName
 end
 
-function CombatEngine.PickWeightedMacroForElement(state, anchorCategory, activeStartingSpell)
+function CombatEngine.PickWeightedMacroForElement(state, anchorCategory, activeStartingSpell, config, pawn)
     if #state.ParsedMacros == 0 then return nil end
+
+    local function IsMacroAllowed(m)
+        if not config or not pawn then return true end
+        local ok = ProgressionScaling.CheckMacroUnlocked(config, nil, pawn, state, m, ConfigManager.ResolveStepEntry)
+        return ok == true
+    end
 
     local anchorLower = (anchorCategory and anchorCategory ~= "") and anchorCategory:lower() or nil
     local anchorBase = anchorLower and anchorLower:gsub("_wand$", ""):gsub("_hold$", "") or nil
@@ -88,7 +95,7 @@ function CombatEngine.PickWeightedMacroForElement(state, anchorCategory, activeS
             local resolvedFirst = firstStep and ConfigManager.ResolveStepEntry(state, st1, firstStep)
             local resolvedShort = resolvedFirst and resolvedFirst.shortName and resolvedFirst.shortName:lower() or nil
             local catMatches = (mCat == requiredCat) or (mCat == requiredBase)
-            if catMatches and resolvedShort and resolvedShort == startSpellLower then
+            if catMatches and resolvedShort and resolvedShort == startSpellLower and IsMacroAllowed(m) then
                 table.insert(candidates, m)
             end
         end
@@ -98,7 +105,7 @@ function CombatEngine.PickWeightedMacroForElement(state, anchorCategory, activeS
     if #candidates == 0 then
         for _, m in ipairs(state.ParsedMacros) do
             local mCat = GetMacroStartCategory(m)
-            if mCat and mCat == requiredCat then
+            if mCat and mCat == requiredCat and IsMacroAllowed(m) then
                 table.insert(candidates, m)
             end
         end
@@ -108,7 +115,7 @@ function CombatEngine.PickWeightedMacroForElement(state, anchorCategory, activeS
     if #candidates == 0 and requiredBase ~= requiredCat then
         for _, m in ipairs(state.ParsedMacros) do
             local mCat = GetMacroStartCategory(m)
-            if mCat and mCat == requiredBase then
+            if mCat and mCat == requiredBase and IsMacroAllowed(m) then
                 table.insert(candidates, m)
             end
         end
@@ -412,11 +419,20 @@ local function TryTriggerSpecialAbility(pawn, spellObj, debugLogFn)
     return triggered
 end
 
-function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, debugLogFn, combatMagic)
+function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, debugLogFn, combatMagic, notifyIfLocked)
     if not pawn or not pawn:IsValid() or not entry then
         return false
     end
     if not entry.suppressBaseSpell and (not entry.spellObj or not entry.spellObj:IsValid()) then
+        return false
+    end
+    local isUnlocked, lockInfo = ProgressionScaling.CheckSpellUnlocked(config, nil, pawn, entry)
+    if not isUnlocked then
+        if notifyIfLocked then
+            ProgressionScaling.NotifySpellLocked(config, nil, pawn, lockInfo, debugLogFn)
+        elseif debugLogFn and lockInfo then
+            debugLogFn("Blocked locked spell: " .. tostring(lockInfo.reason))
+        end
         return false
     end
     local now = os.clock()
@@ -454,7 +470,7 @@ function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, deb
             if (entry.impactAoEName and entry.impactAoEName ~= "") or (entry.impactLightningName and entry.impactLightningName ~= "") or entry.impactDamageMin then
                 CustomSpells.ArmProjectileImpactAoE(state, pawn, entry, SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName)
             elseif not (entry.isCustomSpell and entry.hasTimeline) then
-                CustomSpells.TriggerCustomPresentation(pawn, entry, SpellScanner.SafeGetName)
+                CustomSpells.TriggerCustomPresentation(pawn, entry, SpellScanner.SafeGetName, config)
             end
             return true
         end
@@ -513,7 +529,7 @@ function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, deb
         if (entry.impactAoEName and entry.impactAoEName ~= "") or (entry.impactLightningName and entry.impactLightningName ~= "") or entry.impactDamageMin then
             CustomSpells.ArmProjectileImpactAoE(state, pawn, entry, SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName)
         else
-            CustomSpells.TriggerCustomPresentation(pawn, entry, SpellScanner.SafeGetName)
+            CustomSpells.TriggerCustomPresentation(pawn, entry, SpellScanner.SafeGetName, config)
         end
         return true
     end
@@ -666,7 +682,7 @@ function CombatEngine.RollAndEngageMacroForAnchor(config, state, pawn, combatMag
         startKey = detectedSpell
     end
 
-    local macro = CombatEngine.PickWeightedMacroForElement(state, freshAnchor, startKey)
+    local macro = CombatEngine.PickWeightedMacroForElement(state, freshAnchor, startKey, config, pawn)
     state.ActiveMacro = macro
     state.StageIndex = 1
     state.StepInStage = 1
