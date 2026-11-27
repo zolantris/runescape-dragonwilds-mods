@@ -21,24 +21,62 @@ end
 
 T.Suite("combo_rules + rule_parser + combat_engine", function()
     T.Test("parses shipped combo_rules.json and skips enabled=false rules", function()
+        local Json = require("json")
         local byCat, globalMap = LoadDefaultNameMaps()
         local raw = ReadFile(MOD_ROOT .. "/combo_rules.json")
+        local doc, jErr = Json.Decode(raw)
+        T.AssertNil(jErr)
+        T.AssertNotNil(doc and doc.rules)
+
+        local expectedEnabled = 0
+        local disabledCount = 0
+        for _, r in ipairs(doc.rules) do
+            if r.enabled == false then
+                disabledCount = disabledCount + 1
+            else
+                expectedEnabled = expectedEnabled + 1
+            end
+        end
+
         local macros, err = RuleParser.ParseWeightedMacros(raw, byCat, globalMap, {})
         T.AssertNil(err)
-        T.AssertEq(#macros, 1, "only 1 rule is enabled in shipped combo_rules.json")
+        T.AssertEq(#macros, expectedEnabled, "parsed macro count must match enabled rules in combo_rules.json")
+        T.AssertTrue(disabledCount > 0, "shipped combo_rules.json should include enabled=false rules to verify filtering")
 
-        local m = macros[1]
+        for _, m in ipairs(macros) do
+            T.AssertTrue((m.weight or 0) > 0, "enabled macro must have positive weight")
+            T.AssertTrue(m.stages and #m.stages > 0, "enabled macro must have at least one stage")
+            for _, st in ipairs(m.stages) do
+                T.AssertTrue(st.steps and #st.steps > 0, "each stage must have at least one step")
+            end
+        end
+
+        -- Also verify multi-stage category-omitted custom spell syntax via deterministic fixture
+        local fixture = [[{
+            "rules": [
+                { "name": "Disabled Rule", "enabled": false, "weight": 5, "stages": [{ "category": "Fire", "spells": ["bolt_1"], "speed": 2.0 }] },
+                {
+                    "name": "Air Bolt -> Saradomin Godsword",
+                    "enabled": true,
+                    "weight": 5,
+                    "stages": [
+                        { "category": "Air", "spells": ["bolt"], "speed": 1.5 },
+                        { "spell": "SaradominGodsword", "speed": 1.0 }
+                    ]
+                }
+            ]
+        }]]
+        local fMacros, fErr = RuleParser.ParseWeightedMacros(fixture, byCat, globalMap, {})
+        T.AssertNil(fErr)
+        T.AssertEq(#fMacros, 1)
+        local m = fMacros[1]
         T.AssertEq(m.name, "Air Bolt -> Saradomin Godsword")
         T.AssertEq(m.weight, 5)
         T.AssertEq(#m.stages, 2)
-
-        -- Stage 1: Air@bolt:1.5
         T.AssertEq(m.stages[1].elementLower, "air")
         T.AssertNear(m.stages[1].speed, 1.5)
         T.AssertEq(#m.stages[1].steps, 1)
         T.AssertEq(m.stages[1].steps[1].assetName, "DA_Spell_Primary_Air_01")
-
-        -- Stage 2: { spell = "SaradominGodsword", speed = 1.0 } (category omitted)
         T.AssertEq(m.stages[2].elementLower, "saradomingodsword")
         T.AssertNear(m.stages[2].speed, 1.0)
         T.AssertEq(m.stages[2].steps[1].assetName, "SaradominGodsword")
@@ -144,7 +182,19 @@ T.Suite("combo_rules + rule_parser + combat_engine", function()
             SpellChains = {}
         }
         local byCat, globalMap = LoadDefaultNameMaps()
-        local raw = ReadFile(MOD_ROOT .. "/combo_rules.json")
+        local raw = [[{
+            "rules": [
+                {
+                    "name": "Air Bolt -> Saradomin Godsword",
+                    "enabled": true,
+                    "weight": 5,
+                    "stages": [
+                        { "category": "Air", "spells": ["bolt"], "speed": 1.5 },
+                        { "spell": "SaradominGodsword", "speed": 1.0 }
+                    ]
+                }
+            ]
+        }]]
         local macros = RuleParser.ParseWeightedMacros(raw, byCat, globalMap, {})
         local stage2 = macros[1].stages[2]
         local resolved = ConfigManager.ResolveStepEntry(state, stage2, stage2.steps[1])
