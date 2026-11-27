@@ -71,5 +71,11 @@ jobs:
               print(f"SCHEMA OK: {data_path} -> {schema_path.name}")
           PY
 
-      - name: Run Lua unit & regression tests
-        run: lua5.4 arcane-wilds/tests/run_tests.lua
+      - name: Run Lua unit & regression tests with coverage
+        run: |
+          lua5.4 arcane-wilds/tests/run_tests.lua \
+            --lcov arcane-wilds/tests/coverage.lcov \
+            --coverage-markdown coverage_summary.md
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && [ -f coverage_summary.md ]; then
+            cat coverage_summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi

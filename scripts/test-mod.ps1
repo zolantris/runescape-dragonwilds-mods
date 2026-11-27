@@ -1,7 +1,12 @@
 param(
     [Parameter(Position = 0)]
     [string]$ModFolder = "arcane-wilds",
-    [string]$LuaExe = ""
+    [string]$LuaExe = "",
+    [switch]$NoCoverage,
+    [switch]$CoverageDetails,
+    [double]$MinCoverage = -1,
+    [string]$LcovPath = "",
+    [string]$CoverageMarkdownPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -90,8 +95,15 @@ if (-not $resolvedLua) {
     throw "Cannot execute Lua unit tests without a Lua interpreter."
 }
 
+$luaArgs = @($luaTestEntry)
+if ($NoCoverage) { $luaArgs += "--no-coverage" }
+if ($CoverageDetails) { $luaArgs += "--coverage-details" }
+if ($MinCoverage -ge 0) { $luaArgs += @("--min-coverage", $MinCoverage.ToString([System.Globalization.CultureInfo]::InvariantCulture)) }
+if ($LcovPath) { $luaArgs += @("--lcov", $LcovPath) }
+if ($CoverageMarkdownPath) { $luaArgs += @("--coverage-markdown", $CoverageMarkdownPath) }
+
 Write-Host "`nRunning Lua tests via: $resolvedLua" -ForegroundColor Cyan
-& $resolvedLua $luaTestEntry
+& $resolvedLua @luaArgs
 if ($LASTEXITCODE -ne 0) {
     throw "Lua test suite failed (Exit Code: $LASTEXITCODE)."
 }

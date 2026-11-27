@@ -145,8 +145,9 @@ Commands:
                        Options: --dry-run (-DryRun), --force-update (-ForceUpdate), -SkipBuild, -Version, -Channel
   changelog    <mod>   Update folder-scoped Git changelog in <mod>/README.md
                        Options: -Version <ver>, -MaxCommits <n>
-  test         <mod>   Validate JSON configs and run offline Lua unit/regression tests (alias: t)
-                       Options: -LuaExe <path>
+  test         <mod>   Validate JSON configs and run offline Lua unit/regression tests + coverage (alias: t)
+                       Options: -LuaExe <path>, -NoCoverage, -CoverageDetails, -MinCoverage <pct>,
+                                -LcovPath <path>, -CoverageMarkdownPath <path>
   backup               Back up local RuneScape: Dragonwilds saves
   list                 List mods in this repo, versions, pak status, and local deploy status (aliases: ls, status)
                        Options: -GameDir <path>
@@ -359,7 +360,7 @@ switch ($cmd) {
     }
 
     { $_ -in @("test", "t") } {
-        $parsed = Parse-CliArgs -RawArgs $RemainingArgs -SwitchNames @("Verbose", "Debug")
+        $parsed = Parse-CliArgs -RawArgs $RemainingArgs -SwitchNames @("NoCoverage", "CoverageDetails", "Verbose", "Debug")
         $params = $parsed.Named
         if (-not $params.ContainsKey("ModFolder")) {
             if ($parsed.Positional.Count -ge 1) {

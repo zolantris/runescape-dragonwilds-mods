@@ -65,16 +65,22 @@ For building Vortex-ready archives, bumping semantic versions, generating per-mo
 
 Released under the [MIT License](./LICENSE).
 
-## Running Tests
+## Running Tests & Lua Coverage
 
-Arcane Wilds includes an offline JSON validation & Lua 5.4 unit/regression test suite (no running game required).
+Arcane Wilds includes an offline JSON validation & Lua 5.4 unit/regression test suite with built-in zero-dependency line coverage (no running game required).
 
 **Prerequisites:** Lua 5.4 (install once on Windows via `winget install DEVCOM.Lua`).
 
 ```powershell
-# Validate all JSON configs/schemas and run the Lua test suite
+# Validate all JSON configs/schemas and run Lua tests + coverage report
 .\mod.ps1 test arcane-wilds
 
+# Include missed line ranges and emit an LCOV file (compatible with VS Code Coverage Gutters)
+.\mod.ps1 test arcane-wilds -CoverageDetails -LcovPath arcane-wilds/tests/coverage.lcov
+
+# Enforce a minimum total line coverage threshold (optional)
+.\mod.ps1 test arcane-wilds -MinCoverage 40
+
 # Or run the Lua tests directly
-lua arcane-wilds/tests/run_tests.lua
+lua arcane-wilds/tests/run_tests.lua --coverage-details
 ```

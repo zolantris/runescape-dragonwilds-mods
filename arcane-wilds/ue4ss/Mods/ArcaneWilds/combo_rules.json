@@ -2,20 +2,6 @@
   "$schema": "./schemas/combo_rules.schema.json",
   "rules": [
     {
-      "name": "Saradomin Strike",
-      "enabled": true,
-      "weight": 5,
-      "stages": [
-        {
-          "category": "Air",
-          "spells": [
-            "StormOfArmadyl"
-          ],
-          "speed": 1.0
-        }
-      ]
-    },
-    {
       "name": "Air Full Chain",
       "enabled": false,
       "weight": 5,
@@ -93,22 +79,18 @@
       ]
     },
     {
-      "name": "Air Bolt -> Saradomin Godsword",
+      "name": "StormOfArmadyl",
       "enabled": false,
       "weight": 5,
       "stages": [
         {
           "category": "Air",
           "spells": [
-            "bolt"
+            "StormOfArmadyl"
           ],
-          "speed": 1.5
-        },
-        {
-          "spell": "SaradominGodsword",
           "speed": 1.0
         }
       ]
-    }
+    },
   ]
 }

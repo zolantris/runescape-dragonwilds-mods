@@ -18,3 +18,10 @@ unreal-engine/**/*.vsconfig
 unreal-engine/RSDragonwilds/Source/Dominion/
 unreal-engine/**/Build/
 
+# Lua coverage artifacts
+*.lcov
+coverage_summary.md
+luacov.stats.out
+luacov.report.out
+
+
