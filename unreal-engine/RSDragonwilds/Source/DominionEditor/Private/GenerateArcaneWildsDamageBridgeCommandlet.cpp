@@ -23,6 +23,7 @@
 #include "K2Node_MakeStruct.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "Kismet/GameplayStatics.h"
+#include "Kismet/KismetMathLibrary.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Misc/PackageName.h"
@@ -325,6 +326,98 @@ int32 UGenerateArcaneWildsDamageBridgeCommandlet::Main(const FString& Params)
 		if (!bMapOk)
 		{
 			UE_LOG(LogArcaneWildsBPGen, Error, TEXT("Failed wiring MapKeySafe graph"));
+			return 1;
+		}
+	}
+
+	// Third Blueprint function: SpawnActorSafe(WorldContextObject, ActorClass, Location, Rotation, Scale, Owner) -> AActor*
+	// Constructs FTransform natively inside Blueprint VM so UE4SS Lua can spawn Blueprint/VFX/Prop actors crash-free.
+	{
+		UEdGraph* SpawnGraph = FBlueprintEditorUtils::CreateNewGraph(
+			BP,
+			FName(TEXT("SpawnActorSafe")),
+			UEdGraph::StaticClass(),
+			UEdGraphSchema_K2::StaticClass()
+		);
+		FBlueprintEditorUtils::AddFunctionGraph<UFunction>(BP, SpawnGraph, /*bIsUserCreated=*/true, static_cast<UFunction*>(nullptr));
+		const UEdGraphSchema_K2* SpawnSchema = CastChecked<UEdGraphSchema_K2>(SpawnGraph->GetSchema());
+
+		UK2Node_FunctionEntry* SpawnEntry = nullptr;
+		for (UEdGraphNode* Node : SpawnGraph->Nodes)
+		{
+			if (UK2Node_FunctionEntry* Candidate = Cast<UK2Node_FunctionEntry>(Node))
+			{
+				SpawnEntry = Candidate;
+				break;
+			}
+		}
+		if (!SpawnEntry)
+		{
+			UE_LOG(LogArcaneWildsBPGen, Error, TEXT("SpawnActorSafe FunctionEntry missing"));
+			return 1;
+		}
+		SpawnEntry->AddExtraFlags(FUNC_Public | FUNC_Static | FUNC_BlueprintCallable);
+
+		FEdGraphPinType ObjPinType;
+		ObjPinType.PinCategory = UEdGraphSchema_K2::PC_Object;
+		ObjPinType.PinSubCategoryObject = UObject::StaticClass();
+
+		FEdGraphPinType ClassPinType;
+		ClassPinType.PinCategory = UEdGraphSchema_K2::PC_Class;
+		ClassPinType.PinSubCategoryObject = AActor::StaticClass();
+
+		FEdGraphPinType RotPinType;
+		RotPinType.PinCategory = UEdGraphSchema_K2::PC_Struct;
+		RotPinType.PinSubCategoryObject = TBaseStructure<FRotator>::Get();
+
+		UEdGraphPin* PinWorldCtx  = SpawnEntry->CreateUserDefinedPin(FName(TEXT("WorldContextObject")), ObjPinType, EGPD_Output);
+		UEdGraphPin* PinActorCls  = SpawnEntry->CreateUserDefinedPin(FName(TEXT("ActorClass")), ClassPinType, EGPD_Output);
+		UEdGraphPin* PinLocation  = SpawnEntry->CreateUserDefinedPin(FName(TEXT("Location")), VectorPinType, EGPD_Output);
+		UEdGraphPin* PinRotation  = SpawnEntry->CreateUserDefinedPin(FName(TEXT("Rotation")), RotPinType, EGPD_Output);
+		UEdGraphPin* PinScale     = SpawnEntry->CreateUserDefinedPin(FName(TEXT("Scale")), VectorPinType, EGPD_Output);
+		UEdGraphPin* PinOwner     = SpawnEntry->CreateUserDefinedPin(FName(TEXT("Owner")), ActorPinType, EGPD_Output);
+
+		UK2Node_CallFunction* MakeXformNode = SpawnNode<UK2Node_CallFunction>(SpawnGraph, 300, 220);
+		MakeXformNode->FunctionReference.SetExternalMember(FName(TEXT("MakeTransform")), UKismetMathLibrary::StaticClass());
+		MakeXformNode->AllocateDefaultPins();
+
+		UK2Node_CallFunction* BeginSpawnNode = SpawnNode<UK2Node_CallFunction>(SpawnGraph, 620, 0);
+		BeginSpawnNode->FunctionReference.SetExternalMember(FName(TEXT("BeginDeferredActorSpawnFromClass")), UGameplayStatics::StaticClass());
+		BeginSpawnNode->AllocateDefaultPins();
+		if (UEdGraphPin* CollPin = BeginSpawnNode->FindPin(TEXT("CollisionHandlingOverride")))
+		{
+			CollPin->DefaultValue = TEXT("AlwaysSpawn");
+		}
+
+		UK2Node_CallFunction* FinishSpawnNode = SpawnNode<UK2Node_CallFunction>(SpawnGraph, 1080, 0);
+		FinishSpawnNode->FunctionReference.SetExternalMember(FName(TEXT("FinishSpawningActor")), UGameplayStatics::StaticClass());
+		FinishSpawnNode->AllocateDefaultPins();
+
+		UK2Node_FunctionResult* SpawnRet = SpawnNode<UK2Node_FunctionResult>(SpawnGraph, 1480, 0);
+		SpawnRet->AllocateDefaultPins();
+		UEdGraphPin* PinSpawnRet = SpawnRet->CreateUserDefinedPin(FName(TEXT("ReturnValue")), ActorPinType, EGPD_Input);
+
+		bool bSpawnOk = true;
+		bSpawnOk &= ConnectPins(SpawnSchema, PinLocation, MakeXformNode->FindPin(TEXT("Location")), TEXT("Loc->MakeTransform"));
+		bSpawnOk &= ConnectPins(SpawnSchema, PinRotation, MakeXformNode->FindPin(TEXT("Rotation")), TEXT("Rot->MakeTransform"));
+		bSpawnOk &= ConnectPins(SpawnSchema, PinScale, MakeXformNode->FindPin(TEXT("Scale")), TEXT("Scale->MakeTransform"));
+
+		bSpawnOk &= ConnectPins(SpawnSchema, PinWorldCtx, BeginSpawnNode->FindPin(TEXT("WorldContextObject")), TEXT("WorldCtx->BeginSpawn"));
+		bSpawnOk &= ConnectPins(SpawnSchema, PinActorCls, BeginSpawnNode->FindPin(TEXT("ActorClass")), TEXT("ActorCls->BeginSpawn"));
+		bSpawnOk &= ConnectPins(SpawnSchema, MakeXformNode->GetReturnValuePin(), BeginSpawnNode->FindPin(TEXT("SpawnTransform")), TEXT("Xform->BeginSpawn"));
+		bSpawnOk &= ConnectPins(SpawnSchema, PinOwner, BeginSpawnNode->FindPin(TEXT("Owner")), TEXT("Owner->BeginSpawn"));
+
+		bSpawnOk &= ConnectPins(SpawnSchema, BeginSpawnNode->GetReturnValuePin(), FinishSpawnNode->FindPin(TEXT("Actor")), TEXT("BeginSpawn->FinishSpawn.Actor"));
+		bSpawnOk &= ConnectPins(SpawnSchema, MakeXformNode->GetReturnValuePin(), FinishSpawnNode->FindPin(TEXT("SpawnTransform")), TEXT("Xform->FinishSpawn"));
+		bSpawnOk &= ConnectPins(SpawnSchema, FinishSpawnNode->GetReturnValuePin(), PinSpawnRet, TEXT("FinishSpawn->ReturnValue"));
+
+		bSpawnOk &= ConnectPins(SpawnSchema, SpawnEntry->FindPin(UEdGraphSchema_K2::PN_Then), BeginSpawnNode->GetExecPin(), TEXT("SpawnEntry->BeginSpawn.Exec"));
+		bSpawnOk &= ConnectPins(SpawnSchema, BeginSpawnNode->GetThenPin(), FinishSpawnNode->GetExecPin(), TEXT("BeginSpawn->FinishSpawn.Exec"));
+		bSpawnOk &= ConnectPins(SpawnSchema, FinishSpawnNode->GetThenPin(), SpawnRet->GetExecPin(), TEXT("FinishSpawn->Return.Exec"));
+
+		if (!bSpawnOk)
+		{
+			UE_LOG(LogArcaneWildsBPGen, Error, TEXT("Failed wiring SpawnActorSafe graph"));
 			return 1;
 		}
 	}

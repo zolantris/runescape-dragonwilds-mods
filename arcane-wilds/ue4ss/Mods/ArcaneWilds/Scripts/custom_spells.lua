@@ -1,6 +1,8 @@
--- Arcane Wilds v1.70.1 - Custom Spell Scaffolding Module
--- Parses custom_spells.txt definitions (e.g., FlamesOfZamorak, StormOfArmadyl) and resolves
--- base DominionSpellData + optional VFX/SFX/Montage overrides safely without heavy FindAllOf scans.
+-- Arcane Wilds v1.71.0 - Custom Spell Scaffolding & Timeline Integration Module
+-- Parses custom_spells.txt definitions (including simultaneous & synchronous animation/effect timelines)
+-- and resolves base DominionSpellData + optional VFX/SFX/Montage overrides safely without heavy FindAllOf scans.
+
+local TimelineParser = require("timeline_parser")
 
 local CustomSpells = {}
 local ObjectLookupCache = {}
@@ -129,7 +131,13 @@ function CustomSpells.ParseDefinitions(rawText)
                             speed = nil,
                             clamp = false,
                             runeCost = nil,
-                            runeCount = 1
+                            runeCount = 1,
+                            rawCues = {},
+                            timelineDuration = nil,
+                            stepAdvanceAt = nil,
+                            cancelOnRelease = false,
+                            overlapPolicy = "replace",
+                            scaleTimelineWithSpeed = true
                         }
                         defs[current.nameLower] = current
                     end
@@ -139,7 +147,28 @@ function CustomSpells.ParseDefinitions(rawText)
                         local key = Trim(k):lower()
                         local val = Trim(v)
                         if val == "" then val = nil end
-                        if key == "basespell" or key == "spell" or key == "base" then
+                        local isCueLine, cueType, defaultTarget = TimelineParser.ClassifyKey(key, val)
+                        if isCueLine and val then
+                            table.insert(current.rawCues, {
+                                cueType = cueType,
+                                rawVal = val,
+                                defaultTarget = defaultTarget
+                            })
+                        elseif key == "timelineduration" or key == "totalduration" then
+                            if val and val:lower() == "auto" then
+                                current.timelineDuration = nil
+                            else
+                                current.timelineDuration = val and tonumber(val) or nil
+                            end
+                        elseif key == "stepadvanceat" or key == "advanceat" or key == "readyat" then
+                            current.stepAdvanceAt = val and tonumber(val) or nil
+                        elseif key == "cancelonrelease" or key == "stoponrelease" then
+                            current.cancelOnRelease = ParseBool(val, false)
+                        elseif key == "overlappolicy" or key == "timelineoverlap" then
+                            current.overlapPolicy = val and val:lower() or "replace"
+                        elseif key == "scaletimelinewithspeed" or key == "scaletimeline" then
+                            current.scaleTimelineWithSpeed = ParseBool(val, true)
+                        elseif key == "basespell" or key == "spell" or key == "base" then
                             if val and (val:lower() == "none" or val:lower() == "nil" or val:lower() == "false") then
                                 current.baseSpell = nil
                                 current.suppressBaseSpell = true
@@ -332,6 +361,13 @@ function CustomSpells.BuildCustomRegistryEntries(defs, spellRegistry, spellChain
             end
         end
 
+        local timeline, tlWarnings = TimelineParser.BuildTimeline(def)
+        if tlWarnings and #tlWarnings > 0 then
+            for _, w in ipairs(tlWarnings) do
+                pcall(function() print("[ArcaneWilds][WARN] CustomSpell [" .. tostring(def.name) .. "]: " .. tostring(w) .. "\n") end)
+            end
+        end
+
         local montObj, _, montShort = FindObjectFast(def.montage, safeGetNameFn, extractShortFn)
         if not montObj and def.montage and def.montage ~= "" then
             montObj = FindAssetByKeywordOnDemand("AnimMontage", def.montage, safeGetNameFn)
@@ -339,9 +375,24 @@ function CustomSpells.BuildCustomRegistryEntries(defs, spellRegistry, spellChain
                 montShort = extractShortFn(safeGetNameFn(montObj))
             end
         end
+        if not montObj and timeline and timeline.cues then
+            for _, cue in ipairs(timeline.cues) do
+                if cue.type == "anim" and cue.asset and cue.asset ~= "" then
+                    local cObj, _, cShort = FindObjectFast(cue.asset, safeGetNameFn, extractShortFn)
+                    if cObj and cObj:IsValid() then
+                        montObj = cObj
+                        montShort = cShort
+                    else
+                        montShort = extractShortFn(cue.asset)
+                    end
+                    break
+                end
+            end
+        end
 
-        local hasActorOrEffect = (def.spawnActor and def.spawnActor ~= "") or (def.vfx and def.vfx ~= "") or (def.sfx and def.sfx ~= "") or (def.impactDamageMin ~= nil)
-        if (resolvedBaseSpellObj and resolvedBaseSpellObj:IsValid()) or (montObj and montObj:IsValid()) or (def.suppressBaseSpell and hasActorOrEffect) then
+        local hasTimelineCues = (timeline ~= nil and timeline.cues ~= nil and #timeline.cues > 0)
+        local hasActorOrEffect = hasTimelineCues or (def.spawnActor and def.spawnActor ~= "") or (def.vfx and def.vfx ~= "") or (def.sfx and def.sfx ~= "") or (def.impactDamageMin ~= nil)
+        if (resolvedBaseSpellObj and resolvedBaseSpellObj:IsValid()) or (montObj and montObj:IsValid()) or hasTimelineCues or (def.suppressBaseSpell and hasActorOrEffect) then
             if (not resolvedBaseSpellObj or not resolvedBaseSpellObj:IsValid()) and def.suppressBaseSpell then
                 -- Never pull a DominionSpellData asset (e.g. DA_Spell_Primary_Water_Wand_03) when BaseSpell=none.
                 -- Use montObj if available, or fall back to First PlayerController / Character / StaticFindObject
@@ -418,7 +469,10 @@ function CustomSpells.BuildCustomRegistryEntries(defs, spellRegistry, spellChain
                 customVfxName = vfxShort or def.vfx,
                 customSfxObj = sfxObj,
                 customSfxName = sfxShort or def.sfx,
-                customOverrideSpeed = def.speed
+                customOverrideSpeed = def.speed,
+                timeline = timeline,
+                hasTimeline = hasTimelineCues,
+                stepAdvanceAt = timeline and timeline.stepAdvanceAt or nil
             }
 
             if def.impactAoE and def.impactAoE ~= "" then
@@ -1067,9 +1121,16 @@ local function FireImpactAtLocation(pawn, pending, loc)
             end)
         end
 
-        -- 4. Roll damage on targets hit around the impact location
+        -- 4. Roll damage on targets hit around the impact location (must run on GameThread for LoadAsset/UFunctions)
         if pending.damageMin then
-            ApplyRolledImpactDamage(pawn, loc, pending.damageMin, pending.damageMax, pending.damageRadius, pending.entry)
+            local function runImpactDmg()
+                ApplyRolledImpactDamage(pawn, loc, pending.damageMin, pending.damageMax, pending.damageRadius, pending.entry)
+            end
+            if type(ExecuteInGameThread) == "function" then
+                pcall(function() ExecuteInGameThread(runImpactDmg) end)
+            else
+                runImpactDmg()
+            end
         end
     end
 end
@@ -1469,7 +1530,174 @@ function CustomSpells.TriggerCustomPresentation(pawn, entry, safeGetNameFn)
     end
 end
 
+-- Reusable timed AoE/cone hit pulse executor used by timeline_runner.lua `Hit` cues.
+local function ExecuteHitPulse(pawn, centerLoc, centerRot, hitParams, entry, safeGetNameFn, debugLogFn)
+    if not IsValidUObject(pawn) or not centerLoc then return 0 end
+    local function logHb(msg)
+        if debugLogFn then
+            debugLogFn(msg)
+        else
+            pcall(function() print("[ArcaneWilds][DEBUG] " .. tostring(msg) .. "\n") end)
+        end
+    end
+
+    local p = hitParams or {}
+    local rad = tonumber(p.radius) or tonumber(entry and entry.hitRadius) or tonumber(entry and entry.impactRadius) or 400.0
+    local minD = tonumber(p.dmgMin) or tonumber(entry and entry.hitDamageMin) or tonumber(entry and entry.impactDamageMin) or 65
+    local maxD = tonumber(p.dmgMax) or tonumber(entry and entry.hitDamageMax) or minD
+    local lo = math.floor(minD)
+    local hi = math.max(lo, math.floor(maxD))
+    local coneDeg = tonumber(p.cone)
+    local maxTargets = tonumber(p.maxTargets)
+
+    -- Build a lightweight effective entry overlay so cue-level class/force/GE overrides apply cleanly
+    local effDef = {}
+    if entry and entry.customDef then
+        for k, v in pairs(entry.customDef) do effDef[k] = v end
+    end
+    if p.damageClass and p.damageClass ~= "" then effDef.damageClass = p.damageClass:lower() end
+    if p.force ~= nil then effDef.damageForce = tonumber(p.force) end
+    if p.ge and p.ge ~= "" then effDef.damageGE = p.ge end
+    local effEntry = {
+        shortName = entry and entry.shortName or "TimelineHit",
+        customDef = effDef
+    }
+
+    local safeName = safeGetNameFn or SafeObjName
+    if p.vfx and p.vfx ~= "" then
+        local hvObj = FindObjectFast(p.vfx, safeName, function(s) return s end)
+            or FindAssetByKeywordOnDemand("NiagaraSystem", p.vfx, safeName)
+        if IsValidUObject(hvObj) then
+            pcall(function()
+                local nsLib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
+                if IsValidUObject(nsLib) and HasUFunc(nsLib, "SpawnSystemAtLocation") then
+                    nsLib:SpawnSystemAtLocation(pawn, hvObj, centerLoc)
+                end
+            end)
+        end
+    end
+    if p.sfx and p.sfx ~= "" then
+        local hsObj = FindObjectFast(p.sfx, safeName, function(s) return s end)
+            or FindAssetByKeywordOnDemand("SoundBase", p.sfx, safeName)
+            or FindAssetByKeywordOnDemand("SoundWave", p.sfx, safeName)
+        if IsValidUObject(hsObj) then
+            pcall(function()
+                local gpStatics = StaticFindObject("/Script/Engine.Default__GameplayStatics")
+                if IsValidUObject(gpStatics) and HasUFunc(gpStatics, "PlaySoundAtLocation") then
+                    gpStatics:PlaySoundAtLocation(pawn, hsObj, centerLoc)
+                end
+            end)
+        end
+    end
+
+    local instLoc = nil
+    pcall(function() instLoc = pawn:K2_GetActorLocation() end)
+
+    local cosHalfCone = nil
+    local fwdX, fwdY = 1.0, 0.0
+    if coneDeg and coneDeg > 0 and coneDeg < 360 then
+        cosHalfCone = math.cos(math.rad(coneDeg * 0.5))
+        local yawRad = math.rad(centerRot and centerRot.Yaw or 0.0)
+        fwdX = math.cos(yawRad)
+        fwdY = math.sin(yawRad)
+    end
+
+    local rSq = rad * rad
+    local seenNames = {}
+    local pawnFullLow = SafeObjName(pawn):lower()
+    local candidates = {}
+    pcall(function()
+        local aiList = FindAllOf("DominionAICharacter")
+        if aiList then for _, a in ipairs(aiList) do table.insert(candidates, a) end end
+    end)
+    pcall(function()
+        local chList = FindAllOf("Character")
+        if chList then for _, c in ipairs(chList) do table.insert(candidates, c) end end
+    end)
+
+    local pcObj = nil
+    pcall(function() pcObj = pawn.Controller end)
+
+    local hits = {}
+    for _, ai in ipairs(candidates) do
+        if IsValidUObject(ai) and ai ~= pawn and ai ~= pcObj then
+            local fName = SafeObjName(ai)
+            local fLow = fName:lower()
+            if fLow ~= "" and fLow ~= pawnFullLow and not fLow:find("bp_playercharacter", 1, true) and not seenNames[fLow] then
+                seenNames[fLow] = true
+                local aLoc = nil
+                pcall(function() aLoc = ai:K2_GetActorLocation() end)
+                if aLoc then
+                    local dx = (aLoc.X or 0) - (centerLoc.X or 0)
+                    local dy = (aLoc.Y or 0) - (centerLoc.Y or 0)
+                    local dz = (aLoc.Z or 0) - (centerLoc.Z or 0)
+                    local distSq = dx * dx + dy * dy + dz * dz
+                    if distSq <= rSq then
+                        local passCone = true
+                        if cosHalfCone then
+                            local hLen = math.sqrt(dx * dx + dy * dy)
+                            if hLen > 1e-3 then
+                                passCone = (((dx / hLen) * fwdX + (dy / hLen) * fwdY) >= cosHalfCone)
+                            end
+                        end
+                        if passCone then
+                            table.insert(hits, { actor = ai, loc = aLoc, name = fName, distSq = distSq })
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    table.sort(hits, function(a, b) return a.distSq < b.distSq end)
+    if maxTargets and #hits > maxTargets then
+        while #hits > maxTargets do table.remove(hits) end
+    end
+
+    for idx, h in ipairs(hits) do
+        local rolledDmg = (hi > lo) and math.random(lo, hi) or lo
+        local applied, trace = ApplyDominionBlueprintDamage(h.actor, pawn, rolledDmg, h.loc, instLoc or centerLoc, effEntry, logHb)
+        if effDef.damageGE and effDef.damageGE ~= "" then
+            pcall(function()
+                local geName = tostring(effDef.damageGE)
+                local geObj = StaticFindObject(geName)
+                if not IsValidUObject(geObj) then
+                    geObj = FindAssetByKeywordOnDemand("Class", geName, SafeObjName)
+                        or FindAssetByKeywordOnDemand("BlueprintGeneratedClass", geName, SafeObjName)
+                end
+                local gComp = h.actor.GameplayEffectsComponent
+                if IsValidUObject(gComp) and IsValidUObject(geObj)
+                    and HasUFunc(gComp, "InstantiateGameplayEffect") and HasUFunc(gComp, "ApplyGameplayEffect") then
+                    local okInst, handle = pcall(function() return gComp:InstantiateGameplayEffect(geObj, nil, true) end)
+                    if okInst and handle ~= nil then
+                        pcall(function() gComp:ApplyGameplayEffect(pawn, pawn, handle, true) end)
+                    end
+                end
+            end)
+        end
+        logHb(string.format("  TimelineHit #%d [%s]: %s dist=%.1f dmg=%d applied=%s trace=[%s]",
+            idx, tostring(effEntry.shortName), h.name, math.sqrt(h.distSq), rolledDmg, tostring(applied), tostring(trace)))
+    end
+    return #hits
+end
+
 CustomSpells.ApplyDominionBlueprintDamage = ApplyDominionBlueprintDamage
 CustomSpells.DisplayDamageFloatie = DisplayDamageFloatie
+CustomSpells.ExecuteHitPulse = ExecuteHitPulse
+CustomSpells.GetDamageBridgeCDO = GetDamageBridgeCDO
+CustomSpells.FindAssetByKeywordOnDemand = FindAssetByKeywordOnDemand
+CustomSpells.FindObjectFast = function(nameStr, safeGetNameFn, extractShortFn)
+    return FindObjectFast(
+        nameStr,
+        safeGetNameFn or SafeObjName,
+        extractShortFn or function(full)
+            if not full then return "" end
+            local a = full:match(":([^:]+)$") or full
+            local b = a:match("%.([^%.]+)$") or a
+            return (b:match("/([^/]+)$") or b)
+        end
+    )
+end
+CustomSpells.SerializeSpell = TimelineParser.SerializeSpell
 
 return CustomSpells

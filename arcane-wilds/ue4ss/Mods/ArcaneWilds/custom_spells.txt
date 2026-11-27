@@ -66,3 +66,58 @@ RuneCount          = 1
 #   FloatieOffsetZ = 90
 #   ForceFloatie   = false   (set true to always trigger DamageFloatiesSubsystem::DisplayDamage)
 #   DamageGE       = GE_AddBurning (optional UDominionGameplayEffectData class applied to hit targets)
+#
+# ==============================================================================
+# SERIALIZABLE ANIMATION & EFFECTS TIMELINE SYSTEM
+# ==============================================================================
+# Any custom spell can define ordered timeline cues for simultaneous (layered / parallel)
+# and synchronous (chained / crossfaded) animations AND non-player world effects!
+#
+# Timing Prefixes:
+#   @0.00          Absolute timestamp in seconds from cast start
+#   & / &+0.10     Simultaneous with previous cue's start (optional offset)
+#   &id+0.15       Simultaneous with named cue `id`
+#   +0.25          Relative delay after previous cue's start
+#   > / >-0.12     Synchronous: starts when previous cue of same lane ends (+gap / -crossfade)
+#   >id-0.10       Synchronous: starts when named cue `id` ends (+gap / -crossfade)
+#
+# Cue Types:
+#   Anim           Player AnimMontage/AnimSequence (slot=auto|FullBody|Spine|RightArm|LeftArm|Legs|Pelvis|Head|Curves, rate, start, dur, section, blendIn, blendOut, stopAll, syncTo)
+#   WeaponAnim     Held weapon SkeletalMesh animation (target=weapon_right|weapon_left, rate, syncTo)
+#   TargetAnim     Nearby/hit AI enemy montage (radius, cone, maxTargets, rate)
+#   VFX            NiagaraSystem (target=player|weapon_right|weapon_left|actor:<id>|forward:<dist>|targets, attach, socket, offset=fwd,right,up, rot=p,y,r, scale, dur, pattern=ring:<n>:<r>|line:<n>:<step>|arc:<n>:<r>:<deg>)
+#   SFX            SoundBase/SoundWave (target=player|world|2d|targets, socket, vol, pitch, start, dur)
+#   Actor          Spawn Blueprint/VFX/Prop Actor (id=<name>, attach=world|player|weapon_right, socket, offset, rot, scale, dur) -> drive its mesh via `Anim | ... | target=actor:<id>`!
+#   Spell          Trigger native DominionSpellData ability at any timestamp
+#   Hit            Timed damage pulse (radius, cone, maxTargets, dmg=min..max, class=Melee|Magical|Ranged, force, ge, offset, vfx, sfx)
+#   Decal          Ground decal material (size=x,y,z, offset, dur, pattern)
+#   Shake          World camera shake class (innerRadius, outerRadius, falloff)
+#
+# Timeline Metadata Keys:
+#   TimelineDuration       = auto | <seconds>
+#   StepAdvanceAt          = <seconds>   (when combo_rules.txt advances to the next step)
+#   CancelOnRelease        = false | true
+#   OverlapPolicy          = replace | parallel | ignore
+#   ScaleTimelineWithSpeed = true | false
+#
+# Tip: Press SHIFT + DebugHotkey in-game to print live PlayerAnimationManager body-part slot names!
+#
+# --- Example 1: Simultaneous Layered + Synchronous Chained Multi-Montage Spell ---
+# [SaradominTempest]
+# BaseSpell        = none
+# Category         = Air
+# RuneCost         = air
+# RuneCount        = 2
+# TimelineDuration = auto
+# StepAdvanceAt    = 1.15
+# CancelOnRelease  = false
+# OverlapPolicy    = replace
+# Anim       = @0.00        | AM_PlayerM_Attack_2H_Greatsword_Secondary | id=slash1 | rate=1.35 | start=0.05 | dur=0.55 | slot=FullBody
+# Anim       = &            | AM_Spell_Primary_Air_01                   | rate=1.50 | slot=LeftArm | blendIn=0.10 | blendOut=0.15
+# VFX        = &            | lightning                                 | target=weapon_right | dur=1.10
+# Hit        = &slash1+0.30 | radius=400 | dmg=85..165 | class=Magical | force=260
+# Anim       = >slash1-0.10 | AM_Spell_Primary_Air_04                   | id=slam | rate=1.60 | slot=FullBody | blendIn=0.12
+# Spell      = &+0.20       | DA_ZamorakStaff_Special
+# VFX        = &+0.20       | lightning                                 | target=forward:250 | pattern=ring:4:180 | scale=1.4 | dur=1.0
+# Hit        = &+0.25       | radius=450 | dmg=120..220 | class=Magical | force=380 | ge=GE_AddBurning
+# TargetAnim = &            | AM_AI_HitReact_Heavy                      | radius=450 | rate=1.0

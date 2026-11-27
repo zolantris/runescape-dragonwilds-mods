@@ -26,6 +26,7 @@ local Paths = {
 
 local SpellScanner   = require("spell_scanner")
 local CustomSpells   = require("custom_spells")
+local TimelineRunner = require("timeline_runner")
 local ConfigManager  = require("config_manager")
 local EquipmentRunes = require("equipment_runes")
 local CombatEngine   = require("combat_engine")
@@ -73,7 +74,8 @@ local State = {
     NameMapByCat = {},
     GlobalNameMap = {},
     ParsedMacros = {},
-    QuickCastBindings = {}
+    QuickCastBindings = {},
+    ActiveTimelines = {}
 }
 
 local function Log(msg)
@@ -150,6 +152,7 @@ local function RunDebugInspection()
                 Log("Component: " .. SpellScanner.SafeGetName(obj))
             end
         end
+        TimelineRunner.InspectPlayerAnimSlotsAndMontages(pawn, Log)
     end
 end
 
@@ -362,20 +365,23 @@ local function SetQuickCastInputSuppressed(shouldSuppress)
     if Config.EnableQuickCastHotkeys == false or Config.QuickCastSuppressGameActions == false then
         shouldSuppress = false
     end
-    if State._QuickCastInputBlocked == shouldSuppress then return end
+    local wantBlocked = (shouldSuppress == true)
+    if (State._QuickCastInputBlocked == true) == wantBlocked then return end
 
-    local imc, ia = ResolveQuickCastBlockerAssets()
-    if not imc or not ia then return end
-
-    local sub = nil
-    pcall(function() sub = FindFirstOf("EnhancedInputLocalPlayerSubsystem") end)
-    if not sub or not sub:IsValid() then return end
-
-    State._QuickCastInputBlocked = shouldSuppress
+    State._QuickCastInputBlocked = wantBlocked
     local function applyOnGameThread()
         pcall(function()
-            if not sub or not sub:IsValid() or not imc or not imc:IsValid() then return end
-            if shouldSuppress then
+            local imc, ia = ResolveQuickCastBlockerAssets()
+            if not imc or not ia then
+                State._QuickCastInputBlocked = false
+                return
+            end
+            local sub = FindFirstOf("EnhancedInputLocalPlayerSubsystem")
+            if not sub or not sub:IsValid() then
+                State._QuickCastInputBlocked = false
+                return
+            end
+            if wantBlocked then
                 SyncQuickCastBlockerMappings(imc, ia)
                 sub:AddMappingContext(imc, 9999, {
                     bIgnoreAllPressedKeysUntilRelease = false,
@@ -715,12 +721,22 @@ local function TickActiveMacro(now, pawn, combatMagic)
         local isSpecialInFlight = expectedEntry and expectedEntry.isSpecialSpell
         local isSuppressStep = expectedEntry and expectedEntry.suppressBaseSpell
         -- Special spells spawn persistent actors; advance after initial windup.
-        -- Suppress-base-spell custom steps don't spawn a native CurrentSpellActor, so advance cleanly once elapsed >= 0.65s.
+        -- Timeline-backed suppress-base-spell steps advance on StepAdvanceAt or when the timeline completes.
         local stillPlayingMontage = (CombatEngine.GetActiveMontageObj(pawn) ~= nil)
         local specialCastReady = isSpecialInFlight and (elapsed >= 1.10 or (elapsed >= 0.85 and not stillPlayingMontage))
-        local suppressStepReady = isSuppressStep and (elapsed >= 0.65)
+        local suppressStepReady = false
+        local stepSafetyCap = 4.5
+        if isSuppressStep then
+            if expectedEntry and expectedEntry.hasTimeline then
+                local estDur = expectedEntry.timeline and expectedEntry.timeline.estimatedDuration or 1.0
+                stepSafetyCap = math.max(4.5, estDur + 2.5)
+                suppressStepReady = (elapsed >= 0.12) and (not TimelineRunner.IsSpellTimelineBusy(State, expectedEntry, now))
+            else
+                suppressStepReady = (elapsed >= 0.65)
+            end
+        end
         local castCompleted = suppressStepReady or (not isSuppressStep and ((curActor == nil and elapsed >= 0.20) or (curActorData ~= nil and curActorData ~= State.InFlightSpellObj) or specialCastReady))
-        local safetyTimeout = elapsed >= 4.5
+        local safetyTimeout = elapsed >= stepSafetyCap
         if castCompleted or safetyTimeout then
             if isSpecialInFlight then
                 local pauseSec = math.max(0.0, tonumber(Config.PostSpecialPauseSec) or 0.65)
@@ -846,7 +862,11 @@ LoopAsync(50, function()
 
     if (now - State.LastScanTime) >= 3.0 then
         State.LastScanTime = now
-        RefreshSpells()
+        if type(ExecuteInGameThread) == "function" then
+            pcall(function() ExecuteInGameThread(function() RefreshSpells() end) end)
+        else
+            RefreshSpells()
+        end
     end
 
     if not State.ActiveMacro and not State.PendingAnchorReturn then
@@ -908,6 +928,17 @@ LoopAsync(50, function()
     if not quickCastFired then
         TickAutoAttack(now, pc, pawn, combatMagic)
     end
+    return false
+end)
+
+-- Dedicated 16ms (~60Hz) timeline scheduler loop: near-zero cost when idle, crisp timing for
+-- montage crossfades, layered slots, timed hitboxes, VFX/SFX, and non-player actor animations.
+LoopAsync(16, function()
+    if not Config.Enabled then return false end
+    if not State.ActiveTimelines or #State.ActiveTimelines == 0 then return false end
+    local _, pawn, combatMagic = GetPlayerPawnAndComponents()
+    if not pawn then return false end
+    TimelineRunner.Tick(os.clock(), Config, State, pawn, combatMagic, CustomSpells, SpellScanner.SafeGetName, DebugLog)
     return false
 end)
 

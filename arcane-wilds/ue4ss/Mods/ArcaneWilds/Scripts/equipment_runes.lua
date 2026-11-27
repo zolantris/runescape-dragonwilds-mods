@@ -710,6 +710,13 @@ local function OnEquipmentChangedCallback(selfParam, state, combatMagic, debugLo
 end
 
 function EquipmentRunes.EnsureEquipmentDelegates(pawn, combatMagic, state, debugLogFn)
+    -- Intentionally no-op: binding raw Lua closures via MulticastDelegate:Add() in UE4SS causes
+    -- "[Lua::Registry::get_function_ref] Ref was not function" and map-load instability.
+    -- Equipment & rune swaps are already tracked safely via RegisterHook in InstallEquipmentSwapHooks.
+    return
+end
+
+local function _UnusedEnsureEquipmentDelegatesLegacy(pawn, combatMagic, state, debugLogFn)
     if not IsValidUObj(pawn) or not state then return end
 
     pcall(function()

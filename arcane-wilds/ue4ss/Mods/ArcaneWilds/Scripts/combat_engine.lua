@@ -4,6 +4,7 @@
 local RuleParser = require("rule_parser")
 local SpellScanner = require("spell_scanner")
 local CustomSpells = require("custom_spells")
+local TimelineRunner = require("timeline_runner")
 local ConfigManager = require("config_manager")
 local EquipmentRunes = require("equipment_runes")
 
@@ -273,6 +274,7 @@ function CombatEngine.ResetAllState(config, state, combatMagic, pawn, debugLogFn
         pcall(function() combatMagic.LastChainedSpell = nil end)
     end
     CustomSpells.StopForcedMontage(state, pawn)
+    TimelineRunner.CancelTimelines(state, pawn, reason or "reset", true)
     if not (state.ModifierHeld) and config then
         CombatEngine.SetAllComboMontageRates(config, state, 1.0)
     end
@@ -298,6 +300,7 @@ function CombatEngine.RestoreAnchorElementAndReset(config, state, combatMagic, d
         pcall(function() combatMagic.LastChainedSpell = nil end)
     end
     CustomSpells.StopForcedMontage(state, pawn)
+    TimelineRunner.CancelTimelines(state, pawn, "restore-anchor", true)
     if not state.ModifierHeld then
         CombatEngine.SetAllComboMontageRates(config, state, 1.0)
     end
@@ -442,9 +445,15 @@ function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, deb
         local okSpec = TryTriggerSpecialAbility(pawn, entry.spellObj, debugLogFn)
         if okSpec then
             EquipmentRunes.ConsumeRunesForSpellEntry(config, state, pawn, entry, debugLogFn)
+            if entry.isCustomSpell and entry.hasTimeline then
+                local rate = tonumber(entry.customOverrideSpeed) or tonumber(state.ActiveStageTargetSpeed) or 1.0
+                TimelineRunner.StartSpellTimeline(
+                    config, state, pawn, combatMagic, entry, rate,
+                    CustomSpells, SpellScanner.SafeGetName, debugLogFn)
+            end
             if (entry.impactAoEName and entry.impactAoEName ~= "") or (entry.impactLightningName and entry.impactLightningName ~= "") or entry.impactDamageMin then
                 CustomSpells.ArmProjectileImpactAoE(state, pawn, entry, SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName)
-            else
+            elseif not (entry.isCustomSpell and entry.hasTimeline) then
                 CustomSpells.TriggerCustomPresentation(pawn, entry, SpellScanner.SafeGetName)
             end
             return true
@@ -472,6 +481,24 @@ function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, deb
         anyTriggered = true
     elseif entry.suppressBaseSpell then
         anyTriggered = true
+    end
+
+    if entry.isCustomSpell and entry.hasTimeline then
+        local rate = tonumber(entry.customOverrideSpeed) or tonumber(state.ActiveStageTargetSpeed) or 1.0
+        local tlInst = TimelineRunner.StartSpellTimeline(
+            config, state, pawn, combatMagic, entry, rate,
+            CustomSpells, SpellScanner.SafeGetName, debugLogFn)
+        if tlInst then
+            anyTriggered = true
+        end
+        if anyTriggered then
+            EquipmentRunes.ConsumeRunesForSpellEntry(config, state, pawn, entry, debugLogFn)
+            if (entry.impactAoEName and entry.impactAoEName ~= "") or (entry.impactLightningName and entry.impactLightningName ~= "") or entry.impactDamageMin then
+                CustomSpells.ArmProjectileImpactAoE(state, pawn, entry, SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName)
+            end
+            return true
+        end
+        return false
     end
 
     if entry.isCustomSpell and entry.montageObj then
@@ -716,6 +743,7 @@ function CombatEngine.ReleaseModifierAndRevert(config, state, pawn, combatMagic,
         end
     end)
     CustomSpells.StopForcedMontage(state, relPawn)
+    TimelineRunner.CancelTimelines(state, relPawn, "modifier-released", true)
     CombatEngine.RestoreAnchorElementAndReset(config, state, combatMagic, debugLogFn, relPawn)
     CombatEngine.SetAllComboMontageRates(config, state, 1.0)
     state.PendingAnchorReturn = false

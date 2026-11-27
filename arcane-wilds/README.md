@@ -30,6 +30,8 @@ Place `ue4ss/Mods/ArcaneWilds/` into your `RSDragonwilds/Binaries/Win64/` direct
 <!-- CHANGELOG:START -->
 ### v1.70.57
 
+- **2026-11-26** - Fix hotkey spells so that player can still move ([39f8fd7](https://github.com/zolantris/runescape-dragonwilds-mods/commit/39f8fd7868d05af6745a606743be27a23b9e3de4))
+- **2026-11-26** - remove extra AOE flames of zamorak as it just cast another spell instead of doing an effect ([e237b95](https://github.com/zolantris/runescape-dragonwilds-mods/commit/e237b95e7b680d00fafb7741438a47f3fce66bda))
 - **2026-11-26** - attempt to fix how casting is done so it does not require a spell in flight to trigger combo matching ([09b3c0e](https://github.com/zolantris/runescape-dragonwilds-mods/commit/09b3c0efa487a3d7a9b8fe064953ef46de745678))
 - **2026-11-26** - remove build in unreal dir ([56d6def](https://github.com/zolantris/runescape-dragonwilds-mods/commit/56d6def866961617261a38e7b82389052a2ff591))
 - **2026-11-26** - fix hotkey so 1,2,3,4 + block work. And same with XYBA controller controls ([d74cf54](https://github.com/zolantris/runescape-dragonwilds-mods/commit/d74cf546c8b18bb16e78bc8baa2667e776751389))
