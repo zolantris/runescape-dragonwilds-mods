@@ -139,8 +139,7 @@ See [`scripts/README.md`](../scripts/README.md) and [`unreal-engine/README.md`](
 <!-- CHANGELOG:START -->
 ### v1.0.0
 
-- **2026-11-26** - enable fire opener ([dfdb8e2](https://github.com/zolantris/runescape-dragonwilds-mods/commit/dfdb8e27470a3b3b72ef15a44ea50e4ea756a8c1))
-- **2026-11-26** - drop arcane-wilds to 1.0.0 ([77fc18e](https://github.com/zolantris/runescape-dragonwilds-mods/commit/77fc18e9f4cf8157798d8d8da4246e1736ae8867))
+- **2026-11-26** - - set arcane-wilds to 1.0.0 - set fire combos on ([60f8ab7](https://github.com/zolantris/runescape-dragonwilds-mods/commit/60f8ab7af6288ca8433d3800c321599c885e324b))
 - **2026-11-26** - Feat/arcane wilds mod (#2) ([81141a8](https://github.com/zolantris/runescape-dragonwilds-mods/commit/81141a88c65a41f36e66791ca9fb1e5c30069699))
 - **2026-11-22** - Fix missing commits issue with stale tag ([122495f](https://github.com/zolantris/runescape-dragonwilds-mods/commit/122495fbe7cc96152d1b7b8b7021c8fd063b6eee))
 - **2026-11-22** - Fix changelog linking ([39366ca](https://github.com/zolantris/runescape-dragonwilds-mods/commit/39366cae242e63c55f17e1a5a194e15bdc702e03))
