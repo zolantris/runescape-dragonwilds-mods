@@ -83,31 +83,6 @@ function Compare-SemVer($a, $b) {
     return [string]::Compare($a.PreRelease, $b.PreRelease, $true)
 }
 
-if (-not $SkipBuild) {
-    if ($DryRun) {
-        Write-Host "[DRY-RUN] Would run build-mod.ps1 -ModFolder '$ModFolder' -Version '$Version' -Channel '$Channel'" -ForegroundColor DarkCyan
-    } else {
-        $buildScript = Join-Path $PSScriptRoot "build-mod.ps1"
-        & $buildScript -ModFolder $ModFolder -Version $Version -Channel $Channel
-    }
-}
-
-if (-not $DryRun -and -not (Test-Path $zipPath)) {
-    throw "Release archive not found at '$zipPath'. Run build-mod.ps1 first or omit -SkipBuild."
-}
-
-# Extract ONLY the current version's delta block from README.md
-$notes = "Release $tagName"
-$readmePath = Join-Path $modRoot "README.md"
-if (Test-Path $readmePath) {
-    $readmeText = Get-Content $readmePath -Raw
-    $escapedVer = [regex]::Escape($fullVersion)
-    $m = [regex]::Match($readmeText, "(?s)(### v$escapedVer\b.*?)(?=\r?\n### v|\r?\n<!-- CHANGELOG:END -->)")
-    if ($m.Success) {
-        $notes = $m.Groups.Item(1).Value.Trim()
-    }
-}
-
 Push-Location $repoRoot
 $notesFile = Join-Path $env:TEMP "gh-release-notes-$tagName.md"
 try {
@@ -124,6 +99,41 @@ try {
     if (($localTag -or $remoteTag -or $releaseExists) -and -not $ForceUpdate) {
         Write-Error "Tag or release '$tagName' already exists. Pass -ForceUpdate (or --force-update) to overwrite it."
         exit 1
+    }
+
+    # Update README.md changelog only during publish (before building so the archive includes the updated README)
+    $changelogScript = Join-Path $PSScriptRoot "update-changelog.ps1"
+    if ($DryRun) {
+        Write-Host "[DRY-RUN] Would run update-changelog.ps1 -ModFolder '$ModFolder' -Version '$fullVersion'" -ForegroundColor DarkCyan
+    } elseif (Test-Path $changelogScript) {
+        & $changelogScript -ModFolder $ModFolder -Version $fullVersion
+    } else {
+        Write-Warning "Changelog script not found at '$changelogScript'; skipping changelog update."
+    }
+
+    if (-not $SkipBuild) {
+        if ($DryRun) {
+            Write-Host "[DRY-RUN] Would run build-mod.ps1 -ModFolder '$ModFolder' -Version '$Version' -Channel '$Channel'" -ForegroundColor DarkCyan
+        } else {
+            $buildScript = Join-Path $PSScriptRoot "build-mod.ps1"
+            & $buildScript -ModFolder $ModFolder -Version $Version -Channel $Channel
+        }
+    }
+
+    if (-not $DryRun -and -not (Test-Path $zipPath)) {
+        throw "Release archive not found at '$zipPath'. Run build-mod.ps1 first or omit -SkipBuild."
+    }
+
+    # Extract ONLY the current version's delta block from README.md
+    $notes = "Release $tagName"
+    $readmePath = Join-Path $modRoot "README.md"
+    if (Test-Path $readmePath) {
+        $readmeText = Get-Content $readmePath -Raw
+        $escapedVer = [regex]::Escape($fullVersion)
+        $m = [regex]::Match($readmeText, "(?s)(### v$escapedVer\b.*?)(?=\r?\n### v|\r?\n<!-- CHANGELOG:END -->)")
+        if ($m.Success) {
+            $notes = $m.Groups.Item(1).Value.Trim()
+        }
     }
 
     # Find closest lower semver tag (handles 0 prior tags gracefully)
@@ -145,7 +155,7 @@ try {
         }
     }
 
-    # Check if README.md or version.json was updated during build so working tree stays clean
+    # Check if README.md or version.json was updated during publish so working tree stays clean
     $relReadme  = "$ModFolder/README.md"
     $relVersion = "$ModFolder/version.json"
     $dirtyReleaseFiles = @(git status --porcelain -- $relReadme $relVersion 2>$null | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })

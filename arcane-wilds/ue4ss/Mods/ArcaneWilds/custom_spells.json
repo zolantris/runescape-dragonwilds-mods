@@ -1,0 +1,257 @@
+{
+  "$schema": "./schemas/custom_spells.schema.json",
+  "spells": {
+    "FlamesOfZamorak": {
+      "enabled": true,
+      "displayName": "Flames of Zamorak",
+      "requiredMagicLevel": 20,
+      "baseSpell": "DA_ZamorakStaff_Special",
+      "category": "Fire",
+      "speed": 1.8,
+      "clamp": true,
+      "runeCost": {
+        "type": "fire",
+        "count": 2
+      }
+    },
+    "SaradominStrike": {
+      "enabled": true,
+      "displayName": "Saradomin Strike",
+      "description": "Pure Line-of-Sight lightning barrage: scales +1 strike per 10 Magic levels (0.15s apart), prioritizing other enemies first before repeating on the same target.",
+      "requiredMagicLevel": 30,
+      "scaleWithStaff": true,
+      "damageScaling": "full",
+      "baseSpell": null,
+      "category": "Air",
+      "speed": 1.0,
+      "clamp": true,
+      "runeCost": {
+        "type": "air",
+        "count": 2
+      },
+      "timelineDuration": "auto",
+      "stepAdvanceAt": 0.85,
+      "cancelOnRelease": false,
+      "overlapPolicy": "parallel",
+      "autoTarget": {
+        "range": 2500,
+        "cone": 60
+      },
+      "cues": [
+        {
+          "type": "chainstrike",
+          "at": "@0.00",
+          "asset": "lightning",
+          "requireLock": false,
+          "los": true,
+          "skill": "magic",
+          "baseStrikes": 1,
+          "levelsPerStrike": 20,
+          "maxStrikes": 5,
+          "interval": 0.4,
+          "chainRadius": 650,
+          "preferUnique": true,
+          "damage": [
+            65,
+            125
+          ],
+          "class": "Magical",
+          "force": 260,
+          "stun": 0.75,
+          "scale": [
+            0.35,
+            0.35,
+            0.45
+          ],
+          "sfx": "lightning",
+          "duration": 0.9
+        }
+      ]
+    },
+    "StormOfArmadyl": {
+      "enabled": true,
+      "displayName": "Storm of Armadyl",
+      "description": "Fires an Air Bolt and erupts a windstorm AoE on impact.",
+      "requiredMagicLevel": 77,
+      "scaleWithStaff": true,
+      "damageScaling": "full",
+      "baseSpell": null,
+      "category": "Air",
+      "speed": 1.6,
+      "clamp": true,
+      "runeCost": {
+        "type": "air",
+        "count": 2
+      },
+      "timelineDuration": "auto",
+      "stepAdvanceAt": 0.9,
+      "cancelOnRelease": false,
+      "overlapPolicy": "parallel",
+      "autoTarget": {
+        "range": 2500,
+        "cone": 45
+      },
+      "cues": [
+        {
+          "type": "spell",
+          "id": "bolt",
+          "at": "@0.00",
+          "asset": "DA_Spell_Primary_Air_01",
+          "trackImpact": true,
+          "impactTimeout": 1.8
+        },
+        {
+          "type": "hit",
+          "at": ">bolt",
+          "target": "impact",
+          "radius": 350,
+          "damage": [
+            75,
+            140
+          ],
+          "class": "Magical",
+          "force": 260,
+          "pushback": 750,
+          "launchZ": 260,
+          "stun": 0.6
+        },
+        {
+          "type": "vfx",
+          "at": "&",
+          "asset": "/Game/Art/VFX/Library/Spells/Windstep/NS_Windstep_Launch.NS_Windstep_Launch",
+          "target": "impact",
+          "scale": [
+            0.15,
+            0.15,
+            0.15
+          ],
+          "duration": 0.5
+        }
+      ]
+    },
+    "SaradominGodsword": {
+      "enabled": true,
+      "displayName": "Saradomin Godsword",
+      "scaleWithStaff": false,
+      "baseSpell": null,
+      "category": "Air",
+      "spawnActor": "BP_Godsword_Special_Saradomin_C",
+      "montage": "AM_PlayerM_Attack_2H_Greatsword_Secondary",
+      "spinHitbox": true,
+      "hitRadius": 400,
+      "hitDamageMin": 85,
+      "hitDamageMax": 165,
+      "hitDelaySec": 0.35,
+      "damageClass": "Melee",
+      "damageForce": 260,
+      "floatieOffsetZ": 90,
+      "suppressDirectHealth": false,
+      "speed": 1.5,
+      "clamp": true,
+      "runeCost": {
+        "type": "air",
+        "count": 1
+      }
+    },
+    "SaradominTempest": {
+      "enabled": false,
+      "displayName": "Saradomin Tempest",
+      "description": "Disabled example template demonstrating simultaneous layered + synchronous chained multi-montage timelines.",
+      "baseSpell": null,
+      "category": "Air",
+      "runeCost": {
+        "type": "air",
+        "count": 2
+      },
+      "timelineDuration": "auto",
+      "stepAdvanceAt": 1.15,
+      "cancelOnRelease": false,
+      "overlapPolicy": "replace",
+      "cues": [
+        {
+          "type": "anim",
+          "id": "slash1",
+          "at": "@0.00",
+          "asset": "AM_PlayerM_Attack_2H_Greatsword_Secondary",
+          "rate": 1.35,
+          "start": 0.05,
+          "duration": 0.55,
+          "slot": "FullBody"
+        },
+        {
+          "type": "anim",
+          "at": "&",
+          "asset": "AM_Spell_Primary_Air_01",
+          "rate": 1.5,
+          "slot": "LeftArm",
+          "blendIn": 0.1,
+          "blendOut": 0.15
+        },
+        {
+          "type": "vfx",
+          "at": "&",
+          "asset": "lightning",
+          "target": "weapon_right",
+          "duration": 1.1
+        },
+        {
+          "type": "hit",
+          "at": "&slash1+0.30",
+          "radius": 400,
+          "damage": [
+            85,
+            165
+          ],
+          "class": "Magical",
+          "force": 260
+        },
+        {
+          "type": "anim",
+          "id": "slam",
+          "at": ">slash1-0.10",
+          "asset": "AM_Spell_Primary_Air_04",
+          "rate": 1.6,
+          "slot": "FullBody",
+          "blendIn": 0.12
+        },
+        {
+          "type": "spell",
+          "at": "&+0.20",
+          "asset": "DA_ZamorakStaff_Special"
+        },
+        {
+          "type": "vfx",
+          "at": "&+0.20",
+          "asset": "lightning",
+          "target": "forward:250",
+          "pattern": {
+            "kind": "ring",
+            "count": 4,
+            "radius": 180
+          },
+          "scale": 1.4,
+          "duration": 1.0
+        },
+        {
+          "type": "hit",
+          "at": "&+0.25",
+          "radius": 450,
+          "damage": [
+            120,
+            220
+          ],
+          "class": "Magical",
+          "force": 380,
+          "ge": "GE_AddBurning"
+        },
+        {
+          "type": "targetAnim",
+          "at": "&",
+          "asset": "AM_AI_HitReact_Heavy",
+          "radius": 450,
+          "rate": 1.0
+        }
+      ]
+    }
+  }
+}

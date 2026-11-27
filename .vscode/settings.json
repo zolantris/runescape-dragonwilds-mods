@@ -1,0 +1,11 @@
+{
+    "git.ignoreLimitWarning": true,
+    "editor.inlineSuggest.enabled": false,
+    "editor.inlineSuggest.syntaxHighlightingEnabled": false,
+    "editor.suggest.showInlineDetails": false,
+    "files.associations": {
+        "**/ArcaneWilds/custom_spells.json": "jsonc",
+        "**/ArcaneWilds/combo_rules.json": "jsonc",
+        "**/ArcaneWilds/combo_rules_examples.json": "jsonc"
+    }
+}

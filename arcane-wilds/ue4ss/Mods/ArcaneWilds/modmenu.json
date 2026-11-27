@@ -1,0 +1,345 @@
+{
+  "schema": 1,
+  "mod": {
+    "id": "ArcaneWilds",
+    "name": "Arcane Wilds",
+    "author": "zolantris",
+    "version": "1.70.0",
+    "description": "Move-while-casting, Block/Modifier cross-element & Ancient Magicks chaining, notify-safe animation pacing, and rune-accurate casting."
+  },
+  "config": {
+    "file": "config.txt",
+    "format": "kv"
+  },
+  "settings": [
+    {
+      "type": "header",
+      "label": "Core Arcane Wilds & Stance Modifier"
+    },
+    {
+      "key": "Enabled",
+      "type": "toggle",
+      "label": "Enable Arcane Wilds",
+      "description": "Master switch for runtime move-casting and combo chaining.",
+      "default": true
+    },
+    {
+      "key": "RequireModifierKey",
+      "type": "toggle",
+      "label": "Require Modifier / Block Stance for Combos",
+      "description": "Only engage custom weighted combo macros while holding the Modifier / Block input.",
+      "default": true
+    },
+    {
+      "key": "ModifierKey",
+      "type": "text",
+      "label": "Combat Stance Modifier Key",
+      "description": "Input held to engage combo chains: RMB (Block / LT / RB), SHIFT, ALT, CTRL, MOUSE4, MOUSE5, MMB.",
+      "default": "RMB"
+    },
+    {
+      "key": "ConsumeRunesOnSwappedCasts",
+      "type": "toggle",
+      "label": "Consume Runes on Swapped/Macro Casts",
+      "description": "Deduct matching element runes/items from inventory when casting swapped elements or Ancient Magicks.",
+      "default": true
+    },
+    {
+      "type": "header",
+      "label": "Quick-Cast Direct Spell Hotkeys (Keyboard 1-4 / Controller X,Y,B,A)"
+    },
+    {
+      "key": "EnableQuickCastHotkeys",
+      "type": "toggle",
+      "label": "Enable Quick-Cast Hotkeys",
+      "description": "Fire any custom or native spell directly with Block + 1/2/3/4 (Keyboard) or Block + X/Y/B/A (Controller).",
+      "default": true
+    },
+    {
+      "key": "QuickCastRequireModifier",
+      "type": "toggle",
+      "label": "Require Block / Modifier Hold for Quick-Cast",
+      "description": "When ON, hold Block/Modifier (RMB / LT / RB) then press 1-4 or X/Y/B/A. When OFF, pressing the hotkey alone casts immediately.",
+      "default": true
+    },
+    {
+      "key": "QuickCastSuppressGameActions",
+      "type": "toggle",
+      "label": "Suppress Hotbar / Face Button Actions While Holding Block",
+      "description": "Consumes Quick-Cast keys at highest EnhancedInput priority while holding Block so Hotbar 1-4 and controller X/Y/B/A game actions do not fire during Quick-Cast.",
+      "default": true
+    },
+    {
+      "key": "ActiveQuickCastCount",
+      "type": "text",
+      "label": "Quick-Cast File Status (quick_cast.txt)",
+      "description": "Edit ArcaneWilds/quick_cast.txt directly for unlimited bindings (hot-reloads live on save) or edit Slots #1-#4 below.",
+      "default": "Edit quick_cast.txt in mod folder"
+    },
+    {
+      "key": "QuickCastHotkey1",
+      "type": "text",
+      "label": "Quick-Cast Hotkey #1 (Keyboard,Controller)",
+      "description": "Comma-separated keys for Slot #1. Defaults to Keyboard 1 + Controller X (1,GP_X). Supports 1-9, GP_X/Y/B/A, F, G, R, Mouse4, etc.",
+      "default": "1,GP_X"
+    },
+    {
+      "key": "QuickCastSpell1",
+      "type": "text",
+      "label": "Quick-Cast Spell #1",
+      "description": "Spell name from custom_spells.json, spell_names.txt, or DA_Spell_* asset name (e.g. SaradominGodsword).",
+      "default": "SaradominGodsword"
+    },
+    {
+      "key": "QuickCastHotkey2",
+      "type": "text",
+      "label": "Quick-Cast Hotkey #2 (Keyboard,Controller)",
+      "description": "Comma-separated keys for Slot #2. Defaults to Keyboard 2 + Controller Y (2,GP_Y).",
+      "default": "2,GP_Y"
+    },
+    {
+      "key": "QuickCastSpell2",
+      "type": "text",
+      "label": "Quick-Cast Spell #2",
+      "description": "Spell name for Slot #2 (e.g. FlamesOfZamorak).",
+      "default": "FlamesOfZamorak"
+    },
+    {
+      "key": "QuickCastHotkey3",
+      "type": "text",
+      "label": "Quick-Cast Hotkey #3 (Keyboard,Controller)",
+      "description": "Comma-separated keys for Slot #3. Defaults to Keyboard 3 + Controller B (3,GP_B).",
+      "default": "3,GP_B"
+    },
+    {
+      "key": "QuickCastSpell3",
+      "type": "text",
+      "label": "Quick-Cast Spell #3",
+      "description": "Spell name for Slot #3 (e.g. StormOfArmadyl).",
+      "default": "StormOfArmadyl"
+    },
+    {
+      "key": "QuickCastHotkey4",
+      "type": "text",
+      "label": "Quick-Cast Hotkey #4 (Keyboard,Controller)",
+      "description": "Comma-separated keys for Slot #4. Defaults to Keyboard 4 + Controller A (4,GP_A).",
+      "default": "4,GP_A"
+    },
+    {
+      "key": "QuickCastSpell4",
+      "type": "text",
+      "label": "Quick-Cast Spell #4",
+      "description": "Spell name for Slot #4 (e.g. SaradominStrike).",
+      "default": "SaradominStrike"
+    },
+    {
+      "type": "header",
+      "label": "Weighted Cross-Element Combo Macros (combo_rules.json)"
+    },
+    {
+      "key": "ActiveComboRulesCount",
+      "type": "text",
+      "label": "Combo Rules File Status (Read-Only)",
+      "description": "Edit ArcaneWilds/combo_rules.json & spell_names.txt directly (hot-reloads live on save; JSON Schema validated).",
+      "default": "Edit combo_rules.json in mod folder"
+    },
+    {
+      "key": "DefaultComboCutoff",
+      "type": "slider",
+      "label": "Default Fallback Cutoff (Steps)",
+      "description": "Fallback step count (1-4) for spells with no matching rule.",
+      "min": 1,
+      "max": 4,
+      "step": 1,
+      "default": 2
+    },
+    {
+      "key": "BonusSpeedVariancePct",
+      "type": "slider",
+      "label": "Bonus Speed Variance (%)",
+      "description": "Random variance applied strictly to the speed bonus above 100% (never drops below 1.0x).",
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "default": 25
+    },
+    {
+      "key": "DetectedSpellsSummary",
+      "type": "text",
+      "label": "Detected Categories & Spells",
+      "description": "Auto-populated summary (see detected_spells.txt in mod folder for full [Category] & DA_Spell_* names).",
+      "default": "Auto-detecting on world load..."
+    },
+    {
+      "type": "header",
+      "label": "Hold-to-Auto-Attack"
+    },
+    {
+      "key": "EnableAutoAttackHold",
+      "type": "toggle",
+      "label": "Enable Hold-to-Auto-Attack",
+      "description": "Holding Left-Click (or Right Trigger) automatically chains casts when idle.",
+      "default": true
+    },
+    {
+      "key": "AutoAttackAllCombos",
+      "type": "toggle",
+      "label": "Auto-Attack Without Modifier Key",
+      "description": "Also auto-chain normal attacks when holding Left-Click without holding Block/Modifier.",
+      "default": true
+    },
+    {
+      "key": "AutoAttackIntervalMs",
+      "type": "slider",
+      "label": "Auto-Attack Poll Interval (ms)",
+      "description": "Polling interval in milliseconds when checking if the current cast has cleared.",
+      "min": 30,
+      "max": 250,
+      "step": 5,
+      "default": 65
+    },
+    {
+      "type": "header",
+      "label": "Movement Unlock & Notify-Safe Speed Clamps"
+    },
+    {
+      "key": "UnlockAir",
+      "type": "toggle",
+      "label": "Unlock Air Magic Movement",
+      "description": "Allow full movement while casting Air Staff & Wand spells.",
+      "default": true
+    },
+    {
+      "key": "UnlockFire",
+      "type": "toggle",
+      "label": "Unlock Fire Magic Movement",
+      "description": "Allow full movement while casting Fire Staff & Wand spells.",
+      "default": true
+    },
+    {
+      "key": "UnlockWater",
+      "type": "toggle",
+      "label": "Unlock Water Magic Movement",
+      "description": "Allow full movement while casting Water Staff & Wand spells.",
+      "default": true
+    },
+    {
+      "key": "UnlockEarth",
+      "type": "toggle",
+      "label": "Unlock Earth Magic Movement",
+      "description": "Allow full movement while casting Earth Staff & Wand spells.",
+      "default": true
+    },
+    {
+      "key": "UnlockModdedCombat",
+      "type": "toggle",
+      "label": "Unlock Modded Combat Spells",
+      "description": "Unlock movement on third-party combat spells (HydraAncientMagicks, ConjurerFire, Ancient Staff, etc.).",
+      "default": true
+    },
+    {
+      "key": "UnlockUtilitySpells",
+      "type": "toggle",
+      "label": "Unlock Utility Magic Movement",
+      "description": "Experimental: unlock movement on utility perk spells (USD_*).",
+      "default": false
+    },
+    {
+      "key": "KeepGroundSmashAnchored",
+      "type": "toggle",
+      "label": "Anchor 4th Air Spell Movement",
+      "description": "When ON, keeps the 4th Air staff/wand finisher rooted in place during cast (vanilla behavior). Leave OFF to move freely while casting the 4th Air spell.",
+      "default": false
+    },
+    {
+      "key": "EnableFinisherSpeedClamp",
+      "type": "toggle",
+      "label": "Enable Speed Clamp on Delayed Finishers",
+      "description": "Enforce MaxFinisherSpeedClamp on delayed/multi-stage finishers (Meteor, Volcano, Air Slam, Boulder, or clamp=true custom spells) so AnimNotifies are never skipped.",
+      "default": true
+    },
+    {
+      "key": "FixAir4thVerticalAim",
+      "type": "toggle",
+      "label": "Fix 4th Air Combo Vertical Aim",
+      "description": "Fixes vanilla DA_Spell_Primary_Air_04 firing flat horizontally by correcting its Transform/Movement trigger timing, TracedPlayerCameraForward aim space, and spawn PositionOffset so it tracks slopes and ledges like hits 1-3.",
+      "default": true
+    },
+    {
+      "key": "MaxFinisherSpeedClamp",
+      "type": "slider",
+      "label": "Max Finisher Speed Clamp (x)",
+      "description": "Maximum playback rate multiplier allowed on clamped finishers (Meteor, Volcano, Air Slam, Boulder, or Clamp=true custom spells).",
+      "min": 1.0,
+      "max": 10.0,
+      "step": 0.25,
+      "default": 5.0
+    },
+    {
+      "key": "MaxMoveSpeed",
+      "type": "slider",
+      "label": "Max Casting Move Speed",
+      "description": "Maximum movement speed during unlocked spell montages.",
+      "min": 200,
+      "max": 1200,
+      "step": 25,
+      "default": 600
+    },
+    {
+      "type": "header",
+      "label": "Custom Spell Auto-Targeting & Lock-On"
+    },
+    {
+      "key": "AutoTargetMaxDistance",
+      "type": "slider",
+      "label": "Auto-Target Max Distance (cm)",
+      "description": "Maximum distance (in UE cm; 100 = 1m / ~3.3ft, default 2500 = 25m / ~82ft) to auto-target enemies along your crosshair ray when not locked on.",
+      "min": 300,
+      "max": 6000,
+      "step": 100,
+      "default": 2500
+    },
+    {
+      "key": "AutoTargetConeDeg",
+      "type": "slider",
+      "label": "Auto-Target Crosshair Cone (degrees)",
+      "description": "Max angle from your crosshair ray to acquire an enemy when not locked on (default 45 degrees; prioritizes enemy closest to crosshair).",
+      "min": 10,
+      "max": 180,
+      "step": 5,
+      "default": 45
+    },
+    {
+      "key": "RequireLockOnForChainSpells",
+      "type": "toggle",
+      "label": "Require Target Lock / Reticle Hover for Chain Spells",
+      "description": "When ON, chain spells like Saradomin Strike only fire when locked onto an enemy or looking directly at one with your reticle (preventing accidental aggro). When OFF, they auto-target the closest enemy in your aim cone.",
+      "default": true
+    },
+    {
+      "type": "header",
+      "label": "Diagnostics & Debug"
+    },
+    {
+      "key": "AllowDebugCommands",
+      "type": "toggle",
+      "label": "Allow Debug Commands (SHIFT + Hotkey)",
+      "description": "Enables SHIFT + Debug Hotkey to re-export detected_spells.txt and log rule-to-asset bindings.",
+      "default": false
+    },
+    {
+      "key": "DebugHotkey",
+      "type": "text",
+      "label": "Debug Hotkey",
+      "description": "Key combined with SHIFT when Allow Debug Commands is ON (e.g. OEM_5, PAUSE, INSERT, END).",
+      "default": "OEM_5"
+    },
+    {
+      "key": "DebugMode",
+      "type": "toggle",
+      "label": "Verbose Debug Logging",
+      "description": "Print detailed macro rolls, rune consumption, anchor resets, and matched DA_Spell_* assets to UE4SS.log.",
+      "default": false
+    }
+  ]
+}

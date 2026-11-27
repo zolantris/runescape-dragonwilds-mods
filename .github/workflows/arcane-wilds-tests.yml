@@ -1,0 +1,44 @@
+name: Arcane Wilds Tests
+
+on:
+  pull_request:
+    branches: [main, "release/**"]
+  push:
+    branches: [main, "release/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arcane-wilds-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lua & JSON Schema Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Lua 5.4
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends lua5.4
+          lua5.4 -v
+
+      - name: Validate JSON and schemas
+        run: |
+          python3 -m pip install --quiet jsonschema
+          python3 scripts/validate_json.py
+
+      - name: Run Lua unit & regression tests with coverage
+        run: |
+          lua5.4 arcane-wilds/tests/run_tests.lua \
+            --lcov arcane-wilds/tests/coverage.lcov \
+            --coverage-markdown coverage_summary.md
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && [ -f coverage_summary.md ]; then
+            cat coverage_summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi

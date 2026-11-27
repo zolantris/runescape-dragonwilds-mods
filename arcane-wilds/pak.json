@@ -1,0 +1,9 @@
+{
+  "pakName": "ArcaneWildsDamageBridge_P",
+  "contentSubPath": "Mods/ArcaneWilds",
+  "installFolder": "~mods",
+  "ueProject": "unreal-engine/RSDragonwilds/RSDragonwilds.uproject",
+  "editorTarget": "RSDragonwildsEditor",
+  "generatorCommandlet": "GenerateArcaneWildsDamageBridge",
+  "syncStubsScript": "scripts/sync-ue-damage-stubs.ps1"
+}
