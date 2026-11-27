@@ -843,7 +843,9 @@ local function TickAutoAttack(now, pc, pawn, combatMagic)
     end
 end
 
-LoopAsync(50, function()
+-- All UObject access, input polling, spell triggers, montage playback, and timeline ticks run
+-- inside a SINGLE serialized Game-Thread tick to prevent UE4SS Lua/UObject concurrency crashes (0xC0000005).
+local function RunMainGameThreadTick()
     local now = os.clock()
     if (now - State.LastConfigPollTime) >= 0.30 then
         State.LastConfigPollTime = now
@@ -855,13 +857,13 @@ LoopAsync(50, function()
 
     if not Config.Enabled then
         SetQuickCastInputSuppressed(false)
-        return false
+        return
     end
 
     local pc, pawn, combatMagic = GetPlayerPawnAndComponents()
-    if not pc then return false end
+    if not pc then return end
     PollHotkeyListener(pc)
-    if not pawn then return false end
+    if not pawn then return end
     if not State._InstalledEquipmentHooks then
         EquipmentRunes.InstallEquipmentSwapHooks(State, combatMagic, Log, DebugLog)
     end
@@ -869,11 +871,7 @@ LoopAsync(50, function()
 
     if (now - State.LastScanTime) >= 3.0 then
         State.LastScanTime = now
-        if type(ExecuteInGameThread) == "function" then
-            pcall(function() ExecuteInGameThread(function() RefreshSpells() end) end)
-        else
-            RefreshSpells()
-        end
+        RefreshSpells()
     end
 
     if not State.ActiveMacro and not State.PendingAnchorReturn then
@@ -885,9 +883,6 @@ LoopAsync(50, function()
     if modDown and not State.ModifierHeld then
         State.ModifierHeld = true
         State._AppliedPadForCurrentStep = false
-        -- Only auto-engage/fire on bare Block hold if TriggerComboOnModifierHold is explicitly enabled.
-        -- By default, holding Block alone lets normal blocking / staff special / Quick-Cast run untouched,
-        -- and combos only activate when Attack is pressed/held while blocking.
         if Config.TriggerComboOnModifierHold == true then
             CombatEngine.EngageModifierAndRollMacro(Config, State, pawn, combatMagic, Log, DebugLog)
             if State.ActiveMacro and pawn and pawn:IsValid() then
@@ -928,6 +923,10 @@ LoopAsync(50, function()
 
     local quickCastFired = PollQuickCastHotkeys(now, pc, pawn, combatMagic)
 
+    if State.ActiveTimelines and #State.ActiveTimelines > 0 then
+        TimelineRunner.Tick(now, Config, State, pawn, combatMagic, CustomSpells, SpellScanner.SafeGetName, DebugLog)
+    end
+
     local inPostSpecialPause = (State.SpecialPostPauseUntil or 0) > now
     if not quickCastFired and State.PendingAnchorReturn and not State.ActiveMacro and not inPostSpecialPause and combatMagic and combatMagic:IsValid() then
         TickAnchorReturn(now, pc, pawn, combatMagic)
@@ -941,17 +940,22 @@ LoopAsync(50, function()
     if not quickCastFired then
         TickAutoAttack(now, pc, pawn, combatMagic)
     end
-    return false
-end)
+end
 
--- Dedicated 16ms (~60Hz) timeline scheduler loop: near-zero cost when idle, crisp timing for
--- montage crossfades, layered slots, timed hitboxes, VFX/SFX, and non-player actor animations.
-LoopAsync(16, function()
-    if not Config.Enabled then return false end
-    if not State.ActiveTimelines or #State.ActiveTimelines == 0 then return false end
-    local _, pawn, combatMagic = GetPlayerPawnAndComponents()
-    if not pawn then return false end
-    TimelineRunner.Tick(os.clock(), Config, State, pawn, combatMagic, CustomSpells, SpellScanner.SafeGetName, DebugLog)
+-- Single 25ms (~40Hz) scheduler that dispatches serially to the Game Thread with re-entrancy guard.
+LoopAsync(25, function()
+    if State._TickInFlight then return false end
+    State._TickInFlight = true
+    local function guardedRun()
+        pcall(RunMainGameThreadTick)
+        State._TickInFlight = false
+    end
+    if type(ExecuteInGameThread) == "function" then
+        local ok = pcall(function() ExecuteInGameThread(guardedRun) end)
+        if not ok then State._TickInFlight = false end
+    else
+        guardedRun()
+    end
     return false
 end)
 

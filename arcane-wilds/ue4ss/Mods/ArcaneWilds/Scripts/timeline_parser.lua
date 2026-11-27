@@ -489,7 +489,8 @@ function TimelineParser.CompileLegacyDef(def)
             params = {
                 target = "player",
                 slot = "auto",
-                rate = tonumber(def.speed) or 1.0,
+                -- Keep cue rate at 1.0 so stageSpeed (entry.customOverrideSpeed) does not double-multiply Speed!
+                rate = 1.0,
                 start = 0.05,
                 durAuto = true,
                 stopAll = true,

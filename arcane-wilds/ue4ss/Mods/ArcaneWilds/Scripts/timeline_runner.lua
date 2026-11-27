@@ -235,18 +235,38 @@ local function ResolveAnimAsset(assetName, customSpells, safeGetNameFn)
     return obj, isMontage
 end
 
+-- Guard against UE5 AnimGraph crashes caused by playing an animation authored for a different USkeleton.
+local function IsSkeletonCompatible(animInst, animObj, debugLogFn)
+    if not IsValidUObject(animInst) or not IsValidUObject(animObj) then return false end
+    local instSkel, animSkel = nil, nil
+    pcall(function() instSkel = animInst.CurrentSkeleton end)
+    pcall(function() animSkel = animObj.Skeleton end)
+    if IsValidUObject(instSkel) and IsValidUObject(animSkel) then
+        local instName = SafeObjName(instSkel)
+        local animName = SafeObjName(animSkel)
+        if instName ~= "" and animName ~= "" and instName ~= animName then
+            if debugLogFn then
+                debugLogFn(string.format("BLOCKED incompatible animation [%s]: animSkeleton=%s != meshSkeleton=%s",
+                    SafeObjName(animObj), animName, instName))
+            end
+            return false
+        end
+    end
+    return true
+end
+
 -- Play an AnimMontage or AnimSequence on any USkeletalMeshComponent with optional slot routing.
--- Returns: (playedMontageObj, animInst, durationSec)
-local function PlayAnimOnMesh(mesh, pawnForSlots, animObj, isMontage, cueParams, playRate, leaderInst, leaderMont)
+-- Returns: (playedMontageObj, animInst, durationSec, isDynamic)
+local function PlayAnimOnMesh(mesh, pawnForSlots, animObj, isMontage, cueParams, playRate, leaderInst, leaderMont, debugLogFn)
     if not IsValidUObject(mesh) or not IsValidUObject(animObj) then
-        return nil, nil, 0.0
+        return nil, nil, 0.0, false
     end
     local animInst = nil
     pcall(function() animInst = mesh:GetAnimInstance() end)
 
-    local startTime = tonumber(cueParams.start) or 0.0
-    local blendIn   = tonumber(cueParams.blendIn) or 0.10
-    local blendOut  = tonumber(cueParams.blendOut) or 0.15
+    local startTime = math.max(0.0, tonumber(cueParams.start) or 0.0)
+    local blendIn   = math.max(0.0, tonumber(cueParams.blendIn) or 0.10)
+    local blendOut  = math.max(0.0, tonumber(cueParams.blendOut) or 0.15)
     local loopCount = math.max(1, math.floor(tonumber(cueParams.loop) or 1))
     local stopAll   = (cueParams.stopAll == true)
     local slotStr   = cueParams.slot
@@ -265,13 +285,19 @@ local function PlayAnimOnMesh(mesh, pawnForSlots, animObj, isMontage, cueParams,
             pcall(function() mesh:SetPlayRate(playRate) end)
             local seqLen = 0.0
             pcall(function() seqLen = tonumber(seqToPlay.SequenceLength) or 0.0 end)
-            return nil, nil, (seqLen > 0 and (seqLen / math.max(0.1, playRate)) or 0.5)
+            return nil, nil, (seqLen > 0 and (seqLen / math.max(0.1, playRate)) or 0.5), false
         end
-        return nil, nil, 0.0
+        return nil, nil, 0.0, false
+    end
+
+    -- Skeleton compatibility guard: never play an incompatible skeleton montage on an AnimInstance
+    if not IsSkeletonCompatible(animInst, animObj, debugLogFn) then
+        return nil, nil, 0.0, false
     end
 
     local playedMont = nil
     local durSec = 0.0
+    local isDynamic = false
 
     local wantsExplicitSlot = (slotStr ~= nil and slotStr ~= "" and slotStr:lower() ~= "auto")
     if wantsExplicitSlot or not isMontage then
@@ -283,13 +309,15 @@ local function PlayAnimOnMesh(mesh, pawnForSlots, animObj, isMontage, cueParams,
                 if IsValidUObject(firstRef) then seqAsset = firstRef end
             end)
         end
-        if IsValidUObject(seqAsset) and HasUFunc(animInst, "PlaySlotAnimationAsDynamicMontage") then
+        if IsValidUObject(seqAsset) and IsSkeletonCompatible(animInst, seqAsset, debugLogFn)
+            and HasUFunc(animInst, "PlaySlotAnimationAsDynamicMontage") then
             local okDyn, resDyn = pcall(function()
                 return animInst:PlaySlotAnimationAsDynamicMontage(
                     seqAsset, slotFName, blendIn, blendOut, playRate, loopCount, -1.0, startTime)
             end)
             if okDyn and IsValidUObject(resDyn) then
                 playedMont = resDyn
+                isDynamic = true
                 local rawLen = 0.0
                 pcall(function() rawLen = tonumber(seqAsset.SequenceLength) or tonumber(resDyn.SequenceLength) or 0.0 end)
                 if rawLen > 0 then
@@ -300,14 +328,16 @@ local function PlayAnimOnMesh(mesh, pawnForSlots, animObj, isMontage, cueParams,
     end
 
     -- Native Montage_Play path (preserves full authored AnimNotifies, sections, and slot tracks)
+    -- NOTE: Never mutate animObj.RateScale here; pass playRate directly to Montage_Play so shared
+    -- UAnimMontage assets are not modified while parallel AnimThread evaluates.
     if not IsValidUObject(playedMont) and isMontage and HasUFunc(animInst, "Montage_Play") then
-        pcall(function() animObj.RateScale = 1.0 end)
         local okPlay, resLen = pcall(function()
             -- ReturnValueType = 1 (EMontagePlayReturnType::Duration -> exact scaled seconds)
             return animInst:Montage_Play(animObj, playRate, 1, startTime, stopAll)
         end)
         if okPlay then
             playedMont = animObj
+            isDynamic = false
             durSec = tonumber(resLen) or 0.0
             if durSec <= 0.0 then
                 pcall(function()
@@ -328,7 +358,7 @@ local function PlayAnimOnMesh(mesh, pawnForSlots, animObj, isMontage, cueParams,
     end
 
     if durSec <= 0.0 then durSec = 0.65 / math.max(0.1, playRate) end
-    return playedMont, animInst, durSec
+    return playedMont, animInst, durSec, isDynamic
 end
 
 -- Gather nearby enemy ADominionAICharacter targets within radius (and optional forward cone).
@@ -659,43 +689,56 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
 
         local baseRate = tonumber(p.rate) or 1.0
         local effectiveRate = scaleSpeed and (baseRate * stageSpeed) or baseRate
-        if tlInst.entry and tlInst.entry.isSmash and config and config.KeepGroundSmashAnchored then
+        local assetLow = tostring(cue.asset or ""):lower()
+        local isHeavyWeaponMont = assetLow:find("greatsword", 1, true) ~= nil or assetLow:find("godsword", 1, true) ~= nil or assetLow:find("special", 1, true) ~= nil
+        if isHeavyWeaponMont and p.unsafeRate ~= "true" then
+            -- Keep Greatsword/Special AnimNotifyState windows safe from notify-skipping
+            effectiveRate = math.min(effectiveRate, 1.35)
+        elseif tlInst.entry and tlInst.entry.isSmash and config and config.KeepGroundSmashAnchored then
             local clampMax = math.max(1.0, tonumber(config.MaxFinisherSpeedClamp) or 5.0)
             effectiveRate = math.min(effectiveRate, clampMax)
         else
-            effectiveRate = math.min(effectiveRate, 4.0)
+            effectiveRate = math.min(effectiveRate, 3.0)
         end
+        effectiveRate = math.max(0.20, effectiveRate)
 
-        -- Resolve optional leader montage for MontageSync_Follow
+        -- Resolve optional leader montage for MontageSync_Follow (re-fetching fresh AnimInstance)
         local leaderInst, leaderMont = nil, nil
         if cue.syncToIndex and tlInst.cueStates[cue.syncToIndex] then
             local lState = tlInst.cueStates[cue.syncToIndex]
-            leaderInst = lState.animInst
-            leaderMont = lState.montageObj
+            if not lState.isDynamicMontage and IsValidUObject(lState.montageObj) then
+                pcall(function()
+                    local pm = pawn.Mesh
+                    if IsValidUObject(pm) then leaderInst = pm:GetAnimInstance() end
+                end)
+                leaderMont = lState.montageObj
+            end
         end
 
         local targetStr = (p.target or "player"):lower()
         if targetStr == "player" then
             local mesh = nil
             pcall(function() mesh = pawn.Mesh end)
-            local mObj, aInst, durSec = PlayAnimOnMesh(mesh, pawn, animObj, isMontage, p, effectiveRate, leaderInst, leaderMont)
-            cueState.montageObj = mObj
-            cueState.animInst = aInst
+            local mObj, _, durSec, isDyn = PlayAnimOnMesh(mesh, pawn, animObj, isMontage, p, effectiveRate, leaderInst, leaderMont, debugLogFn)
+            cueState.montageObj = (not isDyn) and mObj or nil
+            cueState.isDynamicMontage = isDyn
+            cueState.targetKind = "player"
             cueState.expectedDur = (p.dur ~= nil) and (scaleSpeed and (p.dur / stageSpeed) or p.dur) or durSec
-            if state and IsValidUObject(mObj) then
+            if state and not isDyn and IsValidUObject(mObj) then
                 state.LastForcedMontageObj = mObj
             end
             if debugLogFn then
-                debugLogFn(string.format("Timeline [%s] Anim #%d (%s, slot=%s, rate=%.2fx, dur=%.2fs)",
-                    tlInst.spellName, cue.index, tostring(cue.asset), tostring(p.slot or "auto"), effectiveRate, cueState.expectedDur))
+                debugLogFn(string.format("Timeline [%s] Anim #%d (%s, slot=%s, rate=%.2fx, dur=%.2fs, dyn=%s)",
+                    tlInst.spellName, cue.index, tostring(cue.asset), tostring(p.slot or "auto"), effectiveRate, cueState.expectedDur, tostring(isDyn)))
             end
 
         elseif targetStr == "weapon_right" or targetStr == "weapon_left" or targetStr == "weapon" then
             local wMesh = ResolveHeldEquipmentMesh(pawn, targetStr)
             if IsValidUObject(wMesh) then
-                local mObj, aInst, durSec = PlayAnimOnMesh(wMesh, nil, animObj, isMontage, p, effectiveRate, leaderInst, leaderMont)
-                cueState.montageObj = mObj
-                cueState.animInst = aInst
+                local mObj, _, durSec, isDyn = PlayAnimOnMesh(wMesh, nil, animObj, isMontage, p, effectiveRate, leaderInst, leaderMont, debugLogFn)
+                cueState.montageObj = (not isDyn) and mObj or nil
+                cueState.isDynamicMontage = isDyn
+                cueState.targetKind = targetStr
                 cueState.expectedDur = (p.dur ~= nil) and (scaleSpeed and (p.dur / stageSpeed) or p.dur) or durSec
                 if debugLogFn then
                     debugLogFn(string.format("Timeline [%s] WeaponAnim #%d (%s on %s, rate=%.2fx)",
@@ -710,9 +753,10 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
             local targetActor = tlInst.actorsById and tlInst.actorsById[aid]
             local aMesh = ResolveActorSkeletalMesh(targetActor)
             if IsValidUObject(aMesh) then
-                local mObj, aInst, durSec = PlayAnimOnMesh(aMesh, nil, animObj, isMontage, p, effectiveRate, leaderInst, leaderMont)
-                cueState.montageObj = mObj
-                cueState.animInst = aInst
+                local mObj, _, durSec, isDyn = PlayAnimOnMesh(aMesh, nil, animObj, isMontage, p, effectiveRate, leaderInst, leaderMont, debugLogFn)
+                cueState.montageObj = (not isDyn) and mObj or nil
+                cueState.isDynamicMontage = isDyn
+                cueState.targetKind = targetStr
                 cueState.expectedDur = (p.dur ~= nil) and (scaleSpeed and (p.dur / stageSpeed) or p.dur) or durSec
                 if debugLogFn then
                     debugLogFn(string.format("Timeline [%s] ActorAnim #%d (%s on actor:%s)",
@@ -729,14 +773,10 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
             local enemies = FindNearbyEnemyTargets(pawn, centerLoc, pRot, p.radius or 450.0, p.cone, maxT)
             local playedCount = 0
             local maxDur = 0.0
-            cueState.targetMontages = {}
             for _, e in ipairs(enemies) do
                 local eMesh = ResolveActorSkeletalMesh(e.actor)
                 if IsValidUObject(eMesh) then
-                    local mObj, aInst, durSec = PlayAnimOnMesh(eMesh, nil, animObj, isMontage, p, effectiveRate, nil, nil)
-                    if IsValidUObject(mObj) and IsValidUObject(aInst) then
-                        table.insert(cueState.targetMontages, { animInst = aInst, montageObj = mObj })
-                    end
+                    local _, _, durSec = PlayAnimOnMesh(eMesh, nil, animObj, isMontage, p, effectiveRate, nil, nil, debugLogFn)
                     playedCount = playedCount + 1
                     if durSec > maxDur then maxDur = durSec end
                 end
@@ -1083,22 +1123,31 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
 end
 
 -- Stop/cleanup handles created by a cue (called on explicit `dur=` expiration or timeline cancellation).
-local function CleanupCueHandles(cue, cueState, isCancel)
+-- Always re-fetches a fresh AnimInstance from `pawn` instead of touching cached UAnimInstance pointers!
+local function CleanupCueHandles(cue, cueState, isCancel, pawn)
     if not cueState or cueState.cleaned then return end
     cueState.cleaned = true
     local p = cue and cue.params or {}
     local blendOut = tonumber(p.blendOut) or 0.15
 
     -- Stop active montage ONLY when explicit dur= was set or timeline was explicitly cancelled
-    if isCancel or (p.dur ~= nil) then
-        if IsValidUObject(cueState.animInst) and IsValidUObject(cueState.montageObj) and HasUFunc(cueState.animInst, "Montage_Stop") then
-            pcall(function() cueState.animInst:Montage_Stop(blendOut, cueState.montageObj) end)
-        end
-        if cueState.targetMontages then
-            for _, tm in ipairs(cueState.targetMontages) do
-                if IsValidUObject(tm.animInst) and IsValidUObject(tm.montageObj) and HasUFunc(tm.animInst, "Montage_Stop") then
-                    pcall(function() tm.animInst:Montage_Stop(blendOut, tm.montageObj) end)
-                end
+    if (isCancel or p.dur ~= nil) and IsValidUObject(pawn) then
+        local freshInst = nil
+        pcall(function()
+            if cueState.targetKind == "player" or not cueState.targetKind then
+                local mesh = pawn.Mesh
+                if IsValidUObject(mesh) then freshInst = mesh:GetAnimInstance() end
+            elseif cueState.targetKind == "weapon_right" or cueState.targetKind == "weapon_left" or cueState.targetKind == "weapon" then
+                local wMesh = ResolveHeldEquipmentMesh(pawn, cueState.targetKind)
+                if IsValidUObject(wMesh) then freshInst = wMesh:GetAnimInstance() end
+            end
+        end)
+        if IsValidUObject(freshInst) then
+            if cueState.isDynamicMontage and p.slot and p.slot:lower() ~= "auto" and HasUFunc(freshInst, "StopSlotAnimation") then
+                local slotFn = ResolveSlotFName(pawn, p.slot)
+                if slotFn then pcall(function() freshInst:StopSlotAnimation(blendOut, slotFn) end) end
+            elseif IsValidUObject(cueState.montageObj) and HasUFunc(freshInst, "Montage_Stop") then
+                pcall(function() freshInst:Montage_Stop(blendOut, cueState.montageObj) end)
             end
         end
     end
@@ -1278,21 +1327,15 @@ function TimelineRunner.CancelTimelines(state, pawn, reason, onlyCancelable, onl
     state.ActiveTimelines = kept
 
     if #toCleanup == 0 then return end
-    local function doCleanup()
-        for _, tlInst in ipairs(toCleanup) do
-            for i, cue in ipairs(tlInst.timeline.cues) do
-                local cs = tlInst.cueStates[i]
-                if cs and cs.status == "active" then
-                    CleanupCueHandles(cue, cs, true)
-                    cs.status = "done"
-                end
+    -- Already running on the serialized Game Thread via main.lua
+    for _, tlInst in ipairs(toCleanup) do
+        for i, cue in ipairs(tlInst.timeline.cues) do
+            local cs = tlInst.cueStates[i]
+            if cs and cs.status == "active" then
+                pcall(function() CleanupCueHandles(cue, cs, true, pawn) end)
+                cs.status = "done"
             end
         end
-    end
-    if type(ExecuteInGameThread) == "function" then
-        pcall(function() ExecuteInGameThread(doCleanup) end)
-    else
-        doCleanup()
     end
 end
 
@@ -1363,11 +1406,11 @@ function TimelineRunner.Tick(now, config, state, pawn, combatMagic, customSpells
                                 cs.endedAt = tNow
                                 table.insert(workBatch, { kind = "cleanup_cue", cue = cue, cueState = cs, isCancel = false })
                             elseif not hasExplicitDur then
-                                -- Check live Montage_IsPlaying on game thread after initial 0.08s grace period
-                                if cueElapsed >= math.max(0.10, (cs.expectedDur or 0.0) + 0.15) then
+                                -- For dynamic montages or once expectedDur elapses, advance purely by duration (zero stale pointer risk).
+                                if cueElapsed >= math.max(0.08, cs.expectedDur or 0.0) then
                                     cs.status = "done"
                                     cs.endedAt = tNow
-                                elseif cueElapsed >= 0.08 then
+                                elseif not cs.isDynamicMontage and IsValidUObject(cs.montageObj) and cueElapsed >= 0.12 then
                                     table.insert(workBatch, { kind = "poll_anim_done", cue = cue, cueState = cs, now = tNow })
                                     allDone = false
                                 else
@@ -1416,38 +1459,44 @@ function TimelineRunner.Tick(now, config, state, pawn, combatMagic, customSpells
 
     if #workBatch == 0 then return end
 
-    local function runBatchOnGameThread()
-        for _, item in ipairs(workBatch) do
-            if item.kind == "fire_cue" then
-                pcall(function()
-                    ExecuteCueOnGameThread(item.tlInst, item.cue, item.cueState, config, state, pawn, combatMagic, customSpells, safeGetNameFn, debugLogFn)
-                end)
-                item.cueState.executed = true
-            elseif item.kind == "cleanup_cue" then
-                pcall(function()
-                    CleanupCueHandles(item.cue, item.cueState, item.isCancel)
-                end)
-            elseif item.kind == "finish_timeline" then
-                for i, cue in ipairs(item.tlInst.timeline.cues) do
-                    local cs = item.tlInst.cueStates[i]
-                    if cs and cs.status == "active" then
-                        pcall(function() CleanupCueHandles(cue, cs, false) end)
-                        cs.status = "done"
-                    end
+    -- Execute directly on the serialized Game Thread (no nested ExecuteInGameThread spawning!)
+    for _, item in ipairs(workBatch) do
+        if item.kind == "fire_cue" then
+            pcall(function()
+                ExecuteCueOnGameThread(item.tlInst, item.cue, item.cueState, config, state, pawn, combatMagic, customSpells, safeGetNameFn, debugLogFn)
+            end)
+            item.cueState.executed = true
+        elseif item.kind == "cleanup_cue" then
+            pcall(function()
+                CleanupCueHandles(item.cue, item.cueState, item.isCancel, pawn)
+            end)
+        elseif item.kind == "finish_timeline" then
+            for i, cue in ipairs(item.tlInst.timeline.cues) do
+                local cs = item.tlInst.cueStates[i]
+                if cs and cs.status == "active" then
+                    pcall(function() CleanupCueHandles(cue, cs, false, pawn) end)
+                    cs.status = "done"
                 end
-            elseif item.kind == "poll_anim_done" then
-                local cs = item.cueState
-                if cs.status == "active" then
-                    local stillPlaying = false
-                    if IsValidUObject(cs.animInst) and IsValidUObject(cs.montageObj) and HasUFunc(cs.animInst, "Montage_IsPlaying") then
-                        pcall(function() stillPlaying = cs.animInst:Montage_IsPlaying(cs.montageObj) == true end)
+            end
+        elseif item.kind == "poll_anim_done" then
+            local cs = item.cueState
+            if cs.status == "active" and not cs.isDynamicMontage and IsValidUObject(cs.montageObj) then
+                local stillPlaying = false
+                pcall(function()
+                    local mesh = pawn.Mesh
+                    if IsValidUObject(mesh) then
+                        local freshInst = mesh:GetAnimInstance()
+                        if IsValidUObject(freshInst) and HasUFunc(freshInst, "Montage_IsPlaying") then
+                            stillPlaying = (freshInst:Montage_IsPlaying(cs.montageObj) == true)
+                        end
                     end
-                    if not stillPlaying then
-                        cs.status = "done"
-                        cs.endedAt = item.now
-                    end
+                end)
+                if not stillPlaying then
+                    cs.status = "done"
+                    cs.endedAt = item.now
                 end
-            elseif item.kind == "poll_spell_impact" then
+            end
+        elseif item.kind == "poll_spell_impact" then
                 local cs = item.cueState
                 local tl = item.tlInst
                 if cs.status == "active" then
