@@ -436,6 +436,9 @@ function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, deb
     end
 
     if entry.isSpecialSpell then
+        if not (entry.isSmash and config and config.KeepGroundSmashAnchored) then
+            SpellScanner.UnlockSpellMovement(entry.spellObj, config and config.MaxMoveSpeed or 600.0)
+        end
         local okSpec = TryTriggerSpecialAbility(pawn, entry.spellObj, debugLogFn)
         if okSpec then
             EquipmentRunes.ConsumeRunesForSpellEntry(config, state, pawn, entry, debugLogFn)
@@ -451,6 +454,9 @@ function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, deb
     local bpLib = StaticFindObject("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary")
     local anyTriggered = false
     if not entry.suppressBaseSpell and bpLib and bpLib:IsValid() and entry.spellObj and entry.spellObj:IsValid() then
+        if not (entry.isSmash and config and config.KeepGroundSmashAnchored) then
+            SpellScanner.UnlockSpellMovement(entry.spellObj, config and config.MaxMoveSpeed or 600.0)
+        end
         local function fireAbility()
             pcall(function()
                 if pawn and pawn:IsValid() and bpLib and bpLib:IsValid() and entry.spellObj and entry.spellObj:IsValid() then

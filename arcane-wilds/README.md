@@ -30,6 +30,9 @@ Place `ue4ss/Mods/ArcaneWilds/` into your `RSDragonwilds/Binaries/Win64/` direct
 <!-- CHANGELOG:START -->
 ### v1.70.57
 
+- **2026-11-26** - attempt to fix how casting is done so it does not require a spell in flight to trigger combo matching ([09b3c0e](https://github.com/zolantris/runescape-dragonwilds-mods/commit/09b3c0efa487a3d7a9b8fe064953ef46de745678))
+- **2026-11-26** - remove build in unreal dir ([56d6def](https://github.com/zolantris/runescape-dragonwilds-mods/commit/56d6def866961617261a38e7b82389052a2ff591))
+- **2026-11-26** - fix hotkey so 1,2,3,4 + block work. And same with XYBA controller controls ([d74cf54](https://github.com/zolantris/runescape-dragonwilds-mods/commit/d74cf546c8b18bb16e78bc8baa2667e776751389))
 - **2026-11-26** - attempt to fix crash and add hotkeys to easily debug some spells ([885c8c8](https://github.com/zolantris/runescape-dragonwilds-mods/commit/885c8c87dce81f0f762e92695154ee46060e64fe))
 - **2026-11-26** - Add build mod and wipe mode and deploymod scripts ([7fa5b7e](https://github.com/zolantris/runescape-dragonwilds-mods/commit/7fa5b7ec36394c71d6d64fcf33125eae76334c94))
 - **2026-11-26** - add stub for dragonwilds to expose dominion to do damage ([6383f14](https://github.com/zolantris/runescape-dragonwilds-mods/commit/6383f14abb9e87f36ee74c5f795f60ccab81ed4b))

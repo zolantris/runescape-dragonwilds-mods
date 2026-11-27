@@ -190,8 +190,39 @@ local function ExtractCostItemsFromModule(modObj, costList)
     end)
 end
 
+function SpellScanner.UnlockSpellMovement(spellObj, maxMoveSpeed)
+    if not spellObj then return end
+    local okV, valid = pcall(function() return spellObj:IsValid() end)
+    if not okV or not valid then return end
+    local spd = tonumber(maxMoveSpeed) or 600.0
+    pcall(function()
+        local mods = spellObj.Modules
+        if mods and mods.Modules then
+            mods.Modules:ForEach(function(_, elemWrapper)
+                local modObj = nil
+                pcall(function() modObj = elemWrapper:get().Module end)
+                if modObj and modObj:IsValid() then
+                    local modFull = SpellScanner.SafeGetName(modObj)
+                    if modFull:find("SpellModule_PlayMontage") or modFull:find("SpellModule_PlayStagedMontage") then
+                        pcall(function() modObj.bShouldBlockMovement = false end)
+                        pcall(function() modObj.bBlockMovement = false end)
+                        pcall(function() modObj.MaxMovementSpeedDuringMontage = spd end)
+                        pcall(function() modObj.MaxMovementSpeed = spd end)
+                        local m = nil
+                        pcall(function() m = modObj.Montage end)
+                        if m and m:IsValid() then
+                            pcall(function() m.bEnableRootMotionTranslation = false end)
+                            pcall(function() m.bEnableRootMotionRotation = false end)
+                        end
+                    end
+                end
+            end)
+        end
+    end)
+end
+
 local function PatchSpellModules(spellObj, cfg, chainEntry, idx, lowerName)
-    local shouldUnlock = chainEntry and ShouldUnlockCategory(chainEntry.tag:lower(), chainEntry.isModded, cfg) or false
+    local shouldUnlock = chainEntry and ShouldUnlockCategory(chainEntry.tag:lower(), chainEntry.isModded, cfg) or (cfg.UnlockModdedCombat ~= false)
     local isSmash = (idx == 3 and chainEntry and (chainEntry.tag:lower():find("^air") or lowerName:find("slam") or lowerName:find("smash")))
     local foundMontage = nil
     local foundMontageName = nil
@@ -205,7 +236,7 @@ local function PatchSpellModules(spellObj, cfg, chainEntry, idx, lowerName)
                 pcall(function() modObj = elemWrapper:get().Module end)
                 if modObj and modObj:IsValid() then
                     local modFull = SpellScanner.SafeGetName(modObj)
-                    if modFull:find("SpellModule_PlayMontage") then
+                    if modFull:find("SpellModule_PlayMontage") or modFull:find("SpellModule_PlayStagedMontage") then
                         local montage = nil
                         pcall(function() montage = modObj.Montage end)
                         if montage and montage:IsValid() then
@@ -217,9 +248,14 @@ local function PatchSpellModules(spellObj, cfg, chainEntry, idx, lowerName)
                             end
                         end
                         if shouldUnlock and not (isSmash and cfg.KeepGroundSmashAnchored) then
-                            pcall(function() modObj.bBlockMovement = false end)
                             pcall(function() modObj.bShouldBlockMovement = false end)
+                            pcall(function() modObj.bBlockMovement = false end)
+                            pcall(function() modObj.MaxMovementSpeedDuringMontage = cfg.MaxMoveSpeed end)
                             pcall(function() modObj.MaxMovementSpeed = cfg.MaxMoveSpeed end)
+                            if montage and montage:IsValid() then
+                                pcall(function() montage.bEnableRootMotionTranslation = false end)
+                                pcall(function() montage.bEnableRootMotionRotation = false end)
+                            end
                         end
                     else
                         ExtractCostItemsFromModule(modObj, costItems)
@@ -279,11 +315,8 @@ function SpellScanner.ScanAndPatchSpells(cfg, modVersion, detectedPath, nameMapB
                     end
 
                     local isSpecialCat = key:find("^special_") ~= nil
-                    local montageObj, montageName, costItems = nil, nil, {}
-                    if not isSpecialCat then
-                        montageObj, montageName, costItems = PatchSpellModules(sp, cfg,
-                            (not isNewVariant or not newChains[key].montages[idx]) and newChains[key] or nil, idx, lower)
-                    end
+                    local montageObj, montageName, costItems = PatchSpellModules(sp, cfg,
+                        (not isSpecialCat and (not isNewVariant or not newChains[key].montages[idx])) and newChains[key] or nil, idx, lower)
 
                     local isSmash = (idx == 3 and (key:find("^air") or lower:find("slam") or lower:find("smash")))
                     local entry = {

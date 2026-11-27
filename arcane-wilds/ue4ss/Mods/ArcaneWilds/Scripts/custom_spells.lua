@@ -1009,6 +1009,22 @@ local function FireImpactAtLocation(pawn, pending, loc)
     -- 1. Trigger the ground smash ability/animation (e.g. DA_Spell_Primary_Air_04 / Death From Above)
     if pending.aoeSpellObj and pending.aoeSpellObj:IsValid() and pawn and pawn:IsValid() then
         pcall(function()
+            local mods = pending.aoeSpellObj.Modules
+            if mods and mods.Modules then
+                mods.Modules:ForEach(function(_, elemWrapper)
+                    local okE, el = pcall(function() return elemWrapper:get() end)
+                    local modObj = okE and el and el.Module or nil
+                    if modObj and modObj:IsValid() then
+                        local mName = SafeObjName(modObj)
+                        if mName:find("SpellModule_PlayMontage") or mName:find("SpellModule_PlayStagedMontage") then
+                            pcall(function() modObj.bShouldBlockMovement = false end)
+                            pcall(function() modObj.MaxMovementSpeedDuringMontage = 600.0 end)
+                        end
+                    end
+                end)
+            end
+        end)
+        pcall(function()
             local bpLib = StaticFindObject("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary")
             if bpLib and bpLib:IsValid() and bpLib.TriggerModularAbilityForPlayer then
                 bpLib:TriggerModularAbilityForPlayer(pawn, pending.aoeSpellObj)
@@ -1099,7 +1115,22 @@ function CustomSpells.TickProjectileImpactAoE(state, pawn, combatMagic)
 end
 
 function CustomSpells.StopForcedMontage(state, pawn)
-    if state then state.LastForcedMontageObj = nil end
+    if state then
+        if state._SavedRootMotionMode ~= nil and pawn and pawn:IsValid() then
+            local savedMode = state._SavedRootMotionMode
+            state._SavedRootMotionMode = nil
+            pcall(function()
+                local mesh = pawn.Mesh
+                if mesh and mesh:IsValid() then
+                    local animInst = mesh:GetAnimInstance()
+                    if animInst and animInst:IsValid() then
+                        animInst.RootMotionMode = savedMode
+                    end
+                end
+            end)
+        end
+        state.LastForcedMontageObj = nil
+    end
 end
 
 function CustomSpells.PlayEntryMontageOnPawn(pawn, entry, rate, state)
@@ -1137,6 +1168,9 @@ function CustomSpells.PlayEntryMontageOnPawn(pawn, entry, rate, state)
     local isGreatswordMont = mNameLow:find("greatsword") ~= nil or mNameLow:find("godsword") ~= nil or mNameLow:find("special") ~= nil
     local playRate = isGreatswordMont and math.min(rawRate, 1.35) or math.min(rawRate, 3.0)
     pcall(function() mont.RateScale = playRate end)
+    -- Disable root motion on directly played custom montages so the player can keep moving freely
+    pcall(function() mont.bEnableRootMotionTranslation = false end)
+    pcall(function() mont.bEnableRootMotionRotation = false end)
 
     local function runOnGameThread()
         pcall(function()
@@ -1145,8 +1179,30 @@ function CustomSpells.PlayEntryMontageOnPawn(pawn, entry, rate, state)
             if mesh and mesh:IsValid() then
                 local animInst = mesh:GetAnimInstance()
                 if animInst and animInst:IsValid() and animInst.Montage_Play then
+                    pcall(function()
+                        if state and state._SavedRootMotionMode == nil then
+                            state._SavedRootMotionMode = animInst.RootMotionMode or 3
+                        end
+                        animInst.RootMotionMode = 1 -- ERootMotionMode::IgnoreRootMotion
+                    end)
                     animInst:Montage_Play(mont, playRate, 0, 0.05, true)
                     if state then state.LastForcedMontageObj = mont end
+                    if type(ExecuteWithDelay) == "function" then
+                        pcall(function()
+                            ExecuteWithDelay(1100, function()
+                                if type(ExecuteInGameThread) == "function" then
+                                    ExecuteInGameThread(function()
+                                        pcall(function()
+                                            if animInst and animInst:IsValid() and (not state or state.LastForcedMontageObj == mont) then
+                                                animInst.RootMotionMode = (state and state._SavedRootMotionMode) or 3
+                                                if state then state._SavedRootMotionMode = nil end
+                                            end
+                                        end)
+                                    end)
+                                end
+                            end)
+                        end)
+                    end
                 end
             end
         end)
@@ -1300,7 +1356,19 @@ local function ExecuteAroundPlayerHitbox(pawn, entry, debugLogFn)
                                     local okE, el = pcall(function() return elemWrapper:get() end)
                                     local modObj = okE and el and el.Module or nil
                                     if modObj and modObj:IsValid() then
-                                        table.insert(modSummary, SafeObjName(modObj))
+                                        local mName = SafeObjName(modObj)
+                                        table.insert(modSummary, mName)
+                                        if mName:find("SpellModule_PlayMontage") or mName:find("SpellModule_PlayStagedMontage") then
+                                            pcall(function() modObj.bShouldBlockMovement = false end)
+                                            pcall(function() modObj.MaxMovementSpeedDuringMontage = 600.0 end)
+                                            pcall(function()
+                                                local m = modObj.Montage
+                                                if m and m:IsValid() then
+                                                    m.bEnableRootMotionTranslation = false
+                                                    m.bEnableRootMotionRotation = false
+                                                end
+                                            end)
+                                        end
                                     end
                                 end)
                             end
