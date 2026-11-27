@@ -76,10 +76,13 @@ T.Suite("coverage.lua", function()
         T.AssertEq(Coverage.FormatLineRanges({ 1, 3, 5, 7 }, 2), "1, 3 (+2 more)")
     end)
 
-    T.Test("tracks executed vs missed lines in an isolated temp script and restores previous debug hook", function()
-        local base = os.getenv("TEMP") or os.getenv("TMP") or "."
-        local tempName = "arcanewilds_cov_sample.lua"
-        local tempPath = base .. "/" .. tempName
+   T.Test("tracks executed vs missed lines in an isolated temp script and restores previous debug hook", function()
+        local tempDir = os.getenv("TMPDIR") or os.getenv("TEMP") or os.getenv("TMP") or "/tmp"
+        tempDir = tempDir:gsub("\\", "/"):gsub("/+$", "")
+
+        local tempName = "arcanewilds_cov_sample_" .. tostring(os.time()) .. ".lua"
+        local tempPath = tempDir .. "/" .. tempName
+
         local sampleSource = table.concat({
             "-- sample module",
             "local S = {}",
@@ -94,30 +97,39 @@ T.Suite("coverage.lua", function()
         }, "\n")
 
         local f, err = io.open(tempPath, "w")
+        if not f then
+            -- Fallback to current working directory if /tmp is unavailable
+            tempDir = "."
+            tempPath = tempName
+            f, err = io.open(tempPath, "w")
+        end
         T.AssertNotNil(f, "failed to create temp script: " .. tostring(err))
         f:write(sampleSource)
         f:close()
 
-        local prevHookBefore = debug.gethook()
+        local prevHookBefore, prevMaskBefore, prevCountBefore = debug.gethook()
+
         local okRun, errRun = pcall(function()
             local cov = Coverage.New({
-                sourceDir = base,
+                sourceDir = tempDir,
                 files = { tempName },
             })
+
             cov:Start()
             local chunk, loadErr = loadfile(tempPath)
-            T.AssertNil(loadErr)
+            T.AssertNil(loadErr, "failed to load temp script: " .. tostring(loadErr))
             local mod = chunk()
             T.AssertEq(mod.Branch(true), 1)
             cov:Stop()
 
             local report = cov:ComputeReport()
             T.AssertEq(#report.files, 1)
+
             local fr = report.files[1]
             T.AssertEq(fr.name, tempName)
             T.AssertEq(fr.missed, 1, "only the unexecuted else branch (line 7) should be missed")
             T.AssertEq(fr.missedLines[1], 7)
-            T.AssertTrue(fr.hit > 0)
+            T.AssertTrue(fr.hit > 0, "expected at least one executed line to be recorded")
             T.AssertEq(fr.hit + fr.missed, fr.total)
 
             local lcov = Coverage.FormatLcov(report, "unit")
@@ -134,7 +146,14 @@ T.Suite("coverage.lua", function()
         end)
 
         pcall(os.remove, tempPath)
-        T.AssertEq(debug.gethook(), prevHookBefore, "Coverage:Stop must restore outer debug hook")
-        if not okRun then error(errRun) end
+
+        local hookAfter, maskAfter, countAfter = debug.gethook()
+        T.AssertEq(hookAfter, prevHookBefore, "Coverage:Stop must restore outer debug hook function")
+        T.AssertEq(maskAfter, prevMaskBefore, "Coverage:Stop must restore outer debug hook mask")
+        T.AssertEq(countAfter, prevCountBefore, "Coverage:Stop must restore outer debug hook count")
+
+        if not okRun then
+            error(errRun)
+        end
     end)
 end)
