@@ -29,9 +29,9 @@ jobs:
           sudo apt-get install -y --no-install-recommends lua5.4
           lua5.4 -v
 
-      - name: Validate JSON files & JSON Schemas
+      - name: Validate JSON and schemas
         run: |
-          python3 -m pip install --quiet jsonschema json5
+          python3 -m pip install --quiet jsonschema
           python3 scripts/validate_json.py
 
       - name: Run Lua unit & regression tests with coverage
