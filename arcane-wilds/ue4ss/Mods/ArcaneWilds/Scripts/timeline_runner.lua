@@ -1840,6 +1840,7 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
                 debugLogFn(string.format("Timeline [%s] ChainStrike #%d skipped (no %s enemy found)",
                     tlInst.spellName, cue.index, requireLock and "locked-on" or "targeted"))
             end
+            if #tlInst.timeline.cues == 1 then tlInst.abortedNoTarget = true end
             cueState.expectedDur = 0.0
             return
         end
@@ -1849,6 +1850,7 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
                 debugLogFn(string.format("Timeline [%s] ChainStrike #%d blocked (no Line of Sight to %s)",
                     tlInst.spellName, cue.index, SafeObjName(primaryActor)))
             end
+            if #tlInst.timeline.cues == 1 then tlInst.abortedNoTarget = true end
             cueState.expectedDur = 0.0
             return
         end
@@ -2110,6 +2112,10 @@ function TimelineRunner.StartSpellTimeline(config, state, pawn, combatMagic, ent
 
     -- Immediately tick once so @0.00 cues fire on the exact cast frame with zero 16ms delay!
     TimelineRunner.Tick(now, config, state, pawn, combatMagic, customSpells, safeGetNameFn, debugLogFn)
+    if tlInst.abortedNoTarget then
+        tlInst.finished = true
+        return nil
+    end
     return tlInst
 end
 

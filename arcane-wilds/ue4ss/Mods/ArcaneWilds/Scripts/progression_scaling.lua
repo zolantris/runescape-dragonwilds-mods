@@ -725,14 +725,29 @@ function ProgressionScaling.GetEquippedStaffStats(pc, pawn)
     return stats
 end
 
--- Parse optional per-staff bonus map: "Armadyl:1.35, Zamorak:1.25"
-local function ResolveStaffSpecificBonus(staffBonusStr, weaponName)
-    if not staffBonusStr or staffBonusStr == "" or not weaponName or weaponName == "" then
+-- Parse optional per-staff bonus map: either a Lua table { Armadyl = 1.35, Zamorak = 1.25 }
+-- (from custom_spells.json) or legacy string "Armadyl:1.35, Zamorak:1.25".
+local function ResolveStaffSpecificBonus(staffBonusVal, weaponName)
+    if not staffBonusVal or not weaponName or weaponName == "" then
         return 1.0
     end
     local wLow = tostring(weaponName):lower()
+    if type(staffBonusVal) == "table" then
+        local keys = {}
+        for k, _ in pairs(staffBonusVal) do table.insert(keys, tostring(k)) end
+        table.sort(keys)
+        for _, kw in ipairs(keys) do
+            local kwLow = Trim(kw):lower()
+            local m = tonumber(staffBonusVal[kw])
+            if kwLow ~= "" and m and m > 0 and wLow:find(kwLow, 1, true) then
+                return m
+            end
+        end
+        return 1.0
+    end
+    if staffBonusVal == "" then return 1.0 end
     local bestBonus = 1.0
-    for token in tostring(staffBonusStr):gmatch("[^,;]+") do
+    for token in tostring(staffBonusVal):gmatch("[^,;]+") do
         local kw, multStr = Trim(token):match("^([^:=]+)%s*[:=]%s*([%-%d%.]+)$")
         if kw and multStr then
             local kwLow = Trim(kw):lower()

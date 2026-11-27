@@ -1,5 +1,6 @@
--- Arcane Wilds - Direct Spell Name & Combo Rule Parser (Zero Numeric Abstraction)
+-- Arcane Wilds - Direct Spell Name & Combo Rule Parser (JSON Schema + Legacy DSL)
 
+local Json = require("json")
 local RuleParser = {}
 
 local function Trim(s)
@@ -158,7 +159,7 @@ local function ParseStageHeader(stageStr)
     return elem, tokens
 end
 
-function RuleParser.ParseWeightedMacros(ruleStr, nameMapByCat, globalNameMap, discoveredAssets)
+local function ParseLegacyMacroList(ruleStr, nameMapByCat, globalNameMap, discoveredAssets)
     local macros = {}
     if not ruleStr or Trim(ruleStr) == "" then
         return macros
@@ -209,8 +210,9 @@ function RuleParser.ParseWeightedMacros(ruleStr, nameMapByCat, globalNameMap, di
                 local stepDescriptors = ParseStepDescriptors(tokens[1] or "0", elemLower, nameMapByCat, globalNameMap, discoveredAssets)
                 local speedMult = 1.0
                 if #tokens >= 3 then
-                    macroWeight = tonumber(tokens[2]) or 1.0
-                    speedMult = RuleParser.ParseSpeedMultiplier(tokens[3])
+                    -- Consistent with multi-stage syntax: Category@spells:speed :weight;
+                    speedMult = RuleParser.ParseSpeedMultiplier(tokens[2])
+                    macroWeight = tonumber(tokens[3]) or 1.0
                 elseif #tokens == 2 then
                     macroWeight = 1.0
                     speedMult = RuleParser.ParseSpeedMultiplier(tokens[2])
@@ -235,6 +237,137 @@ function RuleParser.ParseWeightedMacros(ruleStr, nameMapByCat, globalNameMap, di
     end
 
     return macros
+end
+
+local function FormatMacroDisplaySummary(ruleName, stages, weight)
+    local stageParts = {}
+    for _, st in ipairs(stages) do
+        local stepNames = {}
+        for _, sd in ipairs(st.steps) do
+            table.insert(stepNames, tostring(sd.token or "?"))
+        end
+        local spStr = string.format("%.2g", tonumber(st.speed) or 1.0)
+        if #stepNames == 1 and st.elementLower == stepNames[1]:lower() then
+            table.insert(stageParts, string.format("%s:%s", stepNames[1], spStr))
+        else
+            table.insert(stageParts, string.format("%s@%s:%s", tostring(st.element), table.concat(stepNames, ","), spStr))
+        end
+    end
+    local summary = table.concat(stageParts, " -> ") .. " :" .. tostring(weight)
+    if ruleName and ruleName ~= "" then
+        return "[" .. ruleName .. "] " .. summary
+    end
+    return summary
+end
+
+-- Parse combo_rules.json (or JSONC) into normalized weighted macros.
+-- Returns (macros, nil) on success, or (nil, errMsg) on syntax/schema error.
+function RuleParser.ParseJsonMacros(rawJson, nameMapByCat, globalNameMap, discoveredAssets)
+    if not rawJson or Trim(rawJson) == "" then
+        return {}, nil
+    end
+    local doc, err = Json.Decode(rawJson)
+    if err then
+        return nil, err
+    end
+    if type(doc) ~= "table" then
+        return nil, "root JSON value must be an object with a 'rules' array"
+    end
+
+    local rulesList = doc.rules
+    if type(rulesList) ~= "table" then
+        if doc[1] ~= nil then
+            rulesList = doc
+        else
+            return nil, "missing 'rules' array in combo_rules.json"
+        end
+    end
+
+    local macros = {}
+    for rIdx, rule in ipairs(rulesList) do
+        if type(rule) == "table" and rule.enabled ~= false then
+            local ruleName = rule.name ~= nil and Trim(tostring(rule.name)) or nil
+            local weight = tonumber(rule.weight)
+            if weight == nil then weight = 1.0 end
+
+            if weight > 0 then
+                if type(rule.stages) == "table" and #rule.stages > 0 then
+                    local stages = {}
+                    for _, st in ipairs(rule.stages) do
+                        if type(st) == "table" then
+                            local rawSteps = {}
+                            if type(st.spells) == "table" then
+                                for _, tok in ipairs(st.spells) do
+                                    local cleanTok = Trim(tostring(tok or ""))
+                                    if cleanTok ~= "" then table.insert(rawSteps, cleanTok) end
+                                end
+                            elseif st.spell ~= nil then
+                                local cleanTok = Trim(tostring(st.spell))
+                                if cleanTok ~= "" then table.insert(rawSteps, cleanTok) end
+                            end
+
+                            if #rawSteps > 0 then
+                                local elem = st.category ~= nil and Trim(tostring(st.category)) or ""
+                                if elem == "" then
+                                    -- Allow omitting category for custom/global single-spell stages (e.g. { spell: "SaradominGodsword" })
+                                    elem = rawSteps[1]
+                                end
+                                local elemLower = elem:lower()
+                                local stepDescriptors = {}
+                                for _, tok in ipairs(rawSteps) do
+                                    table.insert(stepDescriptors, ResolveStepDescriptor(tok, elemLower, nameMapByCat, globalNameMap, discoveredAssets))
+                                end
+                                local speedMult = RuleParser.ParseSpeedMultiplier(st.speed or 1.0)
+                                table.insert(stages, {
+                                    element = elem,
+                                    elementLower = elemLower,
+                                    steps = stepDescriptors,
+                                    speed = speedMult
+                                })
+                            end
+                        end
+                    end
+
+                    if #stages > 0 then
+                        table.insert(macros, {
+                            name = ruleName,
+                            raw = FormatMacroDisplaySummary(ruleName, stages, weight),
+                            weight = weight,
+                            stages = stages
+                        })
+                    end
+                elseif type(rule.chain) == "string" and Trim(rule.chain) ~= "" then
+                    local chainStr = Trim(rule.chain)
+                    if not chainStr:match(";$") then chainStr = chainStr .. ";" end
+                    local parsed = ParseLegacyMacroList(chainStr, nameMapByCat, globalNameMap, discoveredAssets)
+                    for _, m in ipairs(parsed) do
+                        if rule.weight ~= nil then m.weight = weight end
+                        m.name = ruleName
+                        if ruleName and ruleName ~= "" then
+                            m.raw = "[" .. ruleName .. "] " .. m.raw
+                        end
+                        if m.weight > 0 then
+                            table.insert(macros, m)
+                        end
+                    end
+                else
+                    return nil, string.format("rule #%d missing 'stages' array or 'chain' string", rIdx)
+                end
+            end
+        end
+    end
+
+    return macros, nil
+end
+
+function RuleParser.ParseWeightedMacros(ruleStr, nameMapByCat, globalNameMap, discoveredAssets)
+    if not ruleStr or Trim(ruleStr) == "" then
+        return {}, nil
+    end
+    if Json.LooksLikeJson(ruleStr) then
+        return RuleParser.ParseJsonMacros(ruleStr, nameMapByCat, globalNameMap, discoveredAssets)
+    end
+    return ParseLegacyMacroList(ruleStr, nameMapByCat, globalNameMap, discoveredAssets), nil
 end
 
 return RuleParser

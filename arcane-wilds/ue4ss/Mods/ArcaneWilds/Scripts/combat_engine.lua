@@ -708,7 +708,7 @@ function CombatEngine.RollAndEngageMacroForAnchor(config, state, pawn, combatMag
             end
         end
     else
-        logFn(string.format("Start [%s] (Anchor [%s], Rune [%s]) -> No matching rule for equipped element in combo_rules.txt",
+        logFn(string.format("Start [%s] (Anchor [%s], Rune [%s]) -> No matching rule for equipped element in combo_rules.json",
             tostring(startKey or freshAnchor or "None"), tostring(freshAnchor or "None"),
             tostring(state.LastKnownRuneName or "None")))
     end

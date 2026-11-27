@@ -1,0 +1,190 @@
+{
+  "$schema": "./schemas/combo_rules.schema.json",
+  "rules": [
+    {
+      "name": "Air Staff Full Chain",
+      "description": "Single-element full chain (Staff)",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "Air", "spells": ["bolt", "gust", "vortex", "slam"], "speed": 2.2 }
+      ]
+    },
+    {
+      "name": "Water Staff Full Chain",
+      "description": "Single-element full chain (Staff)",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "Water", "spells": ["bolt", "waterfall", "wave", "tsunami"], "speed": 2.2 }
+      ]
+    },
+    {
+      "name": "Fire Staff Full Chain",
+      "description": "Single-element full chain (Staff)",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "Fire", "spells": ["bolt_1", "bolt_2", "burst", "explosion"], "speed": 2.0 }
+      ]
+    },
+    {
+      "name": "Earth Staff Full Chain",
+      "description": "Single-element full chain (Staff)",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "Earth", "spells": ["bolt", "spike", "shatter", "boulder"], "speed": 2.0 }
+      ]
+    },
+    {
+      "name": "Air Wand Full Chain",
+      "description": "Wand-specific variant (falls back to base element rules if omitted)",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "Air_Wand", "spells": ["bolt", "gust", "vortex", "slam"], "speed": 2.4 }
+      ]
+    },
+    {
+      "name": "Water Wand Full Chain",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "Water_Wand", "spells": ["bolt", "waterfall", "wave", "tsunami"], "speed": 2.4 }
+      ]
+    },
+    {
+      "name": "Fire Wand Full Chain",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "Fire_Wand", "spells": ["bolt_1", "bolt_2", "burst", "explosion"], "speed": 2.2 }
+      ]
+    },
+    {
+      "name": "Earth Wand Full Chain",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "Earth_Wand", "spells": ["bolt", "spike", "shatter", "boulder"], "speed": 2.2 }
+      ]
+    },
+    {
+      "name": "Fire Opener -> Air Finisher",
+      "description": "Cross-element combo",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "Fire", "spells": ["bolt_1", "bolt_2"], "speed": 2.2 },
+        { "category": "Air", "spells": ["gust", "vortex"], "speed": 2.2 }
+      ]
+    },
+    {
+      "name": "Air Opener -> Water Wave/Tsunami",
+      "description": "Cross-element combo",
+      "enabled": true,
+      "weight": 4,
+      "stages": [
+        { "category": "Air", "spells": ["bolt", "gust"], "speed": 2.3 },
+        { "category": "Water", "spells": ["wave", "tsunami"], "speed": 2.1 }
+      ]
+    },
+    {
+      "name": "Water Opener -> Earth Shatter/Boulder",
+      "description": "Cross-element combo",
+      "enabled": true,
+      "weight": 4,
+      "stages": [
+        { "category": "Water", "spells": ["bolt", "waterfall"], "speed": 2.2 },
+        { "category": "Earth", "spells": ["shatter", "boulder"], "speed": 2.0 }
+      ]
+    },
+    {
+      "name": "3-Element Chain (Fire -> Water -> Air)",
+      "description": "Multi-stage 3-element chain",
+      "enabled": true,
+      "weight": 3,
+      "stages": [
+        { "category": "Fire", "spells": ["bolt_1", "bolt_2"], "speed": 2.3 },
+        { "category": "Water", "spells": ["wave"], "speed": 2.2 },
+        { "category": "Air", "spells": ["vortex", "slam"], "speed": 2.0 }
+      ]
+    },
+    {
+      "name": "Earth Opener -> Flames of Zamorak",
+      "description": "Custom spell finisher defined in custom_spells.json",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "Earth", "spells": ["bolt", "spike", "shatter"], "speed": 2.0 },
+        { "spell": "FlamesOfZamorak", "speed": 2.0 }
+      ]
+    },
+    {
+      "name": "Fire Opener -> Flames of Zamorak",
+      "enabled": true,
+      "weight": 4,
+      "stages": [
+        { "category": "Fire", "spells": ["bolt_1", "bolt_2"], "speed": 2.2 },
+        { "spell": "FlamesOfZamorak", "speed": 1.8 }
+      ]
+    },
+    {
+      "name": "Air Opener -> Storm of Armadyl",
+      "enabled": true,
+      "weight": 4,
+      "stages": [
+        { "category": "Air", "spells": ["bolt", "gust", "vortex"], "speed": 2.2 },
+        { "spell": "StormOfArmadyl", "speed": 2.0 }
+      ]
+    },
+    {
+      "name": "Ancient Magicks: Blood -> Ice Barrage",
+      "description": "HydraAncientMagicks cross-barrage combo",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "HAM_BloodBarrage", "spells": ["blood_barrage"], "speed": 2.0 },
+        { "category": "HAM_IceBarrage", "spells": ["ice_barrage"], "speed": 2.0 }
+      ]
+    },
+    {
+      "name": "Ancient Magicks: Ice -> Blood Barrage",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "HAM_IceBarrage", "spells": ["ice_barrage"], "speed": 2.0 },
+        { "category": "HAM_BloodBarrage", "spells": ["blood_barrage"], "speed": 2.0 }
+      ]
+    },
+    {
+      "name": "Ancient Magicks: Smoke -> Shadow Barrage",
+      "enabled": true,
+      "weight": 4,
+      "stages": [
+        { "category": "HAM_SmokeBarrage", "spells": ["smoke_barrage"], "speed": 2.0 },
+        { "category": "HAM_ShadowBarrage", "spells": ["shadow_barrage"], "speed": 2.0 }
+      ]
+    },
+    {
+      "name": "Ancient Magicks: Shadow -> Blood Barrage",
+      "enabled": true,
+      "weight": 4,
+      "stages": [
+        { "category": "HAM_ShadowBarrage", "spells": ["shadow_barrage"], "speed": 2.0 },
+        { "category": "HAM_BloodBarrage", "spells": ["blood_barrage"], "speed": 2.0 }
+      ]
+    },
+    {
+      "name": "Direct Asset Override Example",
+      "description": "Bypasses spell_names.txt by naming DA_Spell_* assets directly",
+      "enabled": true,
+      "weight": 2,
+      "stages": [
+        { "category": "Fire", "spells": ["DA_Spell_Primary_Fire_01", "DA_Spell_Primary_Fire_02"], "speed": 2.2 },
+        { "category": "Water", "spells": ["DA_Spell_Primary_Water_04"], "speed": 2.0 }
+      ]
+    }
+  ]
+}

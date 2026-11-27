@@ -145,6 +145,8 @@ Commands:
                        Options: --dry-run (-DryRun), --force-update (-ForceUpdate), -SkipBuild, -Version, -Channel
   changelog    <mod>   Update folder-scoped Git changelog in <mod>/README.md
                        Options: -Version <ver>, -MaxCommits <n>
+  test         <mod>   Validate JSON configs and run offline Lua unit/regression tests (alias: t)
+                       Options: -LuaExe <path>
   backup               Back up local RuneScape: Dragonwilds saves
   list                 List mods in this repo, versions, pak status, and local deploy status (aliases: ls, status)
                        Options: -GameDir <path>
@@ -353,6 +355,21 @@ switch ($cmd) {
         }
         $params["ModFolder"] = Resolve-ModFolderName $params["ModFolder"]
         & (Join-Path $scriptsDir "update-changelog.ps1") @params
+        return
+    }
+
+    { $_ -in @("test", "t") } {
+        $parsed = Parse-CliArgs -RawArgs $RemainingArgs -SwitchNames @("Verbose", "Debug")
+        $params = $parsed.Named
+        if (-not $params.ContainsKey("ModFolder")) {
+            if ($parsed.Positional.Count -ge 1) {
+                $params["ModFolder"] = [string]$parsed.Positional[0]
+            } else {
+                $params["ModFolder"] = "arcane-wilds"
+            }
+        }
+        $params["ModFolder"] = Resolve-ModFolderName $params["ModFolder"]
+        & (Join-Path $scriptsDir "test-mod.ps1") @params
         return
     }
 

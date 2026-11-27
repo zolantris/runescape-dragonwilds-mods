@@ -61,15 +61,61 @@ local DEFAULT_SPELL_NAMES_CONTENT = table.concat({
     "Earth_Wand.boulder = DA_Spell_Primary_Earth_Wand_04"
 }, "\n") .. "\n"
 
-local DEFAULT_COMBO_RULES_CONTENT = table.concat({
-    "# ArcaneWilds Custom Combo Rules (Hot-Reloaded Automatically on Save!)",
-    "# Syntax: Category@spell,spell:speed -> Category@spell,spell:speed :weight;",
-    "Air@bolt,gust,vortex,slam:2.2 :5;",
-    "Water@bolt,waterfall,wave,tsunami:2.2 :5;",
-    "Water@bolt,waterfall,wave:2.0 -> SaradominGodsword@SaradominGodsword:1.5 :5;",
-    "Fire@bolt_1,bolt_2:2.2 -> Air@gust,vortex:2.2 :5;",
-    "Earth@bolt,spike,shatter:2.0 -> FlamesOfZamorak@FlamesOfZamorak:2.0 :5;"
-}, "\n") .. "\n"
+local DEFAULT_COMBO_RULES_JSON_CONTENT = [[{
+  "$schema": "./schemas/combo_rules.schema.json",
+  "rules": [
+    {
+      "name": "Air Full Chain",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "Air", "spells": ["bolt", "gust", "vortex", "slam"], "speed": 2.2 }
+      ]
+    },
+    {
+      "name": "Water Full Chain",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "Water", "spells": ["bolt", "waterfall", "wave", "tsunami"], "speed": 2.2 }
+      ]
+    },
+    {
+      "name": "Water Opener -> Saradomin Godsword",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "Water", "spells": ["bolt", "waterfall", "wave"], "speed": 2.0 },
+        { "spell": "SaradominGodsword", "speed": 1.5 }
+      ]
+    },
+    {
+      "name": "Fire Opener -> Air Finisher",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "Fire", "spells": ["bolt_1", "bolt_2"], "speed": 2.2 },
+        { "category": "Air", "spells": ["gust", "vortex"], "speed": 2.2 }
+      ]
+    },
+    {
+      "name": "Earth Opener -> Flames of Zamorak",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "Earth", "spells": ["bolt", "spike", "shatter"], "speed": 2.0 },
+        { "spell": "FlamesOfZamorak", "speed": 2.0 }
+      ]
+    }
+  ]
+}
+]]
+
+local DEFAULT_CUSTOM_SPELLS_JSON_CONTENT = [[{
+  "$schema": "./schemas/custom_spells.schema.json",
+  "spells": {}
+}
+]]
 
 local DEFAULT_QUICK_CAST_CONTENT = table.concat({
     "# ArcaneWilds Quick-Cast Hotkeys (Hot-Reloaded Automatically on Save!)",
@@ -170,7 +216,7 @@ function ConfigManager.CreateDefaultConfig()
         LockedSpellNotifyStyle = "auto",
         LockedSpellNotifyCooldownSec = 1.5,
         MaxMoveSpeed = 600.0,
-        ActiveComboRulesCount = "Loading combo_rules.txt...",
+        ActiveComboRulesCount = "Loading combo_rules.json...",
         DetectedSpellsSummary = "Auto-detecting on world load..."
     }
 end
@@ -286,24 +332,75 @@ function ConfigManager.LoadSpellNamesFile(paths, state)
     return false
 end
 
-function ConfigManager.LoadCustomSpellsFile(paths, state, logFn)
-    local f = io.open(paths.CUSTOM_SPELLS_PATH, "r")
-    if not f then
-        local wf = io.open(paths.CUSTOM_SPELLS_PATH, "w")
-        if wf then
-            wf:write("-- Arcane Wilds Custom Spells (see custom_spells.txt template)\n")
-            wf:close()
-        end
-        return false
-    end
-    local raw = f:read("*a") or ""
+local function ReadExistingFile(path)
+    if not path or path == "" then return nil end
+    local f = io.open(path, "r")
+    if not f then return nil end
+    local content = f:read("*a") or ""
     f:close()
-    if state.LastCustomSpellsRaw ~= raw then
+    return content
+end
+
+function ConfigManager.LoadCustomSpellsFile(paths, state, logFn)
+    local jsonPath = paths.CUSTOM_SPELLS_JSON_PATH
+    local txtPath  = paths.CUSTOM_SPELLS_PATH
+
+    local activePath = nil
+    local raw = nil
+    local isJson = false
+
+    if jsonPath then
+        raw = ReadExistingFile(jsonPath)
+        if raw ~= nil then
+            activePath = jsonPath
+            isJson = true
+        end
+    end
+    if raw == nil and txtPath then
+        raw = ReadExistingFile(txtPath)
+        if raw ~= nil then
+            activePath = txtPath
+            isJson = false
+        end
+    end
+    if raw == nil then
+        local createPath = jsonPath or txtPath
+        if createPath then
+            local wf = io.open(createPath, "w")
+            if wf then
+                if jsonPath then
+                    wf:write(DEFAULT_CUSTOM_SPELLS_JSON_CONTENT)
+                else
+                    wf:write("# Arcane Wilds Custom Spells\n")
+                end
+                wf:close()
+            end
+            raw = ReadExistingFile(createPath) or ""
+            activePath = createPath
+            isJson = (jsonPath ~= nil)
+        else
+            return false
+        end
+    end
+
+    local sourceLabel = isJson and "custom_spells.json" or "custom_spells.txt"
+    local rawKey = sourceLabel .. "\0" .. raw
+    if state.LastCustomSpellsRaw ~= rawKey then
         local isInitial = (state.LastCustomSpellsRaw == nil)
-        state.LastCustomSpellsRaw = raw
-        state.CustomSpellDefs = CustomSpells.ParseDefinitions(raw)
-        if not isInitial then
-            logFn("Hot-reloaded custom_spells.txt")
+        state.LastCustomSpellsRaw = rawKey
+        local parsedDefs, parseErr = CustomSpells.ParseDefinitions(raw)
+        if parseErr or not parsedDefs then
+            state.LastCustomSpellsError = tostring(parseErr or "unknown parse error")
+            if logFn then
+                logFn(string.format("[ERROR] Failed to parse %s (%s) - keeping previous valid custom spells!",
+                    sourceLabel, state.LastCustomSpellsError))
+            end
+            return false
+        end
+        state.LastCustomSpellsError = nil
+        state.CustomSpellDefs = parsedDefs
+        if not isInitial and logFn then
+            logFn("Hot-reloaded " .. sourceLabel)
         end
         return true
     end
@@ -333,35 +430,9 @@ function ConfigManager.RebuildMergedRegistry(state)
     state.DiscoveredLookup = lookup
 end
 
-function ConfigManager.LoadComboRulesFile(paths, config, state, logFn, forceRebuild, legacyRuleFallback)
-    local namesChanged = ConfigManager.LoadSpellNamesFile(paths, state)
-    local customChanged = ConfigManager.LoadCustomSpellsFile(paths, state, logFn)
-    if customChanged then
-        CustomSpells.ClearCache()
-        pcall(function() require("timeline_runner").ClearValidationCache() end)
-        if next(state.BaseSpellRegistry) ~= nil then
-            ConfigManager.RebuildMergedRegistry(state)
-        end
-    end
-
-    local f = io.open(paths.COMBO_RULES_PATH, "r")
-    if not f then
-        local wf = io.open(paths.COMBO_RULES_PATH, "w")
-        if wf then
-            if legacyRuleFallback and ConfigManager.Trim(legacyRuleFallback) ~= "" then
-                wf:write("# Migrated from config.txt WeightedComboRules\n")
-                wf:write(ConfigManager.Trim(legacyRuleFallback) .. "\n")
-            else
-                wf:write(DEFAULT_COMBO_RULES_CONTENT)
-            end
-            wf:close()
-        end
-        f = io.open(paths.COMBO_RULES_PATH, "r")
-        if not f then return end
-    end
-
+local function NormalizeLegacyComboRulesText(rawText)
     local lines = {}
-    for line in f:lines() do
+    for line in tostring(rawText or ""):gmatch("[^\r\n]+") do
         local clean = ConfigManager.Trim(line)
         if clean ~= "" and not clean:match("^#") and not clean:match("^;") then
             local hashPos = clean:find("#", 1, true)
@@ -376,30 +447,105 @@ function ConfigManager.LoadComboRulesFile(paths, config, state, logFn, forceRebu
             end
         end
     end
-    f:close()
+    return table.concat(lines, " ")
+end
 
-    local combinedRules = table.concat(lines, " ")
-    if forceRebuild or namesChanged or customChanged or state.LastComboRulesRaw ~= combinedRules then
+function ConfigManager.LoadComboRulesFile(paths, config, state, logFn, forceRebuild, legacyRuleFallback)
+    local namesChanged = ConfigManager.LoadSpellNamesFile(paths, state)
+    local customChanged = ConfigManager.LoadCustomSpellsFile(paths, state, logFn)
+    if customChanged then
+        CustomSpells.ClearCache()
+        pcall(function() require("timeline_runner").ClearValidationCache() end)
+        if next(state.BaseSpellRegistry) ~= nil then
+            ConfigManager.RebuildMergedRegistry(state)
+        end
+    end
+
+    local jsonPath = paths.COMBO_RULES_JSON_PATH
+    local txtPath  = paths.COMBO_RULES_PATH
+
+    local raw = nil
+    local isJson = false
+    if jsonPath then
+        raw = ReadExistingFile(jsonPath)
+        if raw ~= nil then
+            isJson = true
+        end
+    end
+    if raw == nil and txtPath then
+        raw = ReadExistingFile(txtPath)
+        if raw ~= nil then
+            isJson = false
+        end
+    end
+    if raw == nil then
+        local createPath = jsonPath or txtPath
+        if not createPath then return end
+        local wf = io.open(createPath, "w")
+        if wf then
+            if jsonPath and (not legacyRuleFallback or ConfigManager.Trim(legacyRuleFallback) == "") then
+                wf:write(DEFAULT_COMBO_RULES_JSON_CONTENT)
+                isJson = true
+            elseif legacyRuleFallback and ConfigManager.Trim(legacyRuleFallback) ~= "" then
+                wf:write("# Migrated from config.txt WeightedComboRules\n")
+                wf:write(ConfigManager.Trim(legacyRuleFallback) .. "\n")
+                isJson = false
+            else
+                wf:write(DEFAULT_COMBO_RULES_JSON_CONTENT)
+                isJson = true
+            end
+            wf:close()
+        end
+        raw = ReadExistingFile(createPath)
+        if raw == nil then return end
+    end
+
+    local sourceLabel = isJson and "combo_rules.json" or "combo_rules.txt"
+    local parseInput = isJson and raw or NormalizeLegacyComboRulesText(raw)
+    local rawKey = sourceLabel .. "\0" .. parseInput
+
+    if forceRebuild or namesChanged or customChanged or state.LastComboRulesRaw ~= rawKey then
         local isInitial = (state.LastComboRulesRaw == nil)
-        state.LastComboRulesRaw = combinedRules
-        state.ParsedMacros = RuleParser.ParseWeightedMacros(
-            combinedRules, state.NameMapByCat, state.GlobalNameMap, state.DiscoveredLookup)
+        state.LastComboRulesRaw = rawKey
+        local parsedMacros, parseErr = RuleParser.ParseWeightedMacros(
+            parseInput, state.NameMapByCat, state.GlobalNameMap, state.DiscoveredLookup)
 
-        local statusStr = string.format("%d macro(s) active from combo_rules.txt", #state.ParsedMacros)
+        if parseErr or not parsedMacros then
+            state.LastComboRulesError = tostring(parseErr or "unknown parse error")
+            local errStatus = string.format("ERROR in %s (%s)", sourceLabel, state.LastComboRulesError)
+            config.ActiveComboRulesCount = errStatus
+            if errStatus ~= state.LastRulesStatusWritten then
+                state.LastRulesStatusWritten = errStatus
+                ConfigManager.SaveConfigFile(paths, config)
+            end
+            if logFn then
+                logFn(string.format("[ERROR] Failed to parse %s (%s) - keeping previous %d active macro(s)!",
+                    sourceLabel, state.LastComboRulesError, #(state.ParsedMacros or {})))
+            end
+            return
+        end
+
+        state.LastComboRulesError = nil
+        state.LastValidComboRulesRaw = parseInput
+        state.ParsedMacros = parsedMacros
+
+        local statusStr = string.format("%d macro(s) active from %s", #state.ParsedMacros, sourceLabel)
         config.ActiveComboRulesCount = statusStr
         if statusStr ~= state.LastRulesStatusWritten then
             state.LastRulesStatusWritten = statusStr
             ConfigManager.SaveConfigFile(paths, config)
         end
 
-        if isInitial then
-            logFn("Loaded " .. tostring(#state.ParsedMacros) .. " macro(s) from combo_rules.txt")
-        else
-            logFn("Hot-reloaded combo_rules.txt / spell_names.txt -> " .. tostring(#state.ParsedMacros) .. " macro(s) active!")
-            for idx, m in ipairs(state.ParsedMacros) do
-                logFn(string.format("  Rule #%d [weight=%s, stages=%d]: %s", idx, tostring(m.weight), #m.stages, m.raw))
+        if logFn then
+            if isInitial then
+                logFn("Loaded " .. tostring(#state.ParsedMacros) .. " macro(s) from " .. sourceLabel)
+            else
+                logFn("Hot-reloaded " .. sourceLabel .. " / spell_names.txt -> " .. tostring(#state.ParsedMacros) .. " macro(s) active!")
+                for idx, m in ipairs(state.ParsedMacros) do
+                    logFn(string.format("  Rule #%d [weight=%s, stages=%d]: %s", idx, tostring(m.weight), #m.stages, m.raw))
+                end
+                ConfigManager.LogParsedMacrosSpellMapping(config, state, logFn, "Hot-Reloaded Combo Rules -> Direct Spell Asset Mapping")
             end
-            ConfigManager.LogParsedMacrosSpellMapping(config, state, logFn, "Hot-Reloaded Combo Rules -> Direct Spell Asset Mapping")
         end
     end
 end

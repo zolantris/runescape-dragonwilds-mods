@@ -87,7 +87,7 @@
       "key": "QuickCastSpell1",
       "type": "text",
       "label": "Quick-Cast Spell #1",
-      "description": "Spell name from custom_spells.txt, spell_names.txt, or DA_Spell_* asset name (e.g. SaradominGodsword).",
+      "description": "Spell name from custom_spells.json, spell_names.txt, or DA_Spell_* asset name (e.g. SaradominGodsword).",
       "default": "SaradominGodsword"
     },
     {
@@ -134,14 +134,14 @@
     },
     {
       "type": "header",
-      "label": "Weighted Cross-Element Combo Macros (combo_rules.txt)"
+      "label": "Weighted Cross-Element Combo Macros (combo_rules.json)"
     },
     {
       "key": "ActiveComboRulesCount",
       "type": "text",
       "label": "Combo Rules File Status (Read-Only)",
-      "description": "Edit ArcaneWilds/combo_rules.txt & spell_names.txt directly (hot-reloads live on save).",
-      "default": "Edit combo_rules.txt in mod folder"
+      "description": "Edit ArcaneWilds/combo_rules.json & spell_names.txt directly (hot-reloads live on save; JSON Schema validated).",
+      "default": "Edit combo_rules.json in mod folder"
     },
     {
       "key": "DefaultComboCutoff",

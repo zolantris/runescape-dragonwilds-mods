@@ -489,6 +489,313 @@ function TimelineParser.ParseCueLine(cueType, rawVal, defaultTarget)
     return cue, timing.parseWarning
 end
 
+local function ParseJsonVec3(val, defaultX, defaultY, defaultZ)
+    if val == nil then return nil end
+    local t = type(val)
+    if t == "number" then
+        return { X = val, Y = val, Z = val }
+    elseif t == "string" then
+        return ParseVec3(val, defaultX, defaultY, defaultZ)
+    elseif t == "table" then
+        if val[1] ~= nil then
+            local x = tonumber(val[1]) or defaultX or 0.0
+            local y = tonumber(val[2])
+            local z = tonumber(val[3])
+            if y == nil and z == nil then
+                return { X = x, Y = x, Z = x }
+            end
+            return { X = x, Y = y or defaultY or 0.0, Z = z or defaultZ or 0.0 }
+        end
+        return {
+            X = tonumber(val.x or val.X) or defaultX or 0.0,
+            Y = tonumber(val.y or val.Y) or defaultY or 0.0,
+            Z = tonumber(val.z or val.Z) or defaultZ or 0.0
+        }
+    end
+    return nil
+end
+
+local function ParseJsonRot3(val)
+    if val == nil then return nil end
+    local t = type(val)
+    if t == "number" then
+        return { Pitch = 0.0, Yaw = val, Roll = 0.0 }
+    elseif t == "string" then
+        return ParseRot3(val)
+    elseif t == "table" then
+        if val[1] ~= nil then
+            if val[2] == nil and val[3] == nil then
+                return { Pitch = 0.0, Yaw = tonumber(val[1]) or 0.0, Roll = 0.0 }
+            end
+            return {
+                Pitch = tonumber(val[1]) or 0.0,
+                Yaw   = tonumber(val[2]) or 0.0,
+                Roll  = tonumber(val[3]) or 0.0
+            }
+        end
+        return {
+            Pitch = tonumber(val.pitch or val.Pitch) or 0.0,
+            Yaw   = tonumber(val.yaw or val.Yaw) or 0.0,
+            Roll  = tonumber(val.roll or val.Roll) or 0.0
+        }
+    end
+    return nil
+end
+
+local function ParseJsonRange(val)
+    if val == nil then return nil, nil end
+    local t = type(val)
+    if t == "number" then
+        return val, val
+    elseif t == "string" then
+        return ParseRange(val)
+    elseif t == "table" then
+        local lo = tonumber(val[1] or val.min or val.Min)
+        local hi = tonumber(val[2] or val.max or val.Max)
+        if lo and hi then
+            if hi < lo then lo, hi = hi, lo end
+            return lo, hi
+        elseif lo then
+            return lo, lo
+        end
+    end
+    return nil, nil
+end
+
+local function ParseJsonTiming(rawAt)
+    if rawAt == nil then
+        return { mode = "abs", offset = 0.0, raw = "@0" }
+    end
+    local t = type(rawAt)
+    if t == "number" then
+        local n = math.max(0.0, rawAt)
+        return { mode = "abs", offset = n, raw = "@" .. FormatNumber(n) }
+    elseif t == "string" then
+        return TimelineParser.ParseTiming(rawAt)
+    elseif t == "table" then
+        local off = tonumber(rawAt.offset) or 0.0
+        if rawAt.after ~= nil then
+            local a = Trim(tostring(rawAt.after))
+            local aLow = a:lower()
+            if aLow == "" or aLow == "lane" then
+                return { mode = "after_end", anchor = "lane", offset = off, raw = ">" }
+            elseif aLow == "prev" then
+                return { mode = "after_end", anchor = "prev", offset = off, raw = ">prev" }
+            end
+            return { mode = "after_end", anchor = "id", anchorId = aLow, anchorIdRaw = a, offset = off, raw = ">" .. a }
+        elseif rawAt.syncWith ~= nil then
+            local a = Trim(tostring(rawAt.syncWith))
+            local aLow = a:lower()
+            if aLow == "" or aLow == "prev" then
+                return { mode = "sync_start", anchor = "prev", offset = off, raw = "&" }
+            end
+            return { mode = "sync_start", anchor = "id", anchorId = aLow, anchorIdRaw = a, offset = off, raw = "&" .. a }
+        elseif rawAt.mode then
+            local m = tostring(rawAt.mode):lower()
+            return { mode = m, anchor = rawAt.anchor or "prev", anchorId = rawAt.anchorId and tostring(rawAt.anchorId):lower() or nil, anchorIdRaw = rawAt.anchorId, offset = off, raw = tostring(rawAt.raw or "@0") }
+        end
+    end
+    return { mode = "abs", offset = 0.0, raw = "@0", parseWarning = "Unrecognized JSON timing value; defaulting to @0" }
+end
+
+local function ParseJsonPattern(val)
+    if val == nil then return nil end
+    if type(val) == "string" then
+        return ParsePattern(val)
+    elseif type(val) == "table" then
+        local kind = tostring(val.kind or "point"):lower()
+        if kind == "ring" then
+            return {
+                kind = "ring",
+                count = math.max(1, math.floor(tonumber(val.count) or 6)),
+                radius = tonumber(val.radius) or 200.0,
+                arcDeg = 360.0
+            }
+        elseif kind == "line" then
+            return {
+                kind = "line",
+                count = math.max(1, math.floor(tonumber(val.count) or 4)),
+                step = tonumber(val.step) or 150.0
+            }
+        elseif kind == "arc" then
+            return {
+                kind = "arc",
+                count = math.max(1, math.floor(tonumber(val.count) or 5)),
+                radius = tonumber(val.radius) or 220.0,
+                arcDeg = tonumber(val.arcDeg or val.deg) or 120.0
+            }
+        end
+        return { kind = "point", count = 1, radius = 0.0, step = 0.0, arcDeg = 360.0 }
+    end
+    return nil
+end
+
+-- Parse a structured JSON cue table into the exact normalized cue struct consumed by TimelineRunner.
+function TimelineParser.ParseJsonCue(cueObj)
+    if type(cueObj) ~= "table" then
+        return nil, "Cue entry must be a JSON object"
+    end
+
+    local rawType = Trim(tostring(cueObj.type or "")):lower()
+    if rawType == "" then
+        return nil, "Cue entry missing required 'type' field"
+    end
+
+    local mapped = CUE_KEY_MAP[rawType]
+    local resolvedType = (mapped and mapped.cueType ~= "cue") and mapped.cueType or rawType
+    local defaultTarget = mapped and mapped.defaultTarget or nil
+
+    local timing = ParseJsonTiming(cueObj.at ~= nil and cueObj.at or cueObj.timing)
+    local asset = cueObj.asset ~= nil and Trim(tostring(cueObj.asset)) or nil
+    if asset == "" then asset = nil end
+
+    local params = {}
+    if defaultTarget then
+        params.target = defaultTarget
+    end
+
+    if cueObj.id ~= nil and Trim(tostring(cueObj.id)) ~= "" then
+        params.id = Trim(tostring(cueObj.id))
+        params.idLower = params.id:lower()
+    end
+    if cueObj.target ~= nil and Trim(tostring(cueObj.target)) ~= "" then
+        params.target = Trim(tostring(cueObj.target))
+    end
+    if cueObj.rate ~= nil or cueObj.speed ~= nil then
+        params.rate = tonumber(cueObj.rate or cueObj.speed) or 1.0
+    end
+    if cueObj.start ~= nil then
+        params.start = tonumber(cueObj.start) or 0.0
+    end
+
+    local rawDur = cueObj.duration ~= nil and cueObj.duration or cueObj.dur
+    if rawDur ~= nil then
+        if type(rawDur) == "string" and rawDur:lower() == "auto" then
+            params.dur = nil
+            params.durAuto = true
+        else
+            params.dur = tonumber(rawDur)
+            params.durAuto = false
+        end
+    end
+
+    if cueObj.slot ~= nil then params.slot = tostring(cueObj.slot) end
+    if cueObj.section ~= nil then params.section = tostring(cueObj.section) end
+    if cueObj.blendIn ~= nil then params.blendIn = tonumber(cueObj.blendIn) end
+    if cueObj.blendOut ~= nil then params.blendOut = tonumber(cueObj.blendOut) end
+    if cueObj.loop ~= nil then params.loop = math.max(1, math.floor(tonumber(cueObj.loop) or 1)) end
+    if cueObj.stopAll ~= nil then params.stopAll = ParseBool(cueObj.stopAll, false) end
+    if cueObj.syncTo ~= nil and Trim(tostring(cueObj.syncTo)) ~= "" then
+        params.syncToRaw = Trim(tostring(cueObj.syncTo))
+        params.syncTo = params.syncToRaw:lower()
+    end
+    if cueObj.attach ~= nil then params.attach = tostring(cueObj.attach) end
+    if cueObj.socket ~= nil then params.socket = tostring(cueObj.socket) end
+    if cueObj.offset ~= nil then params.offset = ParseJsonVec3(cueObj.offset, 0.0, 0.0, 0.0) end
+    if cueObj.rot ~= nil then params.rot = ParseJsonRot3(cueObj.rot) end
+
+    if cueObj.scale ~= nil then
+        if resolvedType == "hit" and type(cueObj.scale) == "string" then
+            params.dmgScale = Trim(cueObj.scale):lower()
+        else
+            params.scale = ParseJsonVec3(cueObj.scale, 1.0, 1.0, 1.0)
+        end
+    end
+    if cueObj.damageScaling ~= nil then
+        params.dmgScale = Trim(tostring(cueObj.damageScaling)):lower()
+    elseif cueObj.dmgScale ~= nil then
+        params.dmgScale = Trim(tostring(cueObj.dmgScale)):lower()
+    end
+
+    if cueObj.size ~= nil then params.size = ParseJsonVec3(cueObj.size, 128.0, 256.0, 256.0) end
+    if cueObj.pattern ~= nil then
+        params.pattern = ParseJsonPattern(cueObj.pattern)
+        if type(cueObj.pattern) == "string" then
+            params.patternRaw = cueObj.pattern
+        elseif params.pattern and params.pattern.kind == "ring" then
+            params.patternRaw = string.format("ring:%d:%s", params.pattern.count, FormatNumber(params.pattern.radius))
+        elseif params.pattern and params.pattern.kind == "line" then
+            params.patternRaw = string.format("line:%d:%s", params.pattern.count, FormatNumber(params.pattern.step))
+        elseif params.pattern and params.pattern.kind == "arc" then
+            params.patternRaw = string.format("arc:%d:%s:%s", params.pattern.count, FormatNumber(params.pattern.radius), FormatNumber(params.pattern.arcDeg))
+        end
+    end
+
+    local rawVol = cueObj.volume ~= nil and cueObj.volume or cueObj.vol
+    if rawVol ~= nil then params.vol = tonumber(rawVol) or 1.0 end
+    if cueObj.pitch ~= nil then params.pitch = tonumber(cueObj.pitch) or 1.0 end
+    if cueObj.radius ~= nil then params.radius = tonumber(cueObj.radius) end
+    if cueObj.cone ~= nil then params.cone = tonumber(cueObj.cone) end
+    if cueObj.maxTargets ~= nil then params.maxTargets = math.max(1, math.floor(tonumber(cueObj.maxTargets) or 1)) end
+
+    local rawDmg = cueObj.damage ~= nil and cueObj.damage or cueObj.dmg
+    if rawDmg ~= nil then
+        local lo, hi = ParseJsonRange(rawDmg)
+        params.dmgMin = lo
+        params.dmgMax = hi
+    end
+    if cueObj.damageMin ~= nil then params.dmgMin = tonumber(cueObj.damageMin) end
+    if cueObj.damageMax ~= nil then params.dmgMax = tonumber(cueObj.damageMax) end
+    if cueObj.class ~= nil then params.damageClass = tostring(cueObj.class) end
+    if cueObj.damageClass ~= nil then params.damageClass = tostring(cueObj.damageClass) end
+    if cueObj.force ~= nil then params.force = tonumber(cueObj.force) end
+    if cueObj.ge ~= nil then params.ge = tostring(cueObj.ge) end
+    if cueObj.vfx ~= nil then params.vfx = tostring(cueObj.vfx) end
+    if cueObj.sfx ~= nil then params.sfx = tostring(cueObj.sfx) end
+    if cueObj.innerRadius ~= nil then params.innerRadius = tonumber(cueObj.innerRadius) end
+    if cueObj.outerRadius ~= nil then params.outerRadius = tonumber(cueObj.outerRadius) end
+    if cueObj.falloff ~= nil then params.falloff = tonumber(cueObj.falloff) end
+    if cueObj.allowUnsafeSpawn ~= nil then params.allowUnsafeSpawn = ParseBool(cueObj.allowUnsafeSpawn, false) end
+    if cueObj.scaleWithSpeed ~= nil then params.scaleWithSpeed = ParseBool(cueObj.scaleWithSpeed, true) end
+    if cueObj.trackImpact ~= nil then params.trackImpact = ParseBool(cueObj.trackImpact, true) end
+    if cueObj.impactTimeout ~= nil then params.impactTimeout = tonumber(cueObj.impactTimeout) or 2.5 end
+    if cueObj.range ~= nil then params.range = tonumber(cueObj.range) or 700.0 end
+    if cueObj.requireLock ~= nil then params.requireLock = ParseBool(cueObj.requireLock, true) end
+    if cueObj.los ~= nil then params.los = ParseBool(cueObj.los, true) end
+    if cueObj.skill ~= nil then params.skill = tostring(cueObj.skill):lower() end
+    if cueObj.baseStrikes ~= nil then params.baseStrikes = math.max(1, math.floor(tonumber(cueObj.baseStrikes) or 1)) end
+    if cueObj.levelsPerStrike ~= nil then params.levelsPerStrike = math.max(1, math.floor(tonumber(cueObj.levelsPerStrike) or 10)) end
+    if cueObj.maxStrikes ~= nil then params.maxStrikes = math.max(1, math.floor(tonumber(cueObj.maxStrikes) or 10)) end
+    if cueObj.interval ~= nil then params.interval = math.max(0.02, tonumber(cueObj.interval) or 0.15) end
+    if cueObj.chainRadius ~= nil then params.chainRadius = math.max(50.0, tonumber(cueObj.chainRadius) or 650.0) end
+    if cueObj.preferUnique ~= nil then params.preferUnique = ParseBool(cueObj.preferUnique, true) end
+
+    if type(cueObj.vfxFloats) == "table" then
+        params.vfxFloats = {}
+        local keys = {}
+        for k, _ in pairs(cueObj.vfxFloats) do table.insert(keys, k) end
+        table.sort(keys)
+        for _, k in ipairs(keys) do
+            local v = tonumber(cueObj.vfxFloats[k])
+            if v ~= nil then
+                table.insert(params.vfxFloats, { name = tostring(k), value = v })
+            end
+        end
+    end
+    if type(cueObj.vfxVecs) == "table" then
+        params.vfxVecs = {}
+        local keys = {}
+        for k, _ in pairs(cueObj.vfxVecs) do table.insert(keys, k) end
+        table.sort(keys)
+        for _, k in ipairs(keys) do
+            local vec = ParseJsonVec3(cueObj.vfxVecs[k], 0.0, 0.0, 0.0)
+            if vec then
+                table.insert(params.vfxVecs, { name = tostring(k), value = vec })
+            end
+        end
+    end
+
+    local cue = {
+        type = resolvedType,
+        timing = timing,
+        asset = asset,
+        id = params.id,
+        idLower = params.idLower,
+        params = params
+    }
+    return cue, timing.parseWarning
+end
+
 -- Compile legacy flat fields in a custom_spells.txt [Section] into timeline cues
 -- when the section has no explicit timeline lines.
 function TimelineParser.CompileLegacyDef(def)
@@ -601,7 +908,15 @@ function TimelineParser.BuildTimeline(def)
     local cues = {}
     local isLegacyCompiled = false
 
-    if def and def.rawCues and #def.rawCues > 0 then
+    if def and def.jsonCues and #def.jsonCues > 0 then
+        for _, jc in ipairs(def.jsonCues) do
+            local cue, warn = TimelineParser.ParseJsonCue(jc)
+            if warn then table.insert(warnings, warn) end
+            if cue then
+                table.insert(cues, cue)
+            end
+        end
+    elseif def and def.rawCues and #def.rawCues > 0 then
         for _, rc in ipairs(def.rawCues) do
             local cue, warn = TimelineParser.ParseCueLine(rc.cueType, rc.rawVal, rc.defaultTarget)
             if warn then table.insert(warnings, warn) end

@@ -4,6 +4,7 @@
 
 local TimelineParser = require("timeline_parser")
 local ProgressionScaling = require("progression_scaling")
+local Json = require("json")
 
 local CustomSpells = {}
 local ObjectLookupCache = {}
@@ -174,10 +175,245 @@ function CustomSpells.ClearCache()
     ProgressionScaling.ClearCache()
 end
 
+local function CreateDefaultSpellDef(nameTrimmed)
+    return {
+        name = nameTrimmed,
+        nameLower = nameTrimmed:lower(),
+        baseSpell = nil,
+        category = nil,
+        vfx = nil,
+        sfx = nil,
+        montage = nil,
+        speed = nil,
+        clamp = false,
+        runeCost = nil,
+        runeCount = 1,
+        rawCues = {},
+        jsonCues = nil,
+        timelineDuration = nil,
+        stepAdvanceAt = nil,
+        cancelOnRelease = false,
+        overlapPolicy = "replace",
+        scaleTimelineWithSpeed = true,
+        requiredMagicLevel = 0,
+        requiredSkill = "Magic",
+        unlockedByDefault = true,
+        displayName = nil,
+        scaleWithStaff = nil,
+        damageScaling = nil,
+        staffBaselineTier = nil,
+        staffTierStep = nil,
+        staffBonus = nil
+    }
+end
+
+local function NormalizeJsonSpellDef(nameStr, raw)
+    local nameTrimmed = Trim(tostring(nameStr or ""))
+    if nameTrimmed == "" or type(raw) ~= "table" then return nil end
+    if raw.enabled == false then return nil end
+
+    local def = CreateDefaultSpellDef(nameTrimmed)
+
+    if raw.displayName ~= nil and Trim(tostring(raw.displayName)) ~= "" then
+        def.displayName = Trim(tostring(raw.displayName))
+    end
+    if raw.category ~= nil and Trim(tostring(raw.category)) ~= "" then
+        def.category = Trim(tostring(raw.category))
+    end
+
+    if raw.baseSpell ~= nil then
+        local bs = Trim(tostring(raw.baseSpell))
+        local bsLow = bs:lower()
+        if bs == "" or bsLow == "none" or bsLow == "nil" or bsLow == "false" then
+            def.baseSpell = nil
+            def.suppressBaseSpell = true
+        else
+            def.baseSpell = bs
+        end
+    end
+    if raw.suppressBaseSpell ~= nil then
+        def.suppressBaseSpell = ParseBool(raw.suppressBaseSpell, false)
+    end
+
+    if raw.speed ~= nil then def.speed = tonumber(raw.speed) end
+    if raw.clamp ~= nil then def.clamp = ParseBool(raw.clamp, false) end
+
+    if type(raw.runeCost) == "table" then
+        if raw.runeCost.type ~= nil and Trim(tostring(raw.runeCost.type)) ~= "" then
+            def.runeCost = Trim(tostring(raw.runeCost.type)):lower()
+        end
+        if raw.runeCost.count ~= nil then
+            def.runeCount = math.max(1, math.floor(tonumber(raw.runeCost.count) or 1))
+        end
+    elseif type(raw.runeCost) == "string" and Trim(raw.runeCost) ~= "" then
+        def.runeCost = Trim(raw.runeCost):lower()
+    end
+    if raw.runeCount ~= nil then
+        def.runeCount = math.max(1, math.floor(tonumber(raw.runeCount) or 1))
+    end
+
+    if raw.timelineDuration ~= nil then
+        if type(raw.timelineDuration) == "string" and raw.timelineDuration:lower() == "auto" then
+            def.timelineDuration = nil
+        else
+            def.timelineDuration = tonumber(raw.timelineDuration)
+        end
+    end
+    if raw.stepAdvanceAt ~= nil then def.stepAdvanceAt = tonumber(raw.stepAdvanceAt) end
+    if raw.cancelOnRelease ~= nil then def.cancelOnRelease = ParseBool(raw.cancelOnRelease, false) end
+    if raw.overlapPolicy ~= nil and Trim(tostring(raw.overlapPolicy)) ~= "" then
+        def.overlapPolicy = Trim(tostring(raw.overlapPolicy)):lower()
+    end
+    if raw.scaleTimelineWithSpeed ~= nil then
+        def.scaleTimelineWithSpeed = ParseBool(raw.scaleTimelineWithSpeed, true)
+    end
+
+    if type(raw.autoTarget) == "table" then
+        if raw.autoTarget.range ~= nil then def.autoTargetRange = tonumber(raw.autoTarget.range) end
+        if raw.autoTarget.cone ~= nil then def.autoTargetCone = tonumber(raw.autoTarget.cone) end
+    end
+    if raw.autoTargetRange ~= nil then def.autoTargetRange = tonumber(raw.autoTargetRange) end
+    if raw.autoTargetCone ~= nil then def.autoTargetCone = tonumber(raw.autoTargetCone) end
+
+    if raw.requiredSkill ~= nil and Trim(tostring(raw.requiredSkill)) ~= "" then
+        local rs = Trim(tostring(raw.requiredSkill))
+        local sk, lvStr = rs:match("^([^:]+):(%d+)$")
+        if sk and lvStr then
+            def.requiredSkill = Trim(sk)
+            def.requiredMagicLevel = math.max(0, math.floor(tonumber(lvStr) or 0))
+            if def.requiredMagicLevel > 0 then def.unlockedByDefault = false end
+        else
+            def.requiredSkill = rs
+        end
+    end
+    if raw.requiredMagicLevel ~= nil then
+        local lv = tonumber(raw.requiredMagicLevel)
+        if lv then
+            def.requiredMagicLevel = math.max(0, math.floor(lv))
+            if def.requiredMagicLevel > 0 then def.unlockedByDefault = false end
+        end
+    end
+    if raw.unlockedByDefault ~= nil then
+        def.unlockedByDefault = ParseBool(raw.unlockedByDefault, true)
+    end
+
+    if raw.scaleWithStaff ~= nil then def.scaleWithStaff = ParseBool(raw.scaleWithStaff, true) end
+    if raw.damageScaling ~= nil and Trim(tostring(raw.damageScaling)) ~= "" then
+        def.damageScaling = Trim(tostring(raw.damageScaling)):lower()
+    end
+    if raw.staffBaselineTier ~= nil then def.staffBaselineTier = tonumber(raw.staffBaselineTier) end
+    if raw.staffTierStep ~= nil then def.staffTierStep = tonumber(raw.staffTierStep) end
+    if raw.staffBonus ~= nil then def.staffBonus = raw.staffBonus end
+
+    -- Optional structured timeline cues
+    if type(raw.cues) == "table" and #raw.cues > 0 then
+        def.jsonCues = raw.cues
+    end
+
+    -- Legacy/flat spell presentation & hitbox properties
+    if raw.vfx ~= nil and Trim(tostring(raw.vfx)) ~= "" then def.vfx = Trim(tostring(raw.vfx)) end
+    if raw.sfx ~= nil and Trim(tostring(raw.sfx)) ~= "" then def.sfx = Trim(tostring(raw.sfx)) end
+    if raw.montage ~= nil and Trim(tostring(raw.montage)) ~= "" then def.montage = Trim(tostring(raw.montage)) end
+    if raw.skipMontage ~= nil then def.skipMontage = ParseBool(raw.skipMontage, false) end
+    if raw.spawnActor ~= nil and Trim(tostring(raw.spawnActor)) ~= "" then def.spawnActor = Trim(tostring(raw.spawnActor)) end
+    if raw.allowUnsafeSpawn ~= nil then def.allowUnsafeSpawn = ParseBool(raw.allowUnsafeSpawn, false) end
+    if raw.spinHitbox ~= nil then def.spinHitbox = ParseBool(raw.spinHitbox, false) end
+    if raw.hitRadius ~= nil then def.hitRadius = tonumber(raw.hitRadius) end
+    if raw.hitDamageMin ~= nil then def.hitDamageMin = tonumber(raw.hitDamageMin) end
+    if raw.hitDamageMax ~= nil then def.hitDamageMax = tonumber(raw.hitDamageMax) end
+    if raw.hitDelaySec ~= nil then def.hitDelaySec = tonumber(raw.hitDelaySec) end
+    if raw.hitVfx ~= nil then def.hitVfx = tostring(raw.hitVfx) end
+    if raw.hitSfx ~= nil then def.hitSfx = tostring(raw.hitSfx) end
+    if raw.damageSpell ~= nil then def.damageSpell = tostring(raw.damageSpell) end
+    if raw.extraAoEDelaySec ~= nil then def.extraAoEDelaySec = tonumber(raw.extraAoEDelaySec) end
+    if raw.damageMode ~= nil then def.damageMode = tostring(raw.damageMode):lower() end
+    if raw.suppressDirectHealth ~= nil then def.suppressDirectHealth = ParseBool(raw.suppressDirectHealth, false) end
+    if raw.damageGE ~= nil then def.damageGE = tostring(raw.damageGE) end
+    if raw.damageClass ~= nil then def.damageClass = tostring(raw.damageClass):lower() end
+    if raw.damageForce ~= nil then def.damageForce = tonumber(raw.damageForce) end
+    if raw.floatieOffsetZ ~= nil then def.floatieOffsetZ = tonumber(raw.floatieOffsetZ) end
+    if raw.forceFloatie ~= nil then def.forceDamageFloatie = ParseBool(raw.forceFloatie, false) end
+    if raw.bridgeBlueprint ~= nil then def.bridgeBlueprint = tostring(raw.bridgeBlueprint) end
+    if raw.impactAoE ~= nil then def.impactAoE = tostring(raw.impactAoE) end
+    if raw.impactLightning ~= nil then def.impactLightning = tostring(raw.impactLightning) end
+    if raw.impactVfx ~= nil then def.impactVfx = tostring(raw.impactVfx) end
+    if raw.impactSfx ~= nil then def.impactSfx = tostring(raw.impactSfx) end
+    if raw.impactDamageMin ~= nil then def.impactDamageMin = tonumber(raw.impactDamageMin) end
+    if raw.impactDamageMax ~= nil then def.impactDamageMax = tonumber(raw.impactDamageMax) end
+    if raw.impactRadius ~= nil then def.impactRadius = tonumber(raw.impactRadius) end
+
+    -- In JSON, "baseSpell": null decodes to nil. If no baseSpell is provided and the spell defines
+    -- custom cues or custom presentation/hitbox fields, suppress the native base spell automatically.
+    if def.baseSpell == nil and def.suppressBaseSpell == nil then
+        local hasCustomBody = (def.jsonCues ~= nil and #def.jsonCues > 0)
+            or (def.montage ~= nil)
+            or (def.spawnActor ~= nil)
+            or (def.spinHitbox == true)
+            or (def.hitDamageMin ~= nil)
+            or (def.vfx ~= nil)
+            or (def.sfx ~= nil)
+        if hasCustomBody then
+            def.suppressBaseSpell = true
+        end
+    end
+
+    return def
+end
+
+-- Parse custom_spells.json (or JSONC) into normalized CustomSpell definitions.
+-- Returns (defs, nil) on success, or (nil, errMsg) on syntax/schema error.
+function CustomSpells.ParseJsonDefinitions(rawJson)
+    if not rawJson or Trim(rawJson) == "" then
+        return {}, nil
+    end
+    local doc, err = Json.Decode(rawJson)
+    if err then
+        return nil, err
+    end
+    if type(doc) ~= "table" then
+        return nil, "root JSON value must be an object with a 'spells' map"
+    end
+
+    local defs = {}
+    local spellsMap = doc.spells
+    if type(spellsMap) == "table" then
+        if spellsMap[1] ~= nil then
+            for _, item in ipairs(spellsMap) do
+                if type(item) == "table" and item.name then
+                    local def = NormalizeJsonSpellDef(item.name, item)
+                    if def then defs[def.nameLower] = def end
+                end
+            end
+        else
+            for spellName, rawDef in pairs(spellsMap) do
+                if type(spellName) == "string" and spellName:sub(1, 1) ~= "$" then
+                    local def = NormalizeJsonSpellDef(spellName, rawDef)
+                    if def then defs[def.nameLower] = def end
+                end
+            end
+        end
+    elseif doc[1] ~= nil then
+        for _, item in ipairs(doc) do
+            if type(item) == "table" and item.name then
+                local def = NormalizeJsonSpellDef(item.name, item)
+                if def then defs[def.nameLower] = def end
+            end
+        end
+    else
+        return nil, "missing 'spells' object in custom_spells.json"
+    end
+
+    return defs, nil
+end
+
 function CustomSpells.ParseDefinitions(rawText)
     local defs = {}
     if not rawText or rawText == "" then
-        return defs
+        return defs, nil
+    end
+
+    if Json.LooksLikeJson(rawText) then
+        return CustomSpells.ParseJsonDefinitions(rawText)
     end
 
     local current = nil
@@ -193,34 +429,7 @@ function CustomSpells.ParseDefinitions(rawText)
                 if sectionName then
                     local nameTrimmed = Trim(sectionName)
                     if nameTrimmed ~= "" then
-                        current = {
-                            name = nameTrimmed,
-                            nameLower = nameTrimmed:lower(),
-                            baseSpell = nil,
-                            category = nil,
-                            vfx = nil,
-                            sfx = nil,
-                            montage = nil,
-                            speed = nil,
-                            clamp = false,
-                            runeCost = nil,
-                            runeCount = 1,
-                            rawCues = {},
-                            timelineDuration = nil,
-                            stepAdvanceAt = nil,
-                            cancelOnRelease = false,
-                            overlapPolicy = "replace",
-                            scaleTimelineWithSpeed = true,
-                            requiredMagicLevel = 0,
-                            requiredSkill = "Magic",
-                            unlockedByDefault = true,
-                            displayName = nil,
-                            scaleWithStaff = nil,
-                            damageScaling = nil,
-                            staffBaselineTier = nil,
-                            staffTierStep = nil,
-                            staffBonus = nil
-                        }
+                        current = CreateDefaultSpellDef(nameTrimmed)
                         defs[current.nameLower] = current
                     end
                 elseif current then

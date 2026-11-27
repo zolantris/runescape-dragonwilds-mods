@@ -1,0 +1,48 @@
+{
+  "$schema": "./schemas/combo_rules.schema.json",
+  "rules": [
+    {
+      "name": "Air Full Chain",
+      "enabled": false,
+      "weight": 5,
+      "stages": [
+        { "category": "Air", "spells": ["bolt", "gust", "vortex", "slam"], "speed": 2.2 }
+      ]
+    },
+    {
+      "name": "Water Full Chain",
+      "enabled": false,
+      "weight": 5,
+      "stages": [
+        { "category": "Water", "spells": ["bolt", "waterfall", "wave", "tsunami"], "speed": 2.2 }
+      ]
+    },
+    {
+      "name": "Fire Opener -> Air Finisher",
+      "enabled": false,
+      "weight": 5,
+      "stages": [
+        { "category": "Fire", "spells": ["bolt_1", "bolt_2"], "speed": 2.2 },
+        { "category": "Air", "spells": ["gust", "vortex"], "speed": 2.2 }
+      ]
+    },
+    {
+      "name": "Earth Opener -> Flames of Zamorak",
+      "enabled": false,
+      "weight": 5,
+      "stages": [
+        { "category": "Earth", "spells": ["bolt", "spike", "shatter"], "speed": 2.0 },
+        { "spell": "FlamesOfZamorak", "speed": 2.0 }
+      ]
+    },
+    {
+      "name": "Air Bolt -> Saradomin Godsword",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "Air", "spells": ["bolt"], "speed": 1.5 },
+        { "spell": "SaradominGodsword", "speed": 1.0 }
+      ]
+    }
+  ]
+}

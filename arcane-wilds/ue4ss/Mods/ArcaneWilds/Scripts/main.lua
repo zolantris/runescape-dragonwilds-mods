@@ -16,14 +16,16 @@ if not package.path:find(SCRIPTS_DIR, 1, true) then
 end
 
 local Paths = {
-    CONFIG_PATH        = MOD_DIR .. "config.txt",
-    COMBO_RULES_PATH   = MOD_DIR .. "combo_rules.txt",
-    SPELL_NAMES_PATH   = MOD_DIR .. "spell_names.txt",
-    CUSTOM_SPELLS_PATH = MOD_DIR .. "custom_spells.txt",
-    QUICK_CAST_PATH    = MOD_DIR .. "quick_cast.txt",
-    DETECTED_PATH      = MOD_DIR .. "detected_spells.txt",
-    DETECTED_VFX_PATH  = MOD_DIR .. "detected_vfx.txt",
-    VFX_NAMES_PATH     = MOD_DIR .. "vfx_names.txt"
+    CONFIG_PATH             = MOD_DIR .. "config.txt",
+    COMBO_RULES_JSON_PATH   = MOD_DIR .. "combo_rules.json",
+    COMBO_RULES_PATH        = MOD_DIR .. "combo_rules.txt",
+    SPELL_NAMES_PATH        = MOD_DIR .. "spell_names.txt",
+    CUSTOM_SPELLS_JSON_PATH = MOD_DIR .. "custom_spells.json",
+    CUSTOM_SPELLS_PATH      = MOD_DIR .. "custom_spells.txt",
+    QUICK_CAST_PATH         = MOD_DIR .. "quick_cast.txt",
+    DETECTED_PATH           = MOD_DIR .. "detected_spells.txt",
+    DETECTED_VFX_PATH       = MOD_DIR .. "detected_vfx.txt",
+    VFX_NAMES_PATH          = MOD_DIR .. "vfx_names.txt"
 }
 
 local SpellScanner   = require("spell_scanner")
@@ -119,10 +121,13 @@ local function RefreshSpells()
         ConfigManager.SaveConfigFile(Paths, Config)
     end
 
-    if State.LastComboRulesRaw then
+    if State.LastValidComboRulesRaw then
         local RuleParser = require("rule_parser")
-        State.ParsedMacros = RuleParser.ParseWeightedMacros(
-            State.LastComboRulesRaw, State.NameMapByCat, State.GlobalNameMap, State.DiscoveredLookup)
+        local parsed, err = RuleParser.ParseWeightedMacros(
+            State.LastValidComboRulesRaw, State.NameMapByCat, State.GlobalNameMap, State.DiscoveredLookup)
+        if parsed and not err then
+            State.ParsedMacros = parsed
+        end
     end
     if Config.DebugMode and not State._LoggedInitialSpellMap and next(State.SpellRegistry) ~= nil then
         State._LoggedInitialSpellMap = true
@@ -155,7 +160,7 @@ local function RunDebugInspection()
     if not Config.AllowDebugCommands then return end
     ConfigManager.LoadConfigFile(Paths, Config, State, Log, true)
     RefreshSpells()
-    Log("=== DEBUG DUMP (combo_rules.txt & spell_names.txt reloaded; detected_spells.txt updated) ===")
+    Log("=== DEBUG DUMP (combo_rules.json, custom_spells.json & spell_names.txt reloaded; detected_spells.txt updated) ===")
     local pc, pawn, combatMagic, actionPerformer = GetPlayerPawnAndComponents()
     if pawn and pawn:IsValid() then
         EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, State, DebugLog)
