@@ -140,7 +140,7 @@ local ORDERED_CONFIG_KEYS = {
     "TriggerComboOnModifierHold", "EnableAutoAttackHold", "AutoAttackAllCombos", "AutoAttackIntervalMs",
     "DefaultComboCutoff", "BonusSpeedVariancePct",
     "UnlockAir", "UnlockFire", "UnlockWater", "UnlockEarth",
-    "UnlockModdedCombat", "UnlockUtilitySpells", "KeepGroundSmashAnchored", "MaxFinisherSpeedClamp", "InjectSpecialBarOnSpecials", "SpecialBarInjectAmount", "RequireSpecialEnergyForSpecials", "MinSpecialEnergyCost", "AllowFastSpecialCast", "MaxSpecialCastRate", "PostSpecialPauseSec", "AnimRepeatPadSec",
+    "UnlockModdedCombat", "UnlockUtilitySpells", "KeepGroundSmashAnchored", "EnableFinisherSpeedClamp", "FixAir4thVerticalAim", "MaxFinisherSpeedClamp", "InjectSpecialBarOnSpecials", "SpecialBarInjectAmount", "RequireSpecialEnergyForSpecials", "MinSpecialEnergyCost", "AllowFastSpecialCast", "MaxSpecialCastRate", "PostSpecialPauseSec", "AnimRepeatPadSec",
     "AutoTargetMaxDistance", "AutoTargetConeDeg", "RequireLockOnForChainSpells",
     "EnableStaffDamageScaling", "StaffBaselineTier", "StaffTierStep", "StaffMasterworkBonus", "NoStaffDamageMultiplier",
     "EnforceSpellLevelRequirements", "DefaultCustomSpellRequiredMagicLevel", "NotifyOnLockedSpellCast", "LockedSpellNotifyStyle", "LockedSpellNotifyCooldownSec",
@@ -193,7 +193,9 @@ function ConfigManager.CreateDefaultConfig()
         UnlockEarth = true,
         UnlockModdedCombat = true,
         UnlockUtilitySpells = false,
-        KeepGroundSmashAnchored = true,
+        KeepGroundSmashAnchored = false,
+        EnableFinisherSpeedClamp = true,
+        FixAir4thVerticalAim = true,
         MaxFinisherSpeedClamp = 5.0,
         InjectSpecialBarOnSpecials = true,
         SpecialBarInjectAmount = 100.0,
@@ -744,7 +746,9 @@ function ConfigManager.LoadConfigFile(paths, config, state, logFn, forceRebuildM
                 elseif k == "UnlockEarth" then config.UnlockEarth = ConfigManager.ParseBool(v, true)
                 elseif k == "UnlockModdedCombat" then config.UnlockModdedCombat = ConfigManager.ParseBool(v, true)
                 elseif k == "UnlockUtilitySpells" then config.UnlockUtilitySpells = ConfigManager.ParseBool(v, false)
-                elseif k == "KeepGroundSmashAnchored" then config.KeepGroundSmashAnchored = ConfigManager.ParseBool(v, true)
+                elseif k == "KeepGroundSmashAnchored" then config.KeepGroundSmashAnchored = ConfigManager.ParseBool(v, false)
+                elseif k == "EnableFinisherSpeedClamp" then config.EnableFinisherSpeedClamp = ConfigManager.ParseBool(v, true)
+                elseif k == "FixAir4thVerticalAim" then config.FixAir4thVerticalAim = ConfigManager.ParseBool(v, true)
                 elseif k == "MaxFinisherSpeedClamp" then config.MaxFinisherSpeedClamp = math.max(1.0, tonumber(v) or 5.0)
                 elseif k == "InjectSpecialBarOnSpecials" then config.InjectSpecialBarOnSpecials = ConfigManager.ParseBool(v, true)
                 elseif k == "SpecialBarInjectAmount" then config.SpecialBarInjectAmount = tonumber(v) or 100.0

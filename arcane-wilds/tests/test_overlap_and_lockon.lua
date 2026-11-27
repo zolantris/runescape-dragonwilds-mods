@@ -495,4 +495,119 @@ T.Suite("overlap_and_lockon", function()
         for _, p in pairs(paths) do pcall(os.remove, p) end
         if not okRun then error(errRun) end
     end)
+
+    T.Test("ResolveLockedOnEnemy ignores ore nodes, mining rocks, and static meshes under reticle", function()
+        Mock.Reset()
+        local pawn = MakeMockPawn(MakeVector(0, 0, 0), 0)
+        local oreNode = Mock.MakeUObject("BP_OreNode_Stone_C /Game/Maps/World.OreNode_1", {
+            bIsTargetable = true
+        })
+        function oreNode:K2_GetActorLocation() return MakeVector(250, 0, 0) end
+        local staticRock = Mock.MakeUObject("StaticMeshActor /Game/Maps/World.Rock_1", {
+            bIsTargetable = true
+        })
+        function staticRock:K2_GetActorLocation() return MakeVector(250, 0, 0) end
+
+        local targetor = Mock.MakeUObject("EnemyTargetorComponent /Game/Player:Targetor", {
+            CurrentWorldActor = oreNode
+        })
+        pawn.TargetorComponent = targetor
+
+        T.AssertNil(TimelineRunner.ResolveLockedOnEnemy(pawn, 3000.0), "Ore node must not be treated as a locked enemy")
+        targetor.CurrentWorldActor = staticRock
+        T.AssertNil(TimelineRunner.ResolveLockedOnEnemy(pawn, 3000.0), "StaticMeshActor must not be treated as a locked enemy")
+    end)
+
+    T.Test("dead player guard blocks spell triggers and RecoverFromDeathOrRespawn clears stuck CastingTag", function()
+        Mock.Reset()
+        local pawn = MakeMockPawn(MakeVector(0, 0, 0), 0)
+        local healthComp = Mock.MakeUObject("PlayerHealthComponent /Game/Player:Health", {
+            _dead = true,
+            _hp = 0.0
+        })
+        function healthComp:IsDead() return self._dead end
+        function healthComp:GetAuthoritativeHealth() return self._hp end
+        pawn.HealthComponent = healthComp
+
+        T.AssertTrue(CombatEngine.IsPlayerDead(pawn), "Dead pawn must be detected via IsDead/HP")
+
+        local triggeredNative = 0
+        local removedTag = nil
+        local bpLib = Mock.MakeUObject("DominionRuntimeBlueprintLibrary /Script/Dominion.Default__DominionRuntimeBlueprintLibrary")
+        function bpLib:TriggerModularAbilityForPlayer() triggeredNative = triggeredNative + 1 end
+        function bpLib:RemoveTagFromPlayerCharacter(_, tag) removedTag = tag end
+        Mock.RegisterPath("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary", bpLib)
+
+        local spellObj = Mock.MakeUObject("DominionSpellData /Game/Spells/DA_Spell_Primary_Air_01.DA_Spell_Primary_Air_01")
+        local entry = { shortName = "DA_Spell_Primary_Air_01", spellObj = spellObj }
+        local config = ConfigManager.CreateDefaultConfig()
+        local state = { ActiveTimelines = {}, ModifierHeld = true, PendingAnchorReturn = true }
+
+        local okCast = CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, nil, nil)
+        T.AssertFalse(okCast, "Must NEVER trigger abilities on a dead pawn")
+        T.AssertEq(triggeredNative, 0)
+
+        -- Respawn recovery cancels stuck spell actor and clears CastingTag
+        local cancelCalled = false
+        local clearedLocalTag = nil
+        local castingTag = { TagName = FName("State.SpellCasting") }
+        local tagsComp = Mock.MakeUObject("GameplayTagsComponent /Game/Player:Tags")
+        function tagsComp:ClearLocalTag(t) clearedLocalTag = t end
+        local stuckSpellActor = Mock.MakeUObject("DominionSpellActor /Game/Maps/Main.StuckSpell")
+        local combatMagic = Mock.MakeUObject("PlayerCombatMagicComponent /Game/Player:CombatMagic", {
+            CurrentSpellActor = stuckSpellActor,
+            CastingTag = castingTag,
+            GameplayTagsComponent = tagsComp
+        })
+        function combatMagic:Server_CancelSpell() cancelCalled = true end
+
+        healthComp._dead = false
+        healthComp._hp = 100.0
+        T.AssertFalse(CombatEngine.IsPlayerDead(pawn))
+
+        CombatEngine.RecoverFromDeathOrRespawn(config, state, combatMagic, pawn, nil, nil, "player-respawned")
+        T.AssertTrue(cancelCalled, "Server_CancelSpell should clear stuck CurrentSpellActor")
+        T.AssertEq(removedTag, castingTag, "RemoveTagFromPlayerCharacter should remove stuck CastingTag")
+        T.AssertEq(clearedLocalTag, castingTag, "GameplayTagsComponent:ClearLocalTag should clear local CastingTag")
+        T.AssertFalse(state.ModifierHeld)
+        T.AssertFalse(state.PendingAnchorReturn)
+    end)
+
+    T.Test("TriggerSpellEntryForPlayer returns false when SaradominStrike aborts with no locked target", function()
+        Mock.Reset()
+        TimelineRunner.ClearValidationCache()
+        RegisterCoreUeClasses()
+
+        local pawn, pc = MakeMockPawn(MakeVector(0, 0, 0), 0)
+        pawn.HealthComponent = Mock.MakeUObject("PlayerHealthComponent /Game/Player:Health", {
+            IsDead = function() return false end,
+            GetAuthoritativeHealth = function() return 100.0 end
+        })
+        pawn.LockOnTargetingComponent = Mock.MakeUObject("LockOnTargetingComponent /Game/Player:LockOn", {
+            LockOnCameraActor = nil,
+            PlayerController = pc
+        })
+        pawn.TargetorComponent = Mock.MakeUObject("EnemyTargetorComponent /Game/Player:Targetor", {
+            CurrentWorldActor = nil
+        })
+
+        local defs = CustomSpells.ParseDefinitions(ReadFile(MOD_ROOT .. "/custom_spells.json"))
+        local tl = TimelineParser.BuildTimeline(defs["saradominstrike"])
+        local entry = {
+            shortName = "SaradominStrike",
+            isCustomSpell = true,
+            suppressBaseSpell = true,
+            hasTimeline = true,
+            timeline = tl,
+            customDef = defs["saradominstrike"],
+            requiredMagicLevel = 0
+        }
+
+        local config = ConfigManager.CreateDefaultConfig()
+        config.EnforceSpellLevelRequirements = false
+        local state = { ActiveTimelines = {} }
+
+        local ok = CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, nil, nil)
+        T.AssertFalse(ok, "Aborted SaradominStrike (no locked target) must return false and not trigger rune consumption / anchor return")
+    end)
 end)

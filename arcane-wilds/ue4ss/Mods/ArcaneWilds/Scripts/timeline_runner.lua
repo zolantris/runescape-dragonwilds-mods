@@ -575,12 +575,26 @@ local function IsNonZeroWorldLoc(v)
     return (math.abs(x) + math.abs(y) + math.abs(z)) > 5.0
 end
 
--- Check that an AI enemy actor is alive, targetable, and actually placed in the world (not a dead/pooled actor at 0,0,0).
+-- Check that an actor is an actual alive, targetable AI enemy placed in the world
+-- (rejects ore nodes, mining rocks, static meshes, players, and dead/pooled actors at 0,0,0).
 IsEnemyAliveAndTargetable = function(ai, pawn, pawnLow)
     if not IsValidUObject(ai) or ai == pawn then return false end
     local fLow = SafeObjName(ai):lower()
     if fLow == "" or fLow == pawnLow or fLow:find("bp_playercharacter", 1, true) then
         return false
+    end
+    -- Reject non-enemy world actors (e.g. UEnemyTargetorComponent hovering over rocks/ore nodes/props)
+    if HasUFunc(ai, "IsA") and GetCachedClass("/Script/Dominion.DominionAICharacter") then
+        if not ObjectIsClass(ai, "/Script/Dominion.DominionAICharacter") then
+            return false
+        end
+    else
+        local looksLikeEnemy = fLow:find("dominionaicharacter", 1, true) ~= nil
+            or fLow:find("bp_ai_", 1, true) ~= nil
+            or HasUFunc(ai, "GetAiHealthComponent")
+        if not looksLikeEnemy then
+            return false
+        end
     end
     local aLoc = nil
     pcall(function() aLoc = ai:K2_GetActorLocation() end)
@@ -1496,7 +1510,7 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
         if isHeavyWeaponMont and p.unsafeRate ~= "true" then
             -- Keep Greatsword/Special AnimNotifyState windows safe from notify-skipping
             effectiveRate = math.min(effectiveRate, 1.35)
-        elseif tlInst.entry and tlInst.entry.isSmash and config and config.KeepGroundSmashAnchored then
+        elseif tlInst.entry and (tlInst.entry.isClamped or tlInst.entry.isSmash) and (config and config.EnableFinisherSpeedClamp ~= false) then
             local clampMax = math.max(1.0, tonumber(config.MaxFinisherSpeedClamp) or 5.0)
             effectiveRate = math.min(effectiveRate, clampMax)
         else

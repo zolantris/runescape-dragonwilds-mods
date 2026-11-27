@@ -34,27 +34,34 @@
       "cancelOnRelease": false,
       "overlapPolicy": "parallel",
       "autoTarget": {
-        "range": 700,
-        "cone": 45
+        "range": 2500,
+        "cone": 60
       },
       "cues": [
         {
           "type": "chainstrike",
           "at": "@0.00",
           "asset": "lightning",
-          "requireLock": true,
+          "requireLock": false,
           "los": true,
           "skill": "magic",
           "baseStrikes": 1,
-          "levelsPerStrike": 10,
-          "maxStrikes": 10,
-          "interval": 0.15,
+          "levelsPerStrike": 20,
+          "maxStrikes": 5,
+          "interval": 0.4,
           "chainRadius": 650,
           "preferUnique": true,
-          "damage": [65, 125],
+          "damage": [
+            65,
+            125
+          ],
           "class": "Magical",
           "force": 260,
-          "scale": [0.35, 0.35, 0.45],
+          "scale": [
+            0.35,
+            0.35,
+            0.45
+          ],
           "sfx": "lightning",
           "duration": 0.9
         }
@@ -97,7 +104,10 @@
           "at": ">bolt",
           "target": "impact",
           "radius": 350,
-          "damage": [75, 140],
+          "damage": [
+            75,
+            140
+          ],
           "class": "Magical",
           "force": 260
         },
@@ -106,7 +116,11 @@
           "at": "&",
           "asset": "/Game/Art/VFX/Library/Spells/Windstep/NS_Windstep_Launch.NS_Windstep_Launch",
           "target": "impact",
-          "scale": [0.35, 0.35, 0.45],
+          "scale": [
+            0.35,
+            0.35,
+            0.45
+          ],
           "duration": 1.1
         }
       ]
@@ -180,7 +194,10 @@
           "type": "hit",
           "at": "&slash1+0.30",
           "radius": 400,
-          "damage": [85, 165],
+          "damage": [
+            85,
+            165
+          ],
           "class": "Magical",
           "force": 260
         },
@@ -203,7 +220,11 @@
           "at": "&+0.20",
           "asset": "lightning",
           "target": "forward:250",
-          "pattern": { "kind": "ring", "count": 4, "radius": 180 },
+          "pattern": {
+            "kind": "ring",
+            "count": 4,
+            "radius": 180
+          },
           "scale": 1.4,
           "duration": 1.0
         },
@@ -211,7 +232,10 @@
           "type": "hit",
           "at": "&+0.25",
           "radius": 450,
-          "damage": [120, 220],
+          "damage": [
+            120,
+            220
+          ],
           "class": "Magical",
           "force": 380,
           "ge": "GE_AddBurning"

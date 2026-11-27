@@ -11,6 +11,80 @@ local ProgressionScaling = require("progression_scaling")
 
 local CombatEngine = {}
 
+-- Detect whether the player pawn is dead / incapacitated (UHealthComponent::IsDead or HP <= 0).
+-- Never call TriggerModularAbilityForPlayer on a dead pawn or CastingTag can get stuck across respawn!
+function CombatEngine.IsPlayerDead(pawn)
+    if not pawn then return true end
+    local okValid, valid = pcall(function() return pawn:IsValid() end)
+    if not okValid or not valid then return true end
+
+    local dead = false
+    pcall(function()
+        local hComp = pawn.HealthComponent
+        if hComp and hComp:IsValid() then
+            if hComp.IsDead then
+                local okD, isD = pcall(function() return hComp:IsDead() end)
+                if okD and isD == true then
+                    dead = true
+                    return
+                end
+            end
+            local hp = nil
+            if hComp.GetAuthoritativeHealth then
+                local okH, v = pcall(function() return tonumber(hComp:GetAuthoritativeHealth()) end)
+                if okH and v ~= nil then hp = v end
+            end
+            if hp == nil and hComp.GetLocalHealth then
+                local okH, v = pcall(function() return tonumber(hComp:GetLocalHealth()) end)
+                if okH and v ~= nil then hp = v end
+            end
+            if hp ~= nil and hp <= 0.01 then
+                dead = true
+            end
+        end
+    end)
+    return dead
+end
+
+-- Clear any stuck Dragonwilds spell-casting lockouts (CurrentSpellActor / CastingTag) on death or respawn
+-- so PlayerActionPerformer::ActionBlockingQueries never permanently locks out Block or Attack.
+function CombatEngine.RecoverFromDeathOrRespawn(config, state, combatMagic, pawn, logFn, debugLogFn, reason)
+    CombatEngine.ResetAllState(config, state, combatMagic, pawn, debugLogFn, reason or "death-recovery")
+    if state then
+        state.ModifierHeld = false
+        state.PrimaryAttackHeld = false
+    end
+
+    if pawn and pawn:IsValid() and combatMagic and combatMagic:IsValid() then
+        pcall(function()
+            local curActor = combatMagic.CurrentSpellActor
+            if curActor and curActor:IsValid() and combatMagic.Server_CancelSpell then
+                combatMagic:Server_CancelSpell()
+            end
+        end)
+        pcall(function()
+            local castingTag = combatMagic.CastingTag
+            if castingTag ~= nil then
+                local bpLib = StaticFindObject("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary")
+                if bpLib and bpLib:IsValid() and bpLib.RemoveTagFromPlayerCharacter then
+                    pcall(function() bpLib:RemoveTagFromPlayerCharacter(pawn, castingTag) end)
+                end
+                local tagsComp = combatMagic.GameplayTagsComponent
+                if tagsComp and tagsComp:IsValid() then
+                    if tagsComp.ClearLocalTag then
+                        pcall(function() tagsComp:ClearLocalTag(castingTag) end)
+                    elseif tagsComp.RemoveLocalTag then
+                        pcall(function() tagsComp:RemoveLocalTag(castingTag) end)
+                    end
+                end
+            end
+        end)
+    end
+    if logFn and reason then
+        logFn("Recovered combat/casting state (" .. tostring(reason) .. ")")
+    end
+end
+
 local function GetMacroStartCategory(macro)
     if not macro or not macro.stages or not macro.stages[1] then return nil end
     local st1 = macro.stages[1]
@@ -146,7 +220,7 @@ function CombatEngine.SetAllComboMontageRates(config, state, targetRate)
             -- Keep shared UAnimMontage.RateScale at 1.0 when restoring, or cap safely if priming
             if targetRate == 1.0 then
                 pcall(function() montage.RateScale = 1.0 end)
-            elseif entry.isSmash and config.KeepGroundSmashAnchored then
+            elseif (entry.isClamped or entry.isSmash) and (config.EnableFinisherSpeedClamp ~= false) then
                 pcall(function() montage.RateScale = math.min(targetRate, clampMax) end)
             else
                 pcall(function() montage.RateScale = targetRate end)
@@ -159,7 +233,8 @@ function CombatEngine.IsNotifyClampedEntry(entry)
     if not entry then return false end
     local sName = (entry.shortName or ""):lower()
     local mName = (entry.montageName or ""):lower()
-    return entry.isSmash
+    return entry.isClamped
+        or entry.isSmash
         or sName:find("slam") ~= nil
         or sName:find("smash") ~= nil
         or sName:find("meteor") ~= nil
@@ -189,7 +264,7 @@ end
 
 function CombatEngine.ApplyMontageRateToInstance(config, pawn, montageObj, targetRate, isAirSmash)
     local effectiveRate = math.max(0.25, tonumber(targetRate) or 1.0)
-    if isAirSmash and config and config.KeepGroundSmashAnchored then
+    if isAirSmash and config and (config.EnableFinisherSpeedClamp ~= false) then
         local clampMax = math.max(1.0, tonumber(config.MaxFinisherSpeedClamp) or 5.0)
         effectiveRate = math.min(effectiveRate, clampMax)
     end
@@ -444,6 +519,12 @@ function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, deb
     if not pawn or not pawn:IsValid() or not entry then
         return false
     end
+    if CombatEngine.IsPlayerDead(pawn) then
+        if debugLogFn then
+            debugLogFn("Blocked spell trigger [" .. tostring(entry.shortName) .. "]: player is dead")
+        end
+        return false
+    end
     if not entry.suppressBaseSpell and (not entry.spellObj or not entry.spellObj:IsValid()) then
         return false
     end
@@ -480,7 +561,7 @@ function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, deb
     end
 
     if entry.isSpecialSpell then
-        if not (entry.isSmash and config and config.KeepGroundSmashAnchored) then
+        if not (entry.isSmash and config and config.KeepGroundSmashAnchored == true) then
             SpellScanner.UnlockSpellMovement(entry.spellObj, config and config.MaxMoveSpeed or 600.0)
         end
         local okSpec = TryTriggerSpecialAbility(pawn, entry.spellObj, debugLogFn)
@@ -504,7 +585,7 @@ function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, deb
     local bpLib = StaticFindObject("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary")
     local anyTriggered = false
     if not entry.suppressBaseSpell and bpLib and bpLib:IsValid() and entry.spellObj and entry.spellObj:IsValid() then
-        if not (entry.isSmash and config and config.KeepGroundSmashAnchored) then
+        if not (entry.isSmash and config and config.KeepGroundSmashAnchored == true) then
             SpellScanner.UnlockSpellMovement(entry.spellObj, config and config.MaxMoveSpeed or 600.0)
         end
         local function fireAbility()
@@ -522,7 +603,7 @@ function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, deb
             CombatEngine.ApplyMontageRateToInstance(config, pawn, entry.montageObj, targetSpd, CombatEngine.IsNotifyClampedEntry(entry))
         end
         anyTriggered = true
-    elseif entry.suppressBaseSpell then
+    elseif entry.suppressBaseSpell and not (entry.isCustomSpell and entry.hasTimeline) then
         anyTriggered = true
     end
 

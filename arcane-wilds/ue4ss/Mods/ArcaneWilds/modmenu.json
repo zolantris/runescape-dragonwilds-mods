@@ -247,8 +247,22 @@
     {
       "key": "KeepGroundSmashAnchored",
       "type": "toggle",
+      "label": "Anchor 4th Air Spell Movement",
+      "description": "When ON, keeps the 4th Air staff/wand finisher rooted in place during cast (vanilla behavior). Leave OFF to move freely while casting the 4th Air spell.",
+      "default": false
+    },
+    {
+      "key": "EnableFinisherSpeedClamp",
+      "type": "toggle",
       "label": "Enable Speed Clamp on Delayed Finishers",
-      "description": "Anchor 4th-hit Air ground-smash movement and enforce MaxFinisherSpeedClamp on delayed/multi-stage finishers (Meteor, Volcano, Air Slam, Boulder).",
+      "description": "Enforce MaxFinisherSpeedClamp on delayed/multi-stage finishers (Meteor, Volcano, Air Slam, Boulder, or clamp=true custom spells) so AnimNotifies are never skipped.",
+      "default": true
+    },
+    {
+      "key": "FixAir4thVerticalAim",
+      "type": "toggle",
+      "label": "Fix 4th Air Combo Vertical Aim",
+      "description": "Fixes vanilla DA_Spell_Primary_Air_04 firing flat horizontally by correcting its Transform/Movement trigger timing, TracedPlayerCameraForward aim space, and spawn PositionOffset so it tracks slopes and ledges like hits 1-3.",
       "default": true
     },
     {

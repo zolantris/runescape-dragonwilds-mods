@@ -15,9 +15,9 @@
 * **Direct Spell-Name Combo System (`combo_rules.json` & `spell_names.txt`)**:
   * Edit `combo_rules.json` (validated by `schemas/combo_rules.schema.json`, with copy-paste templates in `combo_rules_examples.json`) and `spell_names.txt` directly and save (`Ctrl+S`)—changes hot-reload live in-game and keep the previous valid rules active if a syntax error is saved.
 * **Notify-Safe Animation Speed Clamps**:
-  * Caps playback speed via `MaxFinisherSpeedClamp` (`5.0x` by default when `KeepGroundSmashAnchored=true`) on delayed/multi-stage finishers (`Meteor`, `Volcano`, `Air Slam`, `Boulder`, or `Clamp=true` custom spells) so `AnimNotify` damage and projectile spawn triggers are not skipped.
-* **Air 4th-Hit Finisher Tip**:
-  * Flick aim slightly downwards then immediately upwards when firing the 4th Air finisher on the move so the projectile renders and tracks cleanly.
+  * Caps playback speed via `MaxFinisherSpeedClamp` (`5.0x` by default when `EnableFinisherSpeedClamp=true`) on delayed/multi-stage finishers (`Meteor`, `Volcano`, `Air Slam`, `Boulder`, or `Clamp=true` custom spells) so `AnimNotify` damage and projectile spawn triggers are not skipped, independently of movement unlock (`KeepGroundSmashAnchored=false` by default so the 4th Air spell moves freely).
+* **4th Air Combo Vertical Aim Fix (`FixAir4thVerticalAim=true`)**:
+  * Runtime-patches `DA_Spell_Primary_Air_04` (and `Air_Wand_04` if affected) so its `SpellModule_Transform` / `SpellModule_Movement` modules trigger at cast start (`Immediate` instead of `FinishedCasting`), track `TracedPlayerCameraForward` vertical pitch/rotation just like hits 1–3, and lift ground-level spawn offsets to torso height so shots on slopes and ledges connect cleanly.
 * **Multiplayer**:
   * Works client-side for Freecast and standard chaining; recommend Host + Clients both install when using high `AnimationSpeed` multipliers or custom VFX/SFX overrides.
 

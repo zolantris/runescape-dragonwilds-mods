@@ -108,7 +108,7 @@ end
 
 local function RefreshSpells()
     local chains, ordered, registry, _, summary = SpellScanner.ScanAndPatchSpells(
-        Config, MOD_VERSION, Paths.DETECTED_PATH, State.NameMapByCat, State.GlobalNameMap)
+        Config, MOD_VERSION, Paths.DETECTED_PATH, State.NameMapByCat, State.GlobalNameMap, Log)
     State.SpellChains = chains
     State.AllChainsList = ordered
     State.BaseSpellRegistry = registry
@@ -183,6 +183,11 @@ local function RunDebugInspection()
             end
         end
         TimelineRunner.InspectPlayerAnimSlotsAndMontages(pawn, Log)
+        local airChain = State.SpellChains and State.SpellChains["air"]
+        if airChain and airChain.steps then
+            if airChain.steps[0] then SpellScanner.DumpSpellModules(airChain.steps[0], "Air_01 (Reference)", Log) end
+            if airChain.steps[3] then SpellScanner.DumpSpellModules(airChain.steps[3], "Air_04 (4th Finisher)", Log) end
+        end
         RefreshVfxCatalog(true)
     end
 end
@@ -818,9 +823,44 @@ local function RunMainGameThreadTick()
     end
 
     local pc, pawn, combatMagic = GetPlayerPawnAndComponents()
-    if not pc then return end
+    if not pc then
+        InputBlocker.Clear(State, Log, DebugLog)
+        return
+    end
     PollHotkeyListener(pc)
-    if not pawn then return end
+    if not pawn then
+        InputBlocker.Clear(State, Log, DebugLog)
+        return
+    end
+
+    local curPawnId = SpellScanner.SafeGetName(pawn)
+    if State._LastPawnIdentity and curPawnId ~= "" and State._LastPawnIdentity ~= curPawnId then
+        State._LastPawnIdentity = curPawnId
+        State._WasPlayerDead = false
+        InputBlocker.Clear(State, Log, DebugLog)
+        CombatEngine.RecoverFromDeathOrRespawn(Config, State, combatMagic, pawn, Log, DebugLog, "pawn-changed")
+    elseif curPawnId ~= "" then
+        State._LastPawnIdentity = curPawnId
+    end
+
+    -- Detect player death / respawn immediately so ArcaneWilds NEVER triggers abilities or holds
+    -- EnhancedInput blocker contexts while the player is dead (prevents stuck CastingTag / Block lockout!).
+    local isDead = CombatEngine.IsPlayerDead(pawn)
+    if isDead then
+        if not State._WasPlayerDead then
+            State._WasPlayerDead = true
+            InputBlocker.Clear(State, Log, DebugLog)
+            CombatEngine.RecoverFromDeathOrRespawn(Config, State, combatMagic, pawn, Log, DebugLog, "player-died")
+        else
+            InputBlocker.Clear(State, Log, DebugLog)
+        end
+        return
+    elseif State._WasPlayerDead then
+        State._WasPlayerDead = false
+        InputBlocker.Clear(State, Log, DebugLog)
+        CombatEngine.RecoverFromDeathOrRespawn(Config, State, combatMagic, pawn, Log, DebugLog, "player-respawned")
+        EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, State, DebugLog)
+    end
     if not State._InstalledEquipmentHooks then
         EquipmentRunes.InstallEquipmentSwapHooks(State, combatMagic, Log, DebugLog)
     end
