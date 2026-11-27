@@ -473,11 +473,8 @@ function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, deb
                 end
             end)
         end
-        if type(ExecuteInGameThread) == "function" then
-            pcall(function() ExecuteInGameThread(fireAbility) end)
-        else
-            fireAbility()
-        end
+        -- Already running on the serialized Game Thread via main.lua
+        fireAbility()
         anyTriggered = true
     elseif entry.suppressBaseSpell then
         anyTriggered = true

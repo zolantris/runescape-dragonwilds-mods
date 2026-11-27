@@ -1584,13 +1584,6 @@ function TimelineRunner.Tick(now, config, state, pawn, combatMagic, customSpells
         end
     end
 
-    if type(ExecuteInGameThread) == "function" then
-        pcall(function() ExecuteInGameThread(runBatchOnGameThread) end)
-    else
-        runBatchOnGameThread()
-    end
-end
-
 -- Debug Inspector: logs live PlayerAnimationManager body-part slot names, held weapon meshes,
 -- and currently playing montage metadata (SequenceLength, SlotAnimTracks, CompositeSections).
 function TimelineRunner.InspectPlayerAnimSlotsAndMontages(pawn, logFn)

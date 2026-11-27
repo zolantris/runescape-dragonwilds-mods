@@ -402,11 +402,8 @@ local function SetQuickCastInputSuppressed(shouldSuppress)
         end)
     end
 
-    if type(ExecuteInGameThread) == "function" then
-        pcall(function() ExecuteInGameThread(applyOnGameThread) end)
-    else
-        applyOnGameThread()
-    end
+    -- Already running on the serialized Game Thread via RunMainGameThreadTick
+    applyOnGameThread()
 end
 
 local function ResolveQuickCastEntry(spellName)
