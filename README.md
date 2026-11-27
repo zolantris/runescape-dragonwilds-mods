@@ -64,3 +64,17 @@ For building Vortex-ready archives, bumping semantic versions, generating per-mo
 ## License
 
 Released under the [MIT License](./LICENSE).
+
+## Running Tests
+
+Arcane Wilds includes an offline JSON validation & Lua 5.4 unit/regression test suite (no running game required).
+
+**Prerequisites:** Lua 5.4 (install once on Windows via `winget install DEVCOM.Lua`).
+
+```powershell
+# Validate all JSON configs/schemas and run the Lua test suite
+.\mod.ps1 test arcane-wilds
+
+# Or run the Lua tests directly
+lua arcane-wilds/tests/run_tests.lua
+```

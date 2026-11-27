@@ -1569,7 +1569,8 @@ function CustomSpells.PlayEntryMontageOnPawn(pawn, entry, rate, state)
     local mNameLow = tostring(entry.montageName or (entry.customDef and entry.customDef.montage) or ""):lower()
     local isGreatswordMont = mNameLow:find("greatsword") ~= nil or mNameLow:find("godsword") ~= nil or mNameLow:find("special") ~= nil
     local playRate = isGreatswordMont and math.min(rawRate, 1.35) or math.min(rawRate, 3.0)
-    pcall(function() mont.RateScale = playRate end)
+    -- Keep RateScale at 1.0 so Montage_Play(mont, playRate, ...) does not square the speed (RateScale * playRate)
+    pcall(function() mont.RateScale = 1.0 end)
     -- Disable root motion on directly played custom montages so the player can keep moving freely
     pcall(function() mont.bEnableRootMotionTranslation = false end)
     pcall(function() mont.bEnableRootMotionRotation = false end)
@@ -1587,7 +1588,8 @@ function CustomSpells.PlayEntryMontageOnPawn(pawn, entry, rate, state)
                         end
                         animInst.RootMotionMode = 1 -- ERootMotionMode::IgnoreRootMotion
                     end)
-                    animInst:Montage_Play(mont, playRate, 0, 0.05, true)
+                    -- Pass bStopAllMontages = false so layered/overlapping slots are not hard-killed
+                    animInst:Montage_Play(mont, playRate, 0, 0.05, false)
                     if state then state.LastForcedMontageObj = mont end
                     if type(ExecuteWithDelay) == "function" then
                         pcall(function()

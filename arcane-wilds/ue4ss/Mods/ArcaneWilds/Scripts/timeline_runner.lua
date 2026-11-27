@@ -9,8 +9,10 @@ local TimelineInstanceCounter = 0
 local CachedUeClasses = {}
 local CachedSkillDataByName = {}
 local LoggedMismatchWarnings = {}
+local UncappedNiagaraSystems = {}
 local NormalizeUeAssetPath
 local ApplyNiagaraScaleAndParams
+local UncapNiagaraAssetAndComponent
 
 local function IsValidUObject(obj)
     if not obj then return false end
@@ -141,6 +143,7 @@ end
 
 function TimelineRunner.ClearValidationCache()
     LoggedMismatchWarnings = {}
+    UncappedNiagaraSystems = {}
 end
 
 local function MakeVec(x, y, z)
@@ -632,8 +635,95 @@ local function GetPlayerAimOriginAndRot(pawn)
     return pLoc, pRot, camLoc, camRot
 end
 
--- Priority Tier 1: Detect the enemy the player is actively locked onto via Dragonwilds's
--- ULockOnTargetingComponent and UEnemyTargetorComponent.
+-- Determine whether Dragonwilds's camera lock-on is CURRENTLY active.
+-- NOTE: ULockOnTargetingComponent::LockOnCameraActor is lazily spawned on the 1st lock-on
+-- and kept alive permanently after unlock or target death, so IsValid(LockOnCameraActor)
+-- alone is NOT sufficient! We verify live widget visibility and/or active camera ViewTarget.
+local function IsLockOnCurrentlyActive(pawn, lockComp, lockCamActor)
+    if not IsValidUObject(lockComp) or not IsValidUObject(lockCamActor) then
+        return false
+    end
+
+    -- 1. Check TargetingWidgetInstance (visible lock-on reticle icon while locked onto a live target)
+    local widgetChecked = false
+    local widgetVisible = false
+    pcall(function()
+        local w = lockComp.TargetingWidgetInstance
+        if IsValidUObject(w) then
+            local inVp = true
+            local hasVp = false
+            if HasUFunc(w, "IsInViewport") then
+                hasVp = true
+                inVp = (w:IsInViewport() == true)
+            end
+            if HasUFunc(w, "GetVisibility") then
+                widgetChecked = true
+                local vis = tonumber(w:GetVisibility())
+                -- UE5 ESlateVisibility: 0=Visible, 1=Collapsed, 2=Hidden, 3=HitTestInvisible, 4=SelfHitTestInvisible
+                widgetVisible = inVp and (vis == 0 or vis == 3 or vis == 4)
+            elseif HasUFunc(w, "IsVisible") then
+                widgetChecked = true
+                widgetVisible = inVp and (w:IsVisible() == true)
+            elseif hasVp then
+                widgetChecked = true
+                widgetVisible = inVp
+            end
+        end
+    end)
+    if widgetVisible then
+        return true
+    end
+
+    -- 2. Check PlayerController / PlayerCameraManager active ViewTarget == lockCamActor
+    local viewTargetChecked = false
+    local viewTargetMatches = false
+    pcall(function()
+        local pc = pawn and pawn.Controller or nil
+        if not IsValidUObject(pc) then
+            pc = lockComp.PlayerController
+        end
+        if IsValidUObject(pc) then
+            if HasUFunc(pc, "GetViewTarget") then
+                local vt = pc:GetViewTarget()
+                if IsValidUObject(vt) then
+                    viewTargetChecked = true
+                    if vt == lockCamActor then viewTargetMatches = true end
+                end
+            end
+            local pcm = pc.PlayerCameraManager
+            if IsValidUObject(pcm) then
+                local curVt = pcm.ViewTarget and pcm.ViewTarget.Target or nil
+                local pendVt = pcm.PendingViewTarget and pcm.PendingViewTarget.Target or nil
+                if IsValidUObject(curVt) or IsValidUObject(pendVt) then
+                    viewTargetChecked = true
+                    if curVt == lockCamActor or pendVt == lockCamActor then
+                        viewTargetMatches = true
+                    end
+                end
+            end
+        end
+    end)
+    if viewTargetMatches then
+        return true
+    end
+    if widgetChecked or viewTargetChecked then
+        -- At least one authoritative lock-on state signal was inspected and confirmed NOT locked on.
+        return false
+    end
+
+    -- 3. Fallback: check camera component active flag if neither widget nor ViewTarget API is present
+    local camActive = false
+    pcall(function()
+        local c = lockCamActor.Camera
+        if IsValidUObject(c) and HasUFunc(c, "IsActive") then
+            camActive = (c:IsActive() == true)
+        end
+    end)
+    return camActive
+end
+
+-- Priority Tier 1: Detect the enemy the player is actively locked onto (via ULockOnTargetingComponent)
+-- OR actively looking directly at with Dragonwilds's native reticle (UEnemyTargetorComponent).
 local function ResolveLockedOnEnemy(pawn, maxLockDist)
     if not IsValidUObject(pawn) then return nil, nil end
     local pawnLow = SafeObjName(pawn):lower()
@@ -641,7 +731,7 @@ local function ResolveLockedOnEnemy(pawn, maxLockDist)
     local lockRange = tonumber(maxLockDist) or 3000.0
     local lockRangeSq = lockRange * lockRange
 
-    -- 1A. Check ULockOnTargetingComponent (active camera lock-on)
+    -- 1A. Check ULockOnTargetingComponent ONLY when lock-on is currently active
     local lockComp = nil
     pcall(function()
         if HasUFunc(pawn, "GetLockOnTargetingComponent") then
@@ -653,7 +743,7 @@ local function ResolveLockedOnEnemy(pawn, maxLockDist)
     if IsValidUObject(lockComp) then
         local lockCamActor = nil
         pcall(function() lockCamActor = lockComp.LockOnCameraActor end)
-        if IsValidUObject(lockCamActor) then
+        if IsValidUObject(lockCamActor) and IsLockOnCurrentlyActive(pawn, lockComp, lockCamActor) then
             -- Check if LockOnCameraActor is attached directly to the target actor
             local attActor = nil
             pcall(function() attActor = lockCamActor.AttachedToActor end)
@@ -661,7 +751,7 @@ local function ResolveLockedOnEnemy(pawn, maxLockDist)
                 local aLoc = select(1, GetActorLocAndRot(attActor))
                 return attActor, aLoc
             end
-            -- Otherwise the lock-on camera is aimed dead-center at the locked enemy: match tightest enemy along lock-on ray!
+            -- Otherwise the active lock-on camera is aimed dead-center at the locked enemy: match tightest enemy along lock-on ray!
             local lcLoc, lcRot = camLoc, camRot
             pcall(function()
                 local c = lockCamActor.Camera
@@ -713,7 +803,7 @@ local function ResolveLockedOnEnemy(pawn, maxLockDist)
         end
     end
 
-    -- 1B. Check UEnemyTargetorComponent (native crosshair/reticle enemy lock)
+    -- 1B. Check UEnemyTargetorComponent (native crosshair/reticle target when looking directly at an enemy)
     local targetor = nil
     pcall(function()
         if HasUFunc(pawn, "GetEnemyTargetor") then
@@ -1044,6 +1134,7 @@ local function FireSingleChainStrike(tlInst, cue, cueState, pawn, customSpells, 
 
     -- Spawn scaled lightning / strike VFX directly on the struck enemy
     if IsValidUObject(ch.vfxObj) then
+        UncapNiagaraAssetAndComponent(ch.vfxObj, nil)
         local nsLib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
         if IsValidUObject(nsLib) and HasUFunc(nsLib, "SpawnSystemAtLocation") then
             local strikeLoc = LocalOffsetToWorld(targetLoc, MakeRot(0, 0, 0), p.offset)
@@ -1051,6 +1142,7 @@ local function FireSingleChainStrike(tlInst, cue, cueState, pawn, customSpells, 
                 return nsLib:SpawnSystemAtLocation(pawn, ch.vfxObj, strikeLoc, MakeRot(0, math.random(0, 359), 0), ch.vfxScale, true, true, 0, false)
             end)
             if okV and IsValidUObject(comp) then
+                UncapNiagaraAssetAndComponent(ch.vfxObj, comp)
                 ApplyNiagaraScaleAndParams(comp, ch.vfxScale, p, false)
                 cueState.vfxComps = cueState.vfxComps or {}
                 table.insert(cueState.vfxComps, comp)
@@ -1141,6 +1233,52 @@ local function InspectSpellActorCollisionAndProjectile(spellActor)
     end)
 
     return hitPoint, spawnedProj
+end
+
+-- Bypass UE5 Niagara scalability/instance-count culling so rapid-fire & overlapping VFX
+-- (e.g. multiple StormOfArmadyl gusts or SaradominStrike bolts) always render anywhere on the map.
+UncapNiagaraAssetAndComponent = function(vfxObj, comp)
+    if IsValidUObject(vfxObj) then
+        local key = SafeObjName(vfxObj)
+        if key ~= "" and not UncappedNiagaraSystems[key] then
+            UncappedNiagaraSystems[key] = true
+            pcall(function() vfxObj.bOverrideAllowCullingForLocalPlayers = true end)
+            pcall(function() vfxObj.bAllowCullingForLocalPlayersOverride = false end)
+            pcall(function()
+                local et = vfxObj.EffectType
+                if IsValidUObject(et) then
+                    pcall(function() et.bAllowCullingForLocalPlayers = false end)
+                    pcall(function()
+                        local sArr = et.SystemScalabilitySettings and et.SystemScalabilitySettings.Settings
+                        if sArr and type(sArr) == "userdata" then
+                            sArr:ForEach(function(_, wrap)
+                                pcall(function()
+                                    local s = wrap:get()
+                                    if s then
+                                        s.bCullMaxInstanceCount = false
+                                        s.bCullPerSystemMaxInstanceCount = false
+                                    end
+                                end)
+                            end)
+                        end
+                    end)
+                end
+            end)
+        end
+    end
+    if IsValidUObject(comp) then
+        pcall(function() comp.bAllowScalability = false end)
+        pcall(function()
+            if HasUFunc(comp, "SetForceLocalPlayerEffect") then
+                comp:SetForceLocalPlayerEffect(true)
+            end
+        end)
+        pcall(function()
+            if HasUFunc(comp, "SetForceSolo") then
+                comp:SetForceSolo(true)
+            end
+        end)
+    end
 end
 
 -- Apply transform scale AND common/explicit Niagara User Parameters so both local-space
@@ -1486,6 +1624,7 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
 
         local nsLib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
         if not IsValidUObject(nsLib) then return end
+        UncapNiagaraAssetAndComponent(vfxObj, nil)
 
         local scale = p.scale or MakeVec(1.0, 1.0, 1.0)
         local transforms, defaultAttachComp = ComputeTargetTransforms(tlInst, pawn, p, debugLogFn)
@@ -1513,6 +1652,7 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
                     return nsLib:SpawnSystemAttached(vfxObj, attachComp, sockName, relLoc, relRot, 0, true, true, 0, false)
                 end)
                 if okV and IsValidUObject(comp) then
+                    UncapNiagaraAssetAndComponent(vfxObj, comp)
                     ApplyNiagaraScaleAndParams(comp, scale, p, true)
                     table.insert(cueState.vfxComps, comp)
                 elseif debugLogFn then
@@ -1527,6 +1667,7 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
                     return nsLib:SpawnSystemAtLocation(pawn, vfxObj, tf.loc, tf.rot, scale, true, true, 0, false)
                 end)
                 if okV and IsValidUObject(comp) then
+                    UncapNiagaraAssetAndComponent(vfxObj, comp)
                     ApplyNiagaraScaleAndParams(comp, scale, p, false)
                     table.insert(cueState.vfxComps, comp)
                 elseif debugLogFn then
@@ -1708,6 +1849,26 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
         if not IsValidUObject(spObj) and customSpells and customSpells.FindAssetByKeywordOnDemand then
             spObj = customSpells.FindAssetByKeywordOnDemand("DominionSpellData", cue.asset, safeGetNameFn)
         end
+
+        -- Snapshot existing SpellActor & projectiles BEFORE triggering so parallel overlapping timelines
+        -- never hijack an older cast's SpellActor or projectile!
+        local preSpellActor = nil
+        if IsValidUObject(combatMagic) then
+            pcall(function()
+                local sa = combatMagic.CurrentSpellActor
+                if IsValidUObject(sa) then preSpellActor = sa end
+            end)
+        end
+        local preExistingProj = {}
+        pcall(function()
+            local projs = FindAllOf("DominionSpellProjectile")
+            if projs then
+                for _, pr in ipairs(projs) do
+                    if IsValidUObject(pr) then preExistingProj[SafeObjName(pr)] = true end
+                end
+            end
+        end)
+
         if IsValidUObject(spObj) and ValidateCueAssetType(spObj, "spell", tlInst.spellName, cue.index, cue.asset) then
             pcall(function()
                 local bpLib = StaticFindObject("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary")
@@ -1743,17 +1904,27 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
             cueState.castOriginLoc = pLoc
             cueState.lastTrackedLoc = nil
             cueState.sawSpellActor = false
+            cueState.trackedSpellActor = nil
             cueState.trackedProjectile = nil
-            -- Snapshot existing projectiles so we only latch onto the newly spawned one
-            cueState.preExistingProj = {}
-            pcall(function()
-                local projs = FindAllOf("DominionSpellProjectile")
-                if projs then
-                    for _, pr in ipairs(projs) do
-                        if IsValidUObject(pr) then cueState.preExistingProj[SafeObjName(pr)] = true end
+            cueState.preExistingSpellActor = preSpellActor
+            cueState.preExistingProj = preExistingProj
+
+            -- If TriggerModularAbilityForPlayer spawned a brand-new SpellActor synchronously, claim it immediately
+            if IsValidUObject(combatMagic) then
+                pcall(function()
+                    local sa = combatMagic.CurrentSpellActor
+                    if IsValidUObject(sa) and sa ~= preSpellActor then
+                        state._ClaimedSpellActors = state._ClaimedSpellActors or {}
+                        local saKey = SafeObjName(sa)
+                        if not state._ClaimedSpellActors[saKey] then
+                            state._ClaimedSpellActors[saKey] = tlInst.instanceId
+                            cueState.trackedSpellActor = sa
+                            cueState.trackedSpellActorKey = saKey
+                            cueState.sawSpellActor = true
+                        end
                     end
-                end
-            end)
+                end)
+            end
             cueState.expectedDur = cueState.impactTimeout
         else
             cueState.expectedDur = (p.dur ~= nil) and (scaleSpeed and (p.dur / stageSpeed) or p.dur) or 0.0
@@ -1822,7 +1993,10 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
         cueState.expectedDur = 0.0
 
     elseif cType == "chainstrike" then
-        local requireLock = (p.requireLock ~= false)
+        -- Respect global config toggle (RequireLockOnForChainSpells=false disables lock requirement)
+        -- as well as per-cue requireLock in custom_spells.json.
+        local cfgRequireLock = (tlInst.config == nil) or (tlInst.config.RequireLockOnForChainSpells ~= false)
+        local requireLock = cfgRequireLock and (p.requireLock ~= false)
         local requireLos  = (p.los ~= false)
 
         -- 1. Resolve primary target (strictly locked-on when requireLock=true)
@@ -2163,9 +2337,17 @@ function TimelineRunner.CancelTimelines(state, pawn, reason, onlyCancelable, onl
     for _, tlInst in ipairs(toCleanup) do
         for i, cue in ipairs(tlInst.timeline.cues) do
             local cs = tlInst.cueStates[i]
-            if cs and cs.status == "active" then
-                pcall(function() CleanupCueHandles(cue, cs, true, pawn) end)
-                cs.status = "done"
+            if cs then
+                if cs.trackedSpellActorKey and state._ClaimedSpellActors and state._ClaimedSpellActors[cs.trackedSpellActorKey] == tlInst.instanceId then
+                    state._ClaimedSpellActors[cs.trackedSpellActorKey] = nil
+                end
+                if cs.trackedProjectileKey and state._ClaimedProjectiles and state._ClaimedProjectiles[cs.trackedProjectileKey] == tlInst.instanceId then
+                    state._ClaimedProjectiles[cs.trackedProjectileKey] = nil
+                end
+                if cs.status == "active" then
+                    pcall(function() CleanupCueHandles(cue, cs, true, pawn) end)
+                    cs.status = "done"
+                end
             end
         end
     end
@@ -2379,15 +2561,22 @@ function TimelineRunner.Tick(now, config, state, pawn, combatMagic, customSpells
                 local age = item.now - (cs.startedAt or item.now)
                 local exactCollisionPoint = nil
 
-                -- 1. Inspect the active ADominionSpellActor's SpellInstance.Graph for:
-                --    (a) Exact USpellModule_CollisionRuntime::CollisionPoint (where the Air Spell ACTUALLY hit!)
-                --    (b) USpellModule_SpawnActorRuntime::Actor (the actual flying Air Bolt actor!)
-                if IsValidUObject(combatMagic) then
+                state._ClaimedSpellActors = state._ClaimedSpellActors or {}
+                state._ClaimedProjectiles = state._ClaimedProjectiles or {}
+
+                -- 1. Latch an unclaimed new ADominionSpellActor ONCE (never overwrite with another parallel cast's actor!)
+                if not cs.sawSpellActor and IsValidUObject(combatMagic) then
                     pcall(function()
                         local sa = combatMagic.CurrentSpellActor
-                        if IsValidUObject(sa) then
-                            cs.trackedSpellActor = sa
-                            cs.sawSpellActor = true
+                        if IsValidUObject(sa) and sa ~= cs.preExistingSpellActor then
+                            local saKey = SafeObjName(sa)
+                            local owner = state._ClaimedSpellActors[saKey]
+                            if not owner or owner == tl.instanceId then
+                                state._ClaimedSpellActors[saKey] = tl.instanceId
+                                cs.trackedSpellActor = sa
+                                cs.trackedSpellActorKey = saKey
+                                cs.sawSpellActor = true
+                            end
                         end
                     end)
                 end
@@ -2398,7 +2587,10 @@ function TimelineRunner.Tick(now, config, state, pawn, combatMagic, customSpells
                         exactCollisionPoint = colPt
                     end
                     if IsValidUObject(spawnedBolt) then
+                        local bKey = SafeObjName(spawnedBolt)
+                        state._ClaimedProjectiles[bKey] = tl.instanceId
                         cs.trackedProjectile = spawnedBolt
+                        cs.trackedProjectileKey = bKey
                         cs.sawSpellActor = true
                     end
                     if not exactCollisionPoint and HasUFunc(cs.trackedSpellActor, "GetTargetInfo") then
@@ -2414,16 +2606,22 @@ function TimelineRunner.Tick(now, config, state, pawn, combatMagic, customSpells
                     end
                 end
 
-                -- 2. Also watch for newly spawned DominionSpellProjectile as secondary tracker
+                -- 2. Watch for a newly spawned UNCLAIMED DominionSpellProjectile as secondary tracker
                 if not IsValidUObject(cs.trackedProjectile) then
                     pcall(function()
                         local projs = FindAllOf("DominionSpellProjectile")
                         if projs then
                             for _, pr in ipairs(projs) do
-                                if IsValidUObject(pr) and not (cs.preExistingProj and cs.preExistingProj[SafeObjName(pr)]) then
-                                    cs.trackedProjectile = pr
-                                    cs.sawSpellActor = true
-                                    break
+                                if IsValidUObject(pr) then
+                                    local pKey = SafeObjName(pr)
+                                    local owner = state._ClaimedProjectiles[pKey]
+                                    if not (cs.preExistingProj and cs.preExistingProj[pKey]) and (not owner or owner == tl.instanceId) then
+                                        state._ClaimedProjectiles[pKey] = tl.instanceId
+                                        cs.trackedProjectile = pr
+                                        cs.trackedProjectileKey = pKey
+                                        cs.sawSpellActor = true
+                                        break
+                                    end
                                 end
                             end
                         end
@@ -2459,6 +2657,13 @@ function TimelineRunner.Tick(now, config, state, pawn, combatMagic, customSpells
                     or (not cs.sawSpellActor and age >= 0.40)
 
                 if impacted then
+                    if cs.trackedSpellActorKey and state._ClaimedSpellActors[cs.trackedSpellActorKey] == tl.instanceId then
+                        state._ClaimedSpellActors[cs.trackedSpellActorKey] = nil
+                    end
+                    if cs.trackedProjectileKey and state._ClaimedProjectiles[cs.trackedProjectileKey] == tl.instanceId then
+                        state._ClaimedProjectiles[cs.trackedProjectileKey] = nil
+                    end
+
                     local finalLoc = (IsNonZeroWorldLoc(exactCollisionPoint) and exactCollisionPoint)
                         or (IsNonZeroWorldLoc(cs.lastTrackedLoc) and cs.lastTrackedLoc)
                         or (IsNonZeroWorldLoc(cs.spellTargetInfoLoc) and cs.spellTargetInfoLoc)
@@ -2812,5 +3017,10 @@ function TimelineRunner.ExportLoadedVfxFile(outPath, logFn, existingLookup)
     end
     return lookup, totalCount, newlyAdded
 end
+
+TimelineRunner.IsLockOnCurrentlyActive = IsLockOnCurrentlyActive
+TimelineRunner.ResolveLockedOnEnemy = ResolveLockedOnEnemy
+TimelineRunner.ResolveAimTarget = ResolveAimTarget
+TimelineRunner.UncapNiagaraAssetAndComponent = UncapNiagaraAssetAndComponent
 
 return TimelineRunner

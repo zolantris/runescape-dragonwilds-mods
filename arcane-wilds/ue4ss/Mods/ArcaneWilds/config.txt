@@ -44,3 +44,4 @@ PostSpecialPauseSec=0.65
 AnimRepeatPadSec=0.45
 AutoTargetMaxDistance=700.0
 AutoTargetConeDeg=45.0
+RequireLockOnForChainSpells=true

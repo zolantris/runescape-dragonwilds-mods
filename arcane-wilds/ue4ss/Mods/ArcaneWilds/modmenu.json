@@ -296,6 +296,13 @@
       "default": 45
     },
     {
+      "key": "RequireLockOnForChainSpells",
+      "type": "toggle",
+      "label": "Require Target Lock / Reticle Hover for Chain Spells",
+      "description": "When ON, chain spells like Saradomin Strike only fire when locked onto an enemy or looking directly at one with your reticle (preventing accidental aggro). When OFF, they auto-target the closest enemy in your aim cone.",
+      "default": true
+    },
+    {
       "type": "header",
       "label": "Diagnostics & Debug"
     },

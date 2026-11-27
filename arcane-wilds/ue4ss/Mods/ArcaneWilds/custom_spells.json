@@ -32,7 +32,7 @@
       "timelineDuration": "auto",
       "stepAdvanceAt": 0.85,
       "cancelOnRelease": false,
-      "overlapPolicy": "replace",
+      "overlapPolicy": "parallel",
       "autoTarget": {
         "range": 700,
         "cone": 45
@@ -78,7 +78,7 @@
       "timelineDuration": "auto",
       "stepAdvanceAt": 0.9,
       "cancelOnRelease": false,
-      "overlapPolicy": "replace",
+      "overlapPolicy": "parallel",
       "autoTarget": {
         "range": 700,
         "cone": 45

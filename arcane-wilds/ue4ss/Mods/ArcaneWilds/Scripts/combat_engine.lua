@@ -143,7 +143,10 @@ function CombatEngine.SetAllComboMontageRates(config, state, targetRate)
     for _, entry in pairs(state.SpellRegistry) do
         local montage = entry.montageObj
         if montage and montage:IsValid() then
-            if entry.isSmash and config.KeepGroundSmashAnchored then
+            -- Keep shared UAnimMontage.RateScale at 1.0 when restoring, or cap safely if priming
+            if targetRate == 1.0 then
+                pcall(function() montage.RateScale = 1.0 end)
+            elseif entry.isSmash and config.KeepGroundSmashAnchored then
                 pcall(function() montage.RateScale = math.min(targetRate, clampMax) end)
             else
                 pcall(function() montage.RateScale = targetRate end)
@@ -185,14 +188,16 @@ function CombatEngine.GetActiveMontageObj(pawn)
 end
 
 function CombatEngine.ApplyMontageRateToInstance(config, pawn, montageObj, targetRate, isAirSmash)
-    local effectiveRate = targetRate
-    if isAirSmash and config.KeepGroundSmashAnchored then
+    local effectiveRate = math.max(0.25, tonumber(targetRate) or 1.0)
+    if isAirSmash and config and config.KeepGroundSmashAnchored then
         local clampMax = math.max(1.0, tonumber(config.MaxFinisherSpeedClamp) or 5.0)
-        effectiveRate = math.min(targetRate, clampMax)
+        effectiveRate = math.min(effectiveRate, clampMax)
     end
-    if montageObj and montageObj:IsValid() then
-        pcall(function() montageObj.RateScale = effectiveRate end)
-    end
+    -- NEVER apply effectiveRate to BOTH Montage.RateScale and Montage_SetPlayRate!
+    -- UE5 multiplies them (RateScale * PlayRate = effectiveRate^2), which at 2.2x+ runs at 4.8x-7.5x
+    -- and skips AnimNotify damage/projectile triggers on vanilla Air/Fire/Water/Earth spells.
+    -- Always drive live playback speed via Montage_SetPlayRate while keeping RateScale = 1.0.
+    local appliedToInstance = false
     if pawn and pawn:IsValid() then
         pcall(function()
             local mesh = pawn.Mesh
@@ -201,13 +206,29 @@ function CombatEngine.ApplyMontageRateToInstance(config, pawn, montageObj, targe
                 if animInst and animInst:IsValid() then
                     local activeMontage = animInst:GetCurrentActiveMontage()
                     if activeMontage and activeMontage:IsValid() then
-                        activeMontage.RateScale = effectiveRate
-                        pcall(function() animInst:Montage_SetPlayRate(activeMontage, effectiveRate) end)
+                        pcall(function()
+                            if tonumber(activeMontage.RateScale) ~= 1.0 then
+                                activeMontage.RateScale = 1.0
+                            end
+                        end)
+                        pcall(function()
+                            animInst:Montage_SetPlayRate(activeMontage, effectiveRate)
+                            appliedToInstance = true
+                        end)
                     end
                 end
             end
         end)
     end
+    if montageObj and montageObj:IsValid() then
+        pcall(function()
+            -- Keep asset RateScale normalized at 1.0 so instance PlayRate is exact and never squared.
+            if tonumber(montageObj.RateScale) ~= 1.0 then
+                montageObj.RateScale = 1.0
+            end
+        end)
+    end
+    return appliedToInstance
 end
 
 function CombatEngine.ApplyStageSpeedAndPriming(config, state, combatMagic, stage, stepInStage, pawn, debugLogFn)
@@ -436,8 +457,12 @@ function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, deb
         return false
     end
     local now = os.clock()
-    local spKey = tostring(entry.spellObj)
-    local minGap = entry.isSpecialSpell and (tonumber(config and config.SpecialCastCooldownSec) or 1.50) or 0.35
+    local spKey = tostring(entry.shortName or entry.spellObj)
+    local isParallelTimeline = entry.isCustomSpell and entry.hasTimeline and entry.timeline
+        and ((entry.timeline.overlapPolicy or "replace"):lower() == "parallel")
+    local minGap = entry.isSpecialSpell
+        and (tonumber(config and config.SpecialCastCooldownSec) or 1.50)
+        or (isParallelTimeline and 0.12 or 0.35)
     if state._LastTriggeredSpellPtr == spKey and (now - (state._LastTriggeredSpellPtrTime or 0)) < minGap then
         return false
     end
@@ -491,6 +516,11 @@ function CombatEngine.TriggerSpellEntryForPlayer(config, state, pawn, entry, deb
         end
         -- Already running on the serialized Game Thread via main.lua
         fireAbility()
+        -- Apply stage play rate immediately on frame 0 via Montage_SetPlayRate (without squaring RateScale)
+        local targetSpd = tonumber(entry.customOverrideSpeed) or tonumber(state.ActiveStageTargetSpeed) or 1.0
+        if targetSpd ~= 1.0 then
+            CombatEngine.ApplyMontageRateToInstance(config, pawn, entry.montageObj, targetSpd, CombatEngine.IsNotifyClampedEntry(entry))
+        end
         anyTriggered = true
     elseif entry.suppressBaseSpell then
         anyTriggered = true

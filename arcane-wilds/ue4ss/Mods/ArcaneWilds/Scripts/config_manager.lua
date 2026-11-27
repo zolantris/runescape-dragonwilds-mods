@@ -141,7 +141,7 @@ local ORDERED_CONFIG_KEYS = {
     "DefaultComboCutoff", "BonusSpeedVariancePct",
     "UnlockAir", "UnlockFire", "UnlockWater", "UnlockEarth",
     "UnlockModdedCombat", "UnlockUtilitySpells", "KeepGroundSmashAnchored", "MaxFinisherSpeedClamp", "InjectSpecialBarOnSpecials", "SpecialBarInjectAmount", "RequireSpecialEnergyForSpecials", "MinSpecialEnergyCost", "AllowFastSpecialCast", "MaxSpecialCastRate", "PostSpecialPauseSec", "AnimRepeatPadSec",
-    "AutoTargetMaxDistance", "AutoTargetConeDeg",
+    "AutoTargetMaxDistance", "AutoTargetConeDeg", "RequireLockOnForChainSpells",
     "EnableStaffDamageScaling", "StaffBaselineTier", "StaffTierStep", "StaffMasterworkBonus", "NoStaffDamageMultiplier",
     "EnforceSpellLevelRequirements", "DefaultCustomSpellRequiredMagicLevel", "NotifyOnLockedSpellCast", "LockedSpellNotifyStyle", "LockedSpellNotifyCooldownSec",
     "MaxMoveSpeed", "ActiveComboRulesCount", "DetectedSpellsSummary"
@@ -205,6 +205,7 @@ function ConfigManager.CreateDefaultConfig()
         AnimRepeatPadSec = 0.45,
         AutoTargetMaxDistance = 700.0,
         AutoTargetConeDeg = 45.0,
+        RequireLockOnForChainSpells = true,
         EnableStaffDamageScaling = true,
         StaffBaselineTier = 1,
         StaffTierStep = 0.30,
@@ -755,6 +756,7 @@ function ConfigManager.LoadConfigFile(paths, config, state, logFn, forceRebuildM
                 elseif k == "AnimRepeatPadSec" then config.AnimRepeatPadSec = math.max(0.0, tonumber(v) or 0.45)
                 elseif k == "AutoTargetMaxDistance" then config.AutoTargetMaxDistance = math.max(100.0, tonumber(v) or 700.0)
                 elseif k == "AutoTargetConeDeg" then config.AutoTargetConeDeg = math.max(5.0, math.min(180.0, tonumber(v) or 45.0))
+                elseif k == "RequireLockOnForChainSpells" then config.RequireLockOnForChainSpells = ConfigManager.ParseBool(v, true)
                 elseif k == "EnableStaffDamageScaling" then config.EnableStaffDamageScaling = ConfigManager.ParseBool(v, true)
                 elseif k == "StaffBaselineTier" then config.StaffBaselineTier = math.max(1, math.floor(tonumber(v) or 1))
                 elseif k == "StaffTierStep" then config.StaffTierStep = math.max(0.0, tonumber(v) or 0.30)

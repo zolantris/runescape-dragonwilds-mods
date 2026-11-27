@@ -35,6 +35,7 @@ local ConfigManager  = require("config_manager")
 local EquipmentRunes = require("equipment_runes")
 local CombatEngine   = require("combat_engine")
 local ProgressionScaling = require("progression_scaling")
+local InputBlocker   = require("input_blocker")
 
 local Config = ConfigManager.CreateDefaultConfig()
 
@@ -172,6 +173,7 @@ local function RunDebugInspection()
         .. " | LastKnownEquipped=" .. tostring(State.LastKnownEquippedElement)
         .. " | LoadedRules=" .. tostring(#State.ParsedMacros))
     ProgressionScaling.LogDebugSummary(Config, State, pc, pawn, Log)
+    Log("QuickCastInputBlocker: " .. InputBlocker.GetDebugStatus(State))
     ConfigManager.LogParsedMacrosSpellMapping(Config, State, Log, "SHIFT+DebugHotkey: Combo Rules -> Direct Spell Asset Mapping")
     if pawn and pawn:IsValid() then
         local targets = { combatMagic, actionPerformer, pawn.InputBuffer }
@@ -207,6 +209,17 @@ local FRIENDLY_KEY_ALIASES = {
     ["MOUSE5"] = "ThumbMouseButton2",
     ["MB5"] = "ThumbMouseButton2",
     ["MMB"] = "MiddleMouseButton",
+    ["LMB"] = "LeftMouseButton",
+    ["RMB"] = "RightMouseButton",
+    ["MWHEELUP"] = "MouseScrollUp",
+    ["MOUSEWHEELUP"] = "MouseScrollUp",
+    ["MWHEELDOWN"] = "MouseScrollDown",
+    ["MOUSEWHEELDOWN"] = "MouseScrollDown",
+    ["TAB"] = "Tab",
+    ["SPACE"] = "SpaceBar",
+    ["SPACEBAR"] = "SpaceBar",
+    ["ENTER"] = "Enter",
+    ["CAPSLOCK"] = "CapsLock",
     ["0"] = "Zero",
     ["1"] = "One",
     ["2"] = "Two",
@@ -242,7 +255,15 @@ local FRIENDLY_KEY_ALIASES = {
     ["GP_LB"] = "Gamepad_LeftShoulder",
     ["GP_RB"] = "Gamepad_RightShoulder",
     ["GP_LT"] = "Gamepad_LeftTrigger",
-    ["GP_RT"] = "Gamepad_RightTrigger"
+    ["GP_RT"] = "Gamepad_RightTrigger",
+    ["GP_UP"] = "Gamepad_DPad_Up",
+    ["DPAD_UP"] = "Gamepad_DPad_Up",
+    ["GP_DOWN"] = "Gamepad_DPad_Down",
+    ["DPAD_DOWN"] = "Gamepad_DPad_Down",
+    ["GP_LEFT"] = "Gamepad_DPad_Left",
+    ["DPAD_LEFT"] = "Gamepad_DPad_Left",
+    ["GP_RIGHT"] = "Gamepad_DPad_Right",
+    ["DPAD_RIGHT"] = "Gamepad_DPad_Right"
 }
 
 local function NormalizeKeyName(raw)
@@ -315,122 +336,22 @@ local function IsQuickCastModifierSatisfied(pc, modName)
     return down
 end
 
-local function ResolveQuickCastBlockerAssets()
-    if State._QuickCastIMC and State._QuickCastIMC:IsValid()
-        and State._QuickCastIA and State._QuickCastIA:IsValid() then
-        return State._QuickCastIMC, State._QuickCastIA
+local function SyncQuickCastInputSuppression(pc)
+    if not pc or not pc:IsValid() then
+        InputBlocker.Clear(State, Log, DebugLog)
+        return false
     end
-    if State._TriedLoadQuickCastBlocker then
-        return nil, nil
-    end
-    State._TriedLoadQuickCastBlocker = true
-
-    local imc, ia = nil, nil
-    pcall(function()
-        imc = StaticFindObject("/Game/Mods/ArcaneWilds/IMC_ArcaneWildsQuickCastBlock.IMC_ArcaneWildsQuickCastBlock")
-        ia  = StaticFindObject("/Game/Mods/ArcaneWilds/IA_ArcaneWildsKeyBlocker.IA_ArcaneWildsKeyBlocker")
-    end)
-    if (not imc or not imc:IsValid() or not ia or not ia:IsValid()) and type(LoadAsset) == "function" then
-        pcall(function() LoadAsset("/Game/Mods/ArcaneWilds/IA_ArcaneWildsKeyBlocker.IA_ArcaneWildsKeyBlocker") end)
-        pcall(function() LoadAsset("/Game/Mods/ArcaneWilds/IMC_ArcaneWildsQuickCastBlock.IMC_ArcaneWildsQuickCastBlock") end)
-        pcall(function()
-            imc = StaticFindObject("/Game/Mods/ArcaneWilds/IMC_ArcaneWildsQuickCastBlock.IMC_ArcaneWildsQuickCastBlock")
-            ia  = StaticFindObject("/Game/Mods/ArcaneWilds/IA_ArcaneWildsKeyBlocker.IA_ArcaneWildsKeyBlocker")
-        end)
-    end
-    if imc and imc:IsValid() and ia and ia:IsValid() then
-        State._QuickCastIMC = imc
-        State._QuickCastIA = ia
-        DebugLog("Loaded EnhancedInput Quick-Cast blocker IMC & IA from IoStore pak")
-        return imc, ia
-    end
-    return nil, nil
-end
-
-local function SyncQuickCastBlockerMappings(imc, ia)
-    local allKeys = {}
-    local seen = {}
-    for _, binding in ipairs(GetQuickCastBindingsList()) do
-        local m = tostring(binding.modifier or "NONE"):upper()
-        if m == "BLOCK" or m == "RMB" or m == "MODIFIER" then
-            for _, k in ipairs(ParseKeyList(binding.keysRaw)) do
-                if not seen[k] then
-                    seen[k] = true
-                    table.insert(allKeys, k)
-                end
-            end
-        end
-    end
-    local sig = table.concat(allKeys, ",")
-    if State._QuickCastBlockerSig == sig then return end
-
-    local defaultSig = "One,Gamepad_FaceButton_Left,Two,Gamepad_FaceButton_Top,Three,Gamepad_FaceButton_Right,Four,Gamepad_FaceButton_Bottom"
-    if sig == defaultSig and State._QuickCastBlockerSig == nil then
-        State._QuickCastBlockerSig = sig
-        return
-    end
-
-    local bridgeCDO = nil
-    pcall(function()
-        bridgeCDO = StaticFindObject("/Game/Mods/ArcaneWilds/BFL_ArcaneWildsDamage.Default__BFL_ArcaneWildsDamage_C")
-        if (not bridgeCDO or not bridgeCDO:IsValid()) and type(LoadAsset) == "function" then
-            LoadAsset("/Game/Mods/ArcaneWilds/BFL_ArcaneWildsDamage.BFL_ArcaneWildsDamage_C")
-            bridgeCDO = StaticFindObject("/Game/Mods/ArcaneWilds/BFL_ArcaneWildsDamage.Default__BFL_ArcaneWildsDamage_C")
-        end
-    end)
-    if bridgeCDO and bridgeCDO:IsValid() then
-        pcall(function()
-            imc:UnmapAll()
-            for _, k in ipairs(allKeys) do
-                bridgeCDO:MapKeySafe(imc, ia, { KeyName = FName(k) })
-            end
-            State._QuickCastBlockerSig = sig
-            DebugLog("Updated Quick-Cast input blocker keys from quick_cast.txt: " .. sig)
-        end)
-    end
-end
-
-local function SetQuickCastInputSuppressed(shouldSuppress)
-    if Config.EnableQuickCastHotkeys == false or Config.QuickCastSuppressGameActions == false then
-        shouldSuppress = false
-    end
-    local wantBlocked = (shouldSuppress == true)
-    if (State._QuickCastInputBlocked == true) == wantBlocked then return end
-
-    State._QuickCastInputBlocked = wantBlocked
-    local function applyOnGameThread()
-        pcall(function()
-            local imc, ia = ResolveQuickCastBlockerAssets()
-            if not imc or not ia then
-                State._QuickCastInputBlocked = false
-                return
-            end
-            local sub = FindFirstOf("EnhancedInputLocalPlayerSubsystem")
-            if not sub or not sub:IsValid() then
-                State._QuickCastInputBlocked = false
-                return
-            end
-            if wantBlocked then
-                SyncQuickCastBlockerMappings(imc, ia)
-                sub:AddMappingContext(imc, 9999, {
-                    bIgnoreAllPressedKeysUntilRelease = false,
-                    bForceImmediately = true,
-                    bNotifyUserSettings = false
-                })
-                DebugLog("Quick-Cast input blocker ON (Priority 9999: Hotbar 1-4 & Controller X/Y/B/A suppressed)")
-            else
-                sub:RemoveMappingContext(imc, {
-                    bIgnoreAllPressedKeysUntilRelease = true,
-                    bForceImmediately = true,
-                    bNotifyUserSettings = false
-                })
-                DebugLog("Quick-Cast input blocker OFF (Hotbar 1-4 & Controller X/Y/B/A restored)")
-            end
-        end)
-    end
-
-    -- Already running on the serialized Game Thread via RunMainGameThreadTick
-    applyOnGameThread()
+    return InputBlocker.Sync(
+        Config,
+        State,
+        pc,
+        GetQuickCastBindingsList(),
+        ParseKeyList,
+        IsQuickCastModifierSatisfied,
+        NormalizeKeyName,
+        Log,
+        DebugLog
+    )
 end
 
 local function ResolveQuickCastEntry(spellName)
@@ -461,21 +382,13 @@ end
 
 local function PollQuickCastHotkeys(now, pc, pawn, combatMagic)
     if Config.EnableQuickCastHotkeys == false then
-        SetQuickCastInputSuppressed(false)
+        InputBlocker.Clear(State, Log, DebugLog)
         return false
     end
     if not pc or not pc:IsValid() or not pawn or not pawn:IsValid() then return false end
 
     local bindings = GetQuickCastBindingsList()
-    local hasBlockBinding = false
-    for _, b in ipairs(bindings) do
-        local m = tostring(b.modifier or "NONE"):upper()
-        if m == "BLOCK" or m == "RMB" or m == "MODIFIER" then
-            hasBlockBinding = true
-            break
-        end
-    end
-    SetQuickCastInputSuppressed(hasBlockBinding and State.ModifierHeld)
+    SyncQuickCastInputSuppression(pc)
 
     State._QuickCastPrevDown = State._QuickCastPrevDown or {}
     local firedAny = false
@@ -720,8 +633,11 @@ local function TickActiveMacro(now, pawn, combatMagic)
 
     -- If this step's montage is already running from a previous combo (or just finished within AnimRepeatPadSec),
     -- pad the wait time before applying fast rate / triggering so the first hit stays fast and repeat hits pad cleanly.
+    -- Skip repeat padding for explicit parallel-overlap custom timelines (e.g. rapid-fire StormOfArmadyl).
+    local isParallelCustom = expectedEntry and expectedEntry.isCustomSpell and expectedEntry.hasTimeline
+        and expectedEntry.timeline and ((expectedEntry.timeline.overlapPolicy or "replace"):lower() == "parallel")
     local padWindow = math.max(0.0, tonumber(Config.AnimRepeatPadSec) or 0.45)
-    if expectedEntry and expectedEntry.montageObj and padWindow > 0 then
+    if expectedEntry and expectedEntry.montageObj and padWindow > 0 and not isParallelCustom then
         local sameMontRunning = (curMont and curMont == expectedEntry.montageObj)
         local recentSameMont = (State.LastActiveMontageObj == expectedEntry.montageObj)
             and ((now - (State.LastActiveMontageSeenAt or now)) < padWindow)
@@ -848,8 +764,10 @@ local function TickAutoAttack(now, pc, pawn, combatMagic)
         local sd = st and (st.steps[State.StepInStage] or st.steps[1])
         local entry = sd and ConfigManager.ResolveStepEntry(State, st, sd)
         if not entry then return end
-        local minTriggerGap = entry.isSpecialSpell and 0.45 or 0.25
-        if isBusy or (now - (State.LastTriggeredSpellTime or 0)) < minTriggerGap then
+        local isParallelTimeline = entry.isCustomSpell and entry.hasTimeline and entry.timeline
+            and ((entry.timeline.overlapPolicy or "replace"):lower() == "parallel")
+        local minTriggerGap = entry.isSpecialSpell and 0.45 or (isParallelTimeline and 0.12 or 0.25)
+        if (isBusy and not isParallelTimeline) or (now - (State.LastTriggeredSpellTime or 0)) < minTriggerGap then
             return
         end
         if CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, entry, DebugLog, combatMagic) then
@@ -895,7 +813,7 @@ local function RunMainGameThreadTick()
     State.Enabled = Config.Enabled
 
     if not Config.Enabled then
-        SetQuickCastInputSuppressed(false)
+        InputBlocker.Clear(State, Log, DebugLog)
         return
     end
 
@@ -922,6 +840,7 @@ local function RunMainGameThreadTick()
     if modDown and not State.ModifierHeld then
         State.ModifierHeld = true
         State._AppliedPadForCurrentStep = false
+        SyncQuickCastInputSuppression(pc)
         if Config.TriggerComboOnModifierHold == true then
             CombatEngine.EngageModifierAndRollMacro(Config, State, pawn, combatMagic, Log, DebugLog)
             if State.ActiveMacro and pawn and pawn:IsValid() then
@@ -941,6 +860,7 @@ local function RunMainGameThreadTick()
         end
     elseif not modDown and State.ModifierHeld then
         State.ModifierHeld = false
+        SyncQuickCastInputSuppression(pc)
         State.StepInFlight = false
         State.InFlightSpellObj = nil
         State.SpecialPostPauseUntil = 0

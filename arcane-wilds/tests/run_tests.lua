@@ -19,6 +19,8 @@ require("test_json")
 require("test_custom_spells")
 require("test_combo_rules")
 require("test_config_hotreload")
+require("test_input_blocker")
+require("test_overlap_and_lockon")
 
 local allPassed = T.Summary()
 os.exit(allPassed and 0 or 1)

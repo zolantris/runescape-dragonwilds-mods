@@ -208,6 +208,7 @@ function SpellScanner.UnlockSpellMovement(spellObj, maxMoveSpeed)
                         pcall(function() modObj.bBlockMovement = false end)
                         pcall(function() modObj.MaxMovementSpeedDuringMontage = spd end)
                         pcall(function() modObj.MaxMovementSpeed = spd end)
+                        pcall(function() modObj.bAllowTriggeringNotifiesMultipleTimes = true end)
                         local m = nil
                         pcall(function() m = modObj.Montage end)
                         if m and m:IsValid() then
@@ -252,10 +253,13 @@ local function PatchSpellModules(spellObj, cfg, chainEntry, idx, lowerName)
                             pcall(function() modObj.bBlockMovement = false end)
                             pcall(function() modObj.MaxMovementSpeedDuringMontage = cfg.MaxMoveSpeed end)
                             pcall(function() modObj.MaxMovementSpeed = cfg.MaxMoveSpeed end)
+                            pcall(function() modObj.bAllowTriggeringNotifiesMultipleTimes = true end)
                             if montage and montage:IsValid() then
                                 pcall(function() montage.bEnableRootMotionTranslation = false end)
                                 pcall(function() montage.bEnableRootMotionRotation = false end)
                             end
+                        else
+                            pcall(function() modObj.bAllowTriggeringNotifiesMultipleTimes = true end)
                         end
                     else
                         ExtractCostItemsFromModule(modObj, costItems)

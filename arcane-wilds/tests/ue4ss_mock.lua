@@ -18,6 +18,9 @@ function Mock.MakeUObject(fullName, props)
     function obj:GetFullName()
         return self._fullName
     end
+    function obj:GetAddress()
+        return self._addr or tostring(self)
+    end
     return obj
 end
 
@@ -51,6 +54,12 @@ function Mock.InstallGlobals()
     end
     _G.LoadAsset = function(path)
         return Mock.ObjectsByPath[path]
+    end
+    _G.StaticConstructObject = function(cls, outer)
+        if Mock.OnStaticConstructObject then
+            return Mock.OnStaticConstructObject(cls, outer)
+        end
+        return nil
     end
     _G.FName = function(s)
         return {

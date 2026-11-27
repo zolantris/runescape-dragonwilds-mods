@@ -1,0 +1,75 @@
+name: Arcane Wilds Tests
+
+on:
+  pull_request:
+    branches: [main, "release/**"]
+  push:
+    branches: [main, "release/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arcane-wilds-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lua & JSON Schema Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Lua 5.4
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends lua5.4
+          lua5.4 -v
+
+      - name: Validate JSON files & JSON Schemas
+        run: |
+          python3 -m pip install --quiet jsonschema
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          from jsonschema import Draft7Validator
+
+          root = Path("arcane-wilds")
+          mod_root = root / "ue4ss/Mods/ArcaneWilds"
+
+          # 1. Verify every .json file under arcane-wilds is valid JSON
+          for jf in sorted(root.rglob("*.json")):
+              if "Intermediate" in jf.parts or "Saved" in jf.parts:
+                  continue
+              with jf.open("r", encoding="utf-8-sig") as f:
+                  json.load(f)
+              print(f"JSON OK: {jf}")
+
+          # 2. Validate configs against their Draft-07 JSON Schemas
+          pairs = [
+              (mod_root / "custom_spells.json", mod_root / "schemas/custom_spells.schema.json"),
+              (mod_root / "combo_rules.json", mod_root / "schemas/combo_rules.schema.json"),
+              (mod_root / "combo_rules_examples.json", mod_root / "schemas/combo_rules.schema.json"),
+          ]
+          for data_path, schema_path in pairs:
+              with schema_path.open("r", encoding="utf-8-sig") as sf:
+                  schema = json.load(sf)
+              Draft7Validator.check_schema(schema)
+              validator = Draft7Validator(schema)
+              with data_path.open("r", encoding="utf-8-sig") as df:
+                  data = json.load(df)
+              errors = sorted(validator.iter_errors(data), key=lambda e: list(e.path))
+              if errors:
+                  print(f"SCHEMA FAIL: {data_path}")
+                  for err in errors:
+                      loc = ".".join(str(p) for p in err.path) or "<root>"
+                      print(f"  - [{loc}] {err.message}")
+                  raise SystemExit(1)
+              print(f"SCHEMA OK: {data_path} -> {schema_path.name}")
+          PY
+
+      - name: Run Lua unit & regression tests
+        run: lua5.4 arcane-wilds/tests/run_tests.lua

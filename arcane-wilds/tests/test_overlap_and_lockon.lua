@@ -1,0 +1,498 @@
+-- Regression tests for:
+--   1. Montage play-rate squaring fix (RateScale stays 1.0 while Montage_SetPlayRate drives speed)
+--   2. Parallel overlapping timelines (StormOfArmadyl multi-cast without cancelling previous gusts/bolts)
+--   3. UE5 Niagara scalability/instance-culling bypass on spawned VFX
+--   4. Live Lock-On detection (rejecting stale LockOnCameraActor after unlock/death),
+--      reticle look-at targeting, and RequireLockOnForChainSpells toggle.
+
+local T = require("test_harness")
+local Mock = require("ue4ss_mock")
+local CombatEngine = require("combat_engine")
+local ConfigManager = require("config_manager")
+local CustomSpells = require("custom_spells")
+local SpellScanner = require("spell_scanner")
+local TimelineParser = require("timeline_parser")
+local TimelineRunner = require("timeline_runner")
+
+local function ReadFile(path)
+    local f, err = io.open(path, "r")
+    T.AssertNotNil(f, "failed to open " .. tostring(path) .. ": " .. tostring(err))
+    local raw = f:read("*a")
+    f:close()
+    return raw
+end
+
+local function MakeVector(x, y, z)
+    return { X = x or 0.0, Y = y or 0.0, Z = z or 0.0 }
+end
+
+local function MakeRot(p, y, r)
+    return { Pitch = p or 0.0, Yaw = y or 0.0, Roll = r or 0.0 }
+end
+
+local function RegisterCoreUeClasses()
+    local classPaths = {
+        "/Script/CoreUObject.Class",
+        "/Script/Engine.AnimMontage",
+        "/Script/Engine.AnimSequenceBase",
+        "/Script/Niagara.NiagaraSystem",
+        "/Script/Engine.SoundBase",
+        "/Script/Dominion.DominionSpellData",
+        "/Script/Engine.MaterialInterface",
+        "/Script/Engine.Actor",
+        "/Script/Engine.CameraShakeBase"
+    }
+    local classes = {}
+    for _, cp in ipairs(classPaths) do
+        local cls = Mock.MakeUObject("Class " .. cp)
+        Mock.RegisterPath(cp, cls)
+        classes[cp] = cls
+    end
+    return classes
+end
+
+local function MakeTypedObject(fullName, classPath, props)
+    local obj = Mock.MakeUObject(fullName, props)
+    obj._classPath = classPath
+    function obj:IsA(cls)
+        return cls ~= nil and cls._fullName == ("Class " .. self._classPath)
+    end
+    return obj
+end
+
+local function MakeMockEnemy(name, loc, hp)
+    local healthComp = Mock.MakeUObject("AiHealthComponent " .. name .. ":Health", {
+        _hp = hp or 200.0
+    })
+    function healthComp:GetAuthoritativeHealth()
+        return self._hp
+    end
+    function healthComp:DecreaseHealth(amount)
+        self._hp = math.max(0.0, self._hp - amount)
+    end
+
+    local enemy = Mock.MakeUObject("DominionAICharacter " .. name, {
+        bIsTargetable = true,
+        HealthComponent = healthComp,
+        _loc = loc or MakeVector(400, 0, 0),
+        _rot = MakeRot(0, 180, 0)
+    })
+    function enemy:K2_GetActorLocation() return self._loc end
+    function enemy:K2_GetActorRotation() return self._rot end
+    function enemy:GetAiHealthComponent() return self.HealthComponent end
+    return enemy
+end
+
+local function MakeMockPawn(loc, yaw, camRot)
+    local pcm = Mock.MakeUObject("PlayerCameraManager /Game/Maps/Main.PCM", {
+        _camLoc = loc or MakeVector(0, 0, 120),
+        _camRot = camRot or MakeRot(0, yaw or 0, 0),
+        ViewTarget = { Target = nil },
+        PendingViewTarget = { Target = nil }
+    })
+    function pcm:GetCameraLocation() return self._camLoc end
+    function pcm:GetCameraRotation() return self._camRot end
+
+    local pc = Mock.MakeUObject("DominionPlayerController /Game/Maps/Main.PC", {
+        PlayerCameraManager = pcm,
+        _viewTarget = nil
+    })
+    function pc:GetViewTarget() return self._viewTarget end
+    function pc:GetControlRotation() return pcm._camRot end
+    function pc:LineOfSightTo() return true end
+
+    local pawn = Mock.MakeUObject("BP_PlayerCharacter_C /Game/Maps/Main.Player", {
+        Controller = pc,
+        _loc = loc or MakeVector(0, 0, 0),
+        _rot = MakeRot(0, yaw or 0, 0)
+    })
+    function pawn:K2_GetActorLocation() return self._loc end
+    function pawn:K2_GetActorRotation() return self._rot end
+    pc._viewTarget = pawn
+    pcm.ViewTarget.Target = pawn
+    return pawn, pc, pcm
+end
+
+T.Suite("overlap_and_lockon", function()
+    T.Test("ApplyMontageRateToInstance drives PlayRate without squaring RateScale", function()
+        Mock.Reset()
+        local lastSetRate = nil
+        local activeMont = Mock.MakeUObject("AnimMontage /Game/Anims/AM_Air_02.AM_Air_02", {
+            RateScale = 2.2
+        })
+        local animInst = Mock.MakeUObject("AnimInstance /Game/Anims/ABP_Player.ABP_Player")
+        function animInst:GetCurrentActiveMontage() return activeMont end
+        function animInst:Montage_SetPlayRate(m, rate)
+            T.AssertEq(m, activeMont)
+            lastSetRate = rate
+        end
+        local mesh = Mock.MakeUObject("SkeletalMeshComponent /Game/Player:Mesh")
+        function mesh:GetAnimInstance() return animInst end
+        local pawn = Mock.MakeUObject("BP_PlayerCharacter_C /Game/Player", { Mesh = mesh })
+
+        local config = ConfigManager.CreateDefaultConfig()
+        CombatEngine.ApplyMontageRateToInstance(config, pawn, activeMont, 2.2, false)
+
+        T.AssertNear(activeMont.RateScale, 1.0, 1e-4, "RateScale must stay 1.0 so UE5 does not multiply RateScale * PlayRate")
+        T.AssertNear(lastSetRate, 2.2, 1e-4, "Montage_SetPlayRate should receive exact 2.2x rate")
+
+        -- Clamped finisher respects MaxFinisherSpeedClamp while keeping RateScale == 1.0
+        config.MaxFinisherSpeedClamp = 1.75
+        CombatEngine.ApplyMontageRateToInstance(config, pawn, activeMont, 3.0, true)
+        T.AssertNear(activeMont.RateScale, 1.0, 1e-4)
+        T.AssertNear(lastSetRate, 1.75, 1e-4)
+    end)
+
+    T.Test("UnlockSpellMovement enables bAllowTriggeringNotifiesMultipleTimes on montage modules", function()
+        Mock.Reset()
+        local mont = Mock.MakeUObject("AnimMontage /Game/Anims/AM_Air_01.AM_Air_01", {
+            bEnableRootMotionTranslation = true,
+            bEnableRootMotionRotation = true
+        })
+        local modObj = Mock.MakeUObject("SpellModule_PlayMontage /Game/Spells/DA_Air.DA_Air:Mod", {
+            Montage = mont,
+            bShouldBlockMovement = true,
+            MaxMovementSpeedDuringMontage = 0.0,
+            bAllowTriggeringNotifiesMultipleTimes = false
+        })
+        local arr = {}
+        function arr:ForEach(cb)
+            cb(1, { get = function() return { Module = modObj } end })
+        end
+        local spellObj = Mock.MakeUObject("DominionSpellData /Game/Spells/DA_Air.DA_Air", {
+            Modules = { Modules = arr }
+        })
+
+        SpellScanner.UnlockSpellMovement(spellObj, 600.0)
+        T.AssertFalse(modObj.bShouldBlockMovement)
+        T.AssertNear(modObj.MaxMovementSpeedDuringMontage, 600.0)
+        T.AssertTrue(modObj.bAllowTriggeringNotifiesMultipleTimes)
+        T.AssertFalse(mont.bEnableRootMotionTranslation)
+    end)
+
+    T.Test("StormOfArmadyl and SaradominStrike default to parallel overlapPolicy in custom_spells.json", function()
+        local raw = ReadFile(MOD_ROOT .. "/custom_spells.json")
+        local defs, err = CustomSpells.ParseDefinitions(raw)
+        T.AssertNil(err)
+        T.AssertEq(defs["stormofarmadyl"].overlapPolicy, "parallel")
+        T.AssertEq(defs["saradominstrike"].overlapPolicy, "parallel")
+    end)
+
+    T.Test("parallel StormOfArmadyl casts keep independent timelines, uncap Niagara culling, and both spawn gusts", function()
+        Mock.Reset()
+        TimelineRunner.ClearValidationCache()
+        RegisterCoreUeClasses()
+
+        local pawn = MakeMockPawn(MakeVector(0, 0, 0), 0)
+        local enemy1 = MakeMockEnemy("Goblin_1", MakeVector(500, 0, 0), 300)
+        local enemy2 = MakeMockEnemy("Goblin_2", MakeVector(500, 100, 0), 300)
+        Mock.RegisterClassInstance("DominionAICharacter", enemy1)
+        Mock.RegisterClassInstance("DominionAICharacter", enemy2)
+
+        -- Mock NiagaraSystem with EffectType scalability limits
+        local scalSetting = { bCullMaxInstanceCount = true, bCullPerSystemMaxInstanceCount = true }
+        local scalArr = {}
+        function scalArr:ForEach(cb)
+            cb(1, { get = function() return scalSetting end })
+        end
+        -- Make scalArr look like userdata? Note: in Lua mock it's a table, so also verify top-level flags on asset & component
+        local effectType = Mock.MakeUObject("NiagaraEffectType /Game/VFX/ET_Spell.ET_Spell", {
+            bAllowCullingForLocalPlayers = true,
+            SystemScalabilitySettings = { Settings = scalArr }
+        })
+        local vfxPath = "/Game/Art/VFX/Library/Spells/Windstep/NS_Windstep_Launch.NS_Windstep_Launch"
+        local gustVfx = MakeTypedObject("NiagaraSystem " .. vfxPath, "/Script/Niagara.NiagaraSystem", {
+            EffectType = effectType,
+            bOverrideAllowCullingForLocalPlayers = false,
+            bAllowCullingForLocalPlayersOverride = true
+        })
+        Mock.RegisterPath(vfxPath, gustVfx)
+
+        -- Mock NiagaraFunctionLibrary collecting spawned components
+        local spawnedComps = {}
+        local nsLib = Mock.MakeUObject("NiagaraFunctionLibrary /Script/Niagara.Default__NiagaraFunctionLibrary")
+        function nsLib:SpawnSystemAtLocation(_, sysAsset, loc)
+            local comp = Mock.MakeUObject("NiagaraComponent /Temp/Gust_" .. tostring(#spawnedComps + 1), {
+                Asset = sysAsset,
+                _loc = loc,
+                bAllowScalability = true,
+                _forceLocal = false,
+                _forceSolo = false,
+                _destroyed = false
+            })
+            function comp:SetForceLocalPlayerEffect(b) self._forceLocal = b end
+            function comp:SetForceSolo(b) self._forceSolo = b end
+            function comp:SetWorldScale3D() end
+            function comp:SetVariableFloat() end
+            function comp:SetVariableVec3() end
+            function comp:Deactivate() self._deactivated = true end
+            function comp:K2_DestroyComponent() self._destroyed = true end
+            table.insert(spawnedComps, comp)
+            return comp
+        end
+        Mock.RegisterPath("/Script/Niagara.Default__NiagaraFunctionLibrary", nsLib)
+
+        -- Mock Air Bolt DominionSpellData & DominionRuntimeBlueprintLibrary
+        local airBolt = MakeTypedObject("DominionSpellData /Game/Spells/DA_Spell_Primary_Air_01.DA_Spell_Primary_Air_01", "/Script/Dominion.DominionSpellData")
+        local combatMagic = Mock.MakeUObject("PlayerCombatMagicComponent /Game/Player:CombatMagic", {
+            CurrentSpellActor = nil
+        })
+
+        local triggerCount = 0
+        local spellActor1 = Mock.MakeUObject("DominionSpellActor /Game/Maps/Main.SpellActor_1", {
+            _loc = MakeVector(250, 0, 50)
+        })
+        function spellActor1:K2_GetActorLocation() return self._loc end
+
+        local bpLib = Mock.MakeUObject("DominionRuntimeBlueprintLibrary /Script/Dominion.Default__DominionRuntimeBlueprintLibrary")
+        function bpLib:TriggerModularAbilityForPlayer(_, _)
+            triggerCount = triggerCount + 1
+            -- Cast #1 spawns SpellActor_1; Cast #2 fires while SpellActor_1 is STILL active (simulating engine single-slot gate)
+            if triggerCount == 1 then
+                combatMagic.CurrentSpellActor = spellActor1
+            end
+        end
+        Mock.RegisterPath("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary", bpLib)
+
+        -- Build StormOfArmadyl entry from real custom_spells.json
+        local defs = CustomSpells.ParseDefinitions(ReadFile(MOD_ROOT .. "/custom_spells.json"))
+        local tl, warnings = TimelineParser.BuildTimeline(defs["stormofarmadyl"])
+        T.AssertEq(#warnings, 0)
+        local entry = {
+            shortName = "StormOfArmadyl",
+            isCustomSpell = true,
+            suppressBaseSpell = true,
+            hasTimeline = true,
+            timeline = tl,
+            customDef = defs["stormofarmadyl"],
+            customOverrideSpeed = 1.6
+        }
+
+        local hitPulseCount = 0
+        local mockCustomSpells = {
+            FindObjectFast = function(p) return Mock.ObjectsByPath[p] end,
+            ExecuteHitPulse = function()
+                hitPulseCount = hitPulseCount + 1
+                return 1, {}
+            end
+        }
+
+        local state = {
+            ActiveTimelines = {},
+            SpellRegistry = {
+                ["da_spell_primary_air_01"] = { spellObj = airBolt, suppressBaseSpell = false }
+            }
+        }
+        local config = ConfigManager.CreateDefaultConfig()
+
+        -- Fire Cast #1 at t0
+        local tl1 = TimelineRunner.StartSpellTimeline(config, state, pawn, combatMagic, entry, 2.2, mockCustomSpells)
+        T.AssertNotNil(tl1)
+        T.AssertEq(#state.ActiveTimelines, 1)
+        T.AssertEq(tl1.cueStates[1].trackedSpellActor, spellActor1, "Cast #1 should claim SpellActor_1")
+
+        -- Fire Cast #2 while Cast #1 is STILL flying! Must NOT cancel Cast #1 and must NOT steal SpellActor_1!
+        local tl2 = TimelineRunner.StartSpellTimeline(config, state, pawn, combatMagic, entry, 2.2, mockCustomSpells)
+        T.AssertNotNil(tl2)
+        T.AssertEq(#state.ActiveTimelines, 2, "Both StormOfArmadyl casts must coexist in parallel")
+        T.AssertFalse(tl1.finished, "Cast #1 must NOT be cancelled by Cast #2")
+        T.AssertNil(tl2.cueStates[1].trackedSpellActor, "Cast #2 must NOT hijack Cast #1's SpellActor_1")
+
+        -- Cast #1's bolt finishes flying (SpellActor_1 clears at t + 0.25s)
+        local t0 = tl1.startedAt
+        spellActor1._valid = false
+        combatMagic.CurrentSpellActor = nil
+        TimelineRunner.Tick(t0 + 0.25, config, state, pawn, combatMagic, mockCustomSpells)
+        -- Second tick promotes >bolt hit + & gust VFX for Cast #1
+        TimelineRunner.Tick(t0 + 0.26, config, state, pawn, combatMagic, mockCustomSpells)
+
+        T.AssertEq(hitPulseCount, 1, "Cast #1 hit pulse should fire on impact")
+        T.AssertEq(#spawnedComps, 1, "Cast #1 upward gust VFX should spawn")
+
+        -- Cast #2 reaches fallback impact window (age >= 0.40s) and fires its OWN hit + gust VFX!
+        TimelineRunner.Tick(tl2.startedAt + 0.45, config, state, pawn, combatMagic, mockCustomSpells)
+        TimelineRunner.Tick(tl2.startedAt + 0.46, config, state, pawn, combatMagic, mockCustomSpells)
+
+        T.AssertEq(hitPulseCount, 2, "Cast #2 hit pulse must also fire independently")
+        T.AssertEq(#spawnedComps, 2, "Both overlapping StormOfArmadyl casts must spawn their upward gust VFX")
+        T.AssertFalse(spawnedComps[1]._destroyed, "Cast #1 gust VFX must NOT be destroyed by Cast #2")
+
+        -- Verify Niagara culling bypass flags were applied on both spawned gust components & asset
+        for i, comp in ipairs(spawnedComps) do
+            T.AssertFalse(comp.bAllowScalability, "Gust #" .. i .. " must have bAllowScalability=false")
+            T.AssertTrue(comp._forceLocal, "Gust #" .. i .. " must call SetForceLocalPlayerEffect(true)")
+            T.AssertTrue(comp._forceSolo, "Gust #" .. i .. " must call SetForceSolo(true)")
+        end
+        T.AssertTrue(gustVfx.bOverrideAllowCullingForLocalPlayers)
+        T.AssertFalse(gustVfx.bAllowCullingForLocalPlayersOverride)
+        T.AssertFalse(effectType.bAllowCullingForLocalPlayers)
+    end)
+
+    T.Test("Lock-on detection rejects stale LockOnCameraActor after target death/unlock, accepts active lock and reticle look-at", function()
+        Mock.Reset()
+        local pawn, pc, pcm = MakeMockPawn(MakeVector(0, 0, 0), 0, MakeRot(0, 0, 0))
+        local enemyAhead = MakeMockEnemy("Bandit_1", MakeVector(400, 0, 0), 150)
+        local deadEnemy = MakeMockEnemy("DeadBandit", MakeVector(300, 0, 0), 0)
+        Mock.RegisterClassInstance("DominionAICharacter", enemyAhead)
+        Mock.RegisterClassInstance("DominionAICharacter", deadEnemy)
+
+        -- Case 1: Fresh player before ever locking on, not looking at enemy with reticle -> nil
+        local lockComp = Mock.MakeUObject("LockOnTargetingComponent /Game/Player:LockOn", {
+            LockOnCameraActor = nil,
+            TargetingWidgetInstance = nil,
+            PlayerController = pc,
+            MaxTargetDistance = 3000.0
+        })
+        local targetor = Mock.MakeUObject("EnemyTargetorComponent /Game/Player:Targetor", {
+            CurrentWorldActor = nil,
+            CurrentTargetable = nil
+        })
+        pawn.LockOnTargetingComponent = lockComp
+        pawn.TargetorComponent = targetor
+
+        local found = TimelineRunner.ResolveLockedOnEnemy(pawn, 3000.0)
+        T.AssertNil(found, "Should not report a lock before locking on or hovering enemy with reticle")
+
+        -- Case 2: Looking directly at an alive enemy via UEnemyTargetorComponent (before ever pressing lock-on!) -> counts as lock!
+        targetor.CurrentWorldActor = enemyAhead
+        local lookFound = TimelineRunner.ResolveLockedOnEnemy(pawn, 3000.0)
+        T.AssertEq(lookFound, enemyAhead, "Looking directly at an alive enemy via reticle should count as a lock")
+
+        -- Dead enemy in reticle must NOT count
+        targetor.CurrentWorldActor = deadEnemy
+        T.AssertNil(TimelineRunner.ResolveLockedOnEnemy(pawn, 3000.0), "Dead enemy in reticle must not count as a lock")
+        targetor.CurrentWorldActor = nil
+
+        -- Case 3: Active hard lock-on (LockOnCameraActor spawned, TargetingWidget visible, ViewTarget == LockOnCameraActor)
+        local lockCamComp = Mock.MakeUObject("CameraComponent /Game/LockCam:Camera")
+        function lockCamComp:K2_GetComponentLocation() return MakeVector(0, 0, 120) end
+        function lockCamComp:K2_GetComponentRotation() return MakeRot(0, 0, 0) end
+        function lockCamComp:IsActive() return true end
+
+        local lockCamActor = Mock.MakeUObject("LockOnTargetCameraActor /Game/LockCam", {
+            AttachedToActor = pawn, -- attached to player, just like live Dragonwilds!
+            Camera = lockCamComp
+        })
+        local widget = Mock.MakeUObject("UserWidget /Game/UI/LockReticle", {
+            _vis = 0, -- Visible
+            _inVp = true
+        })
+        function widget:GetVisibility() return self._vis end
+        function widget:IsInViewport() return self._inVp end
+
+        lockComp.LockOnCameraActor = lockCamActor
+        lockComp.TargetingWidgetInstance = widget
+        pc._viewTarget = lockCamActor
+        pcm.ViewTarget.Target = lockCamActor
+
+        T.AssertTrue(TimelineRunner.IsLockOnCurrentlyActive(pawn, lockComp, lockCamActor))
+        local hardLocked = TimelineRunner.ResolveLockedOnEnemy(pawn, 3000.0)
+        T.AssertEq(hardLocked, enemyAhead, "Active hard lock-on should resolve locked enemy")
+
+        -- Case 4 (THE BUG): Target died or player unlocked!
+        -- LockOnCameraActor REMAINS valid in the world, but widget is Collapsed (1) and ViewTarget returned to pawn!
+        widget._vis = 1 -- Collapsed
+        pc._viewTarget = pawn
+        pcm.ViewTarget.Target = pawn
+
+        T.AssertFalse(TimelineRunner.IsLockOnCurrentlyActive(pawn, lockComp, lockCamActor),
+            "Stale LockOnCameraActor with collapsed widget & player ViewTarget must NOT report active lock-on")
+        local afterUnlock = TimelineRunner.ResolveLockedOnEnemy(pawn, 3000.0)
+        T.AssertNil(afterUnlock,
+            "After target dies / unlock, stale LockOnCameraActor must NOT keep attacking nearby enemies!")
+    end)
+
+    T.Test("SaradominStrike respects requireLock and RequireLockOnForChainSpells config toggle", function()
+        Mock.Reset()
+        TimelineRunner.ClearValidationCache()
+        RegisterCoreUeClasses()
+
+        local pawn, pc, pcm = MakeMockPawn(MakeVector(0, 0, 0), 0, MakeRot(0, 0, 0))
+        local enemy = MakeMockEnemy("Goblin_Aimed", MakeVector(450, 0, 0), 200)
+        Mock.RegisterClassInstance("DominionAICharacter", enemy)
+
+        -- Stale LockOnCameraActor (not locked on) & empty reticle targetor
+        local lockCamActor = Mock.MakeUObject("LockOnTargetCameraActor /Game/LockCam_Stale", {
+            AttachedToActor = pawn
+        })
+        local hiddenWidget = Mock.MakeUObject("UserWidget /Game/UI/LockReticle_Hidden")
+        function hiddenWidget:GetVisibility() return 2 end -- Hidden
+        function hiddenWidget:IsInViewport() return false end
+
+        pawn.LockOnTargetingComponent = Mock.MakeUObject("LockOnTargetingComponent /Game/Player:LockOn", {
+            LockOnCameraActor = lockCamActor,
+            TargetingWidgetInstance = hiddenWidget,
+            PlayerController = pc
+        })
+        pawn.TargetorComponent = Mock.MakeUObject("EnemyTargetorComponent /Game/Player:Targetor", {
+            CurrentWorldActor = nil
+        })
+
+        local defs = CustomSpells.ParseDefinitions(ReadFile(MOD_ROOT .. "/custom_spells.json"))
+        local tl = TimelineParser.BuildTimeline(defs["saradominstrike"])
+        local entry = {
+            shortName = "SaradominStrike",
+            isCustomSpell = true,
+            suppressBaseSpell = true,
+            hasTimeline = true,
+            timeline = tl,
+            customDef = defs["saradominstrike"]
+        }
+
+        local damageCalls = 0
+        local mockCustomSpells = {
+            ApplyDominionBlueprintDamage = function()
+                damageCalls = damageCalls + 1
+                return true, "ok"
+            end
+        }
+
+        -- 1. With RequireLockOnForChainSpells = true (default) and no active lock / reticle -> MUST NOT FIRE!
+        local cfgStrict = ConfigManager.CreateDefaultConfig()
+        T.AssertTrue(cfgStrict.RequireLockOnForChainSpells)
+        local state1 = { ActiveTimelines = {} }
+        local resStrict = TimelineRunner.StartSpellTimeline(cfgStrict, state1, pawn, nil, entry, 1.0, mockCustomSpells)
+        T.AssertNil(resStrict, "SaradominStrike should abort when RequireLockOnForChainSpells=true and not locked/looking")
+        T.AssertEq(damageCalls, 0)
+
+        -- 2. With RequireLockOnForChainSpells = false -> fires via aim-cone auto-target without lock-on!
+        local cfgFree = ConfigManager.CreateDefaultConfig()
+        cfgFree.RequireLockOnForChainSpells = false
+        local state2 = { ActiveTimelines = {} }
+        local resFree = TimelineRunner.StartSpellTimeline(cfgFree, state2, pawn, nil, entry, 1.0, mockCustomSpells)
+        T.AssertNotNil(resFree, "SaradominStrike should fire when RequireLockOnForChainSpells=false")
+        T.AssertEq(damageCalls, 1, "First chainstrike bolt should hit aimed enemy immediately")
+    end)
+
+    T.Test("ConfigManager persists and reloads RequireLockOnForChainSpells", function()
+        local base = os.getenv("TEMP") or os.getenv("TMP") or "."
+        local prefix = base .. "/arcanewilds_lockopt_"
+        local paths = {
+            CONFIG_PATH             = prefix .. "config.txt",
+            COMBO_RULES_JSON_PATH   = prefix .. "combo_rules.json",
+            SPELL_NAMES_PATH        = prefix .. "spell_names.txt",
+            CUSTOM_SPELLS_JSON_PATH = prefix .. "custom_spells.json",
+            QUICK_CAST_PATH         = prefix .. "quick_cast.txt"
+        }
+        for _, p in pairs(paths) do pcall(os.remove, p) end
+
+        local okRun, errRun = pcall(function()
+            local cfgOut = ConfigManager.CreateDefaultConfig()
+            cfgOut.RequireLockOnForChainSpells = false
+            ConfigManager.SaveConfigFile(paths, cfgOut)
+
+            local cfgIn = ConfigManager.CreateDefaultConfig()
+            T.AssertTrue(cfgIn.RequireLockOnForChainSpells)
+            local state = {
+                BaseSpellRegistry = {}, SpellRegistry = {}, SpellChains = {},
+                CustomSpellDefs = {}, ParsedMacros = {}, NameMapByCat = {},
+                GlobalNameMap = {}, DiscoveredLookup = {}
+            }
+            ConfigManager.LoadConfigFile(paths, cfgIn, state, function() end, false)
+            T.AssertFalse(cfgIn.RequireLockOnForChainSpells, "RequireLockOnForChainSpells=false must round-trip via config.txt")
+        end)
+
+        for _, p in pairs(paths) do pcall(os.remove, p) end
+        if not okRun then error(errRun) end
+    end)
+end)
