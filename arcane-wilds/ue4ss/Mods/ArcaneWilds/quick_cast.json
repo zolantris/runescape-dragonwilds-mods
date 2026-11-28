@@ -1,0 +1,54 @@
+{
+  "$schema": "./schemas/user_quick_cast.schema.json",
+  "schemaVersion": 1,
+  "bindings": [
+    {
+      "enabled": true,
+      "modifier": "BLOCK",
+      "keys": ["1", "GP_X"],
+      "target": "AirBlast"
+    },
+    {
+      "enabled": true,
+      "modifier": "BLOCK",
+      "keys": ["2", "GP_Y"],
+      "target": "FlamesOfZamorak"
+    },
+    {
+      "enabled": true,
+      "modifier": "BLOCK",
+      "keys": ["3", "GP_B"],
+      "target": "StormOfArmadyl"
+    },
+    {
+      "enabled": true,
+      "modifier": "BLOCK",
+      "keys": ["4", "GP_A"],
+      "target": "SaradominStrike"
+    },
+    {
+      "enabled": true,
+      "modifier": "BLOCK",
+      "keys": ["5", "GP_UP"],
+      "target": "FireSurgeCombo"
+    },
+    {
+      "enabled": true,
+      "modifier": "BLOCK",
+      "keys": ["6", "GP_RIGHT"],
+      "target": "TidalSurgeCombo"
+    },
+    {
+      "enabled": true,
+      "modifier": "BLOCK",
+      "keys": ["7", "GP_DOWN"],
+      "target": "SaradominGodsword"
+    },
+    {
+      "enabled": true,
+      "modifier": "BLOCK",
+      "keys": ["8", "GP_LEFT"],
+      "target": "SaradominTempest"
+    }
+  ]
+}

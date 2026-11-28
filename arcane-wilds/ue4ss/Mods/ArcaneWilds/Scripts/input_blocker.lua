@@ -14,7 +14,7 @@ local ADD_CONTEXT_OPTS = {
 }
 
 local REMOVE_CONTEXT_OPTS = {
-    bIgnoreAllPressedKeysUntilRelease = true,
+    bIgnoreAllPressedKeysUntilRelease = false,
     bForceImmediately = true,
     bNotifyUserSettings = false
 }
@@ -89,7 +89,7 @@ end
 local function ConfigureBlockerObjects(imc, ia)
     pcall(function() ia.bConsumeInput = true end)
     pcall(function() ia.bConsumesActionAndAxisMappings = true end)
-    pcall(function() ia.bReserveAllMappings = true end)
+    pcall(function() ia.bReserveAllMappings = false end)
     pcall(function() ia.ValueType = 0 end) -- EInputActionValueType::Boolean
     pcall(function() imc.InputModeFilterOptions = 2 end) -- EMappingContextInputModeFilterOptions::DoNotFilter
     pcall(function() imc.RegistrationTrackingMode = 0 end) -- EMappingContextRegistrationTrackingMode::Untracked
@@ -241,25 +241,34 @@ function InputBlocker.CollectActiveSuppressedKeys(config, pc, bindings, parseKey
 
     -- First collect all active modifier keys so we never suppress the modifier key itself
     for _, binding in ipairs(bindings) do
-        local effMod = tostring(binding.modifier or "NONE"):upper()
-        if config.QuickCastRequireModifier == false and (effMod == "BLOCK" or effMod == "RMB" or effMod == "MODIFIER") then
-            effMod = "NONE"
+        local modsToCheck = { tostring(binding.modifier or "NONE"):upper() }
+        if binding.controllerModifier and binding.controllerModifier ~= "" then
+            table.insert(modsToCheck, tostring(binding.controllerModifier):upper())
         end
-        if effMod ~= "NONE" and effMod ~= "" and isModifierSatisfiedFn(pc, effMod) then
-            AddModifierExclusionKeys(config, effMod, normalizeKeyFn, excludedModKeys)
+        for _, m in ipairs(modsToCheck) do
+            local effMod = m
+            if config.QuickCastRequireModifier == false and (effMod == "BLOCK" or effMod == "RMB" or effMod == "MODIFIER") then
+                effMod = "NONE"
+            end
+            if effMod ~= "NONE" and effMod ~= "" and isModifierSatisfiedFn(pc, effMod) then
+                AddModifierExclusionKeys(config, effMod, normalizeKeyFn, excludedModKeys)
+            end
         end
     end
 
     for _, binding in ipairs(bindings) do
         local targetStr = tostring(binding.target or ""):gsub("^%s*(.-)%s*$", "%1")
         if targetStr ~= "" then
-            local effMod = tostring(binding.modifier or "NONE"):upper()
-            if config.QuickCastRequireModifier == false and (effMod == "BLOCK" or effMod == "RMB" or effMod == "MODIFIER") then
-                effMod = "NONE"
-            end
-            if effMod ~= "NONE" and effMod ~= "" and isModifierSatisfiedFn(pc, effMod) then
-                for _, k in ipairs(parseKeyListFn(binding.keysRaw)) do
-                    if k ~= "" and not excludedModKeys[k] and not seen[k] then
+            local baseMod = tostring(binding.modifier or "NONE"):upper()
+            local ctrlMod = (binding.controllerModifier and binding.controllerModifier ~= "")
+                and tostring(binding.controllerModifier):upper() or nil
+            for _, k in ipairs(parseKeyListFn(binding.keysRaw)) do
+                if k ~= "" and not excludedModKeys[k] and not seen[k] then
+                    local effMod = (ctrlMod and k:sub(1, 8) == "Gamepad_") and ctrlMod or baseMod
+                    if config.QuickCastRequireModifier == false and (effMod == "BLOCK" or effMod == "RMB" or effMod == "MODIFIER") then
+                        effMod = "NONE"
+                    end
+                    if effMod ~= "NONE" and effMod ~= "" and isModifierSatisfiedFn(pc, effMod) then
                         seen[k] = true
                         table.insert(activeKeys, k)
                     end

@@ -33,9 +33,9 @@ Please see the GitHub repo's [url=https://github.com/zolantris/runescape-dragonw
 
 [b]Quick-Cast Hotkeys & EnhancedInput Suppression[/b]
 [list]
-[*][b]Direct Spell & Combo Hotkeys (quick_cast.txt & Mod Menu)[/b]:
+[*][b]Direct Spell & Combo Hotkeys (quick_cast.json & Mod Menu)[/b]:
 • Cast any custom spell, native DA_Spell_* asset, or inline combo chain instantly using keyboard and controller bindings (with Block, Shift, Alt, Ctrl, or None modifiers).
-• Ships with 4 default bindings (editable in quick_cast.txt for unlimited slots, or via Slots #1–#4 in Mod Menu / config.txt):
+• Ships with 4 default bindings (editable in quick_cast.json for unlimited slots, or via Slots #1–#4 in Mod Menu / config.txt):
 • Block + 1 / GP_X -> [b]Saradomin Godsword[/b]
 • Block + 2 / GP_Y -> [b]Flames of Zamorak[/b]
 • Block + 3 / GP_B -> [b]Storm of Armadyl[/b]
@@ -132,7 +132,7 @@ Most runtime settings can be edited live in-game via [b]Mod Menu[/b] (Esc > MODS
 [*][b]modmenu.json[/b] — Mod Menu UI schema exposing runtime settings under Esc > MODS.[/*]
 [*][b]combo_rules.json[/b] — Active weighted combo chains (validated by schemas/combo_rules.schema.json; templates in combo_rules_examples.json).[/*]
 [*][b]custom_spells.json[/b] — Custom spell definitions, requirements, scaling, and cue timelines (validated by schemas/custom_spells.schema.json).[/*]
-[*][b]quick_cast.txt[/b] — Unlimited Quick-Cast spell & inline combo hotkey bindings.[/*]
+[*][b]quick_cast.json[/b] — Unlimited Quick-Cast spell & inline combo hotkey bindings.[/*]
 [*][b]spell_names.txt[/b] — Friendly name-to-asset aliases (e.g., Air.slam = DA_Spell_Primary_Air_04, Ancient Magicks, Conjurer).[/*]
 [*][b]detected_spells.txt / detected_vfx.txt[/b] — Auto-exported catalogs of loaded DominionSpellData assets, montages, and Niagara VFX paths (plus optional user-created vfx_names.txt aliases).[/*]
 [/list]

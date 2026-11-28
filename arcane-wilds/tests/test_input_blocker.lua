@@ -149,14 +149,14 @@ T.Suite("input_blocker", function()
         T.AssertEq(state._QuickCastBlockerSource, "StaticConstructObject")
         T.AssertTrue(state._QuickCastIA.bConsumeInput, "IA must set bConsumeInput=true")
         T.AssertTrue(state._QuickCastIA.bConsumesActionAndAxisMappings, "IA must set bConsumesActionAndAxisMappings=true")
-        T.AssertTrue(state._QuickCastIA.bReserveAllMappings, "IA must set bReserveAllMappings=true")
+        T.AssertFalse(state._QuickCastIA.bReserveAllMappings, "IA must set bReserveAllMappings=false to avoid global input lockout")
         T.AssertEq(state._QuickCastIMC.InputModeFilterOptions, 2, "IMC must set DoNotFilter (2)")
         T.AssertEq(state._QuickCastIMC.RegistrationTrackingMode, 0, "IMC must set Untracked (0)")
         T.AssertEq(#env.subState.addedCalls, 1)
         T.AssertEq(env.subState.addedCalls[1].prio, 100000)
         T.AssertEq(#state._QuickCastIMC._mapped, 8, "all 8 default Block keys should be mapped")
 
-        -- Releasing Block removes the mapping context with bIgnoreAllPressedKeysUntilRelease = true
+        -- Releasing Block removes the mapping context with bIgnoreAllPressedKeysUntilRelease = false
         heldMods.BLOCK = false
         local stillOn = InputBlocker.Sync(
             config, state, env.pc, bindings, ParseKeyList,
@@ -166,7 +166,7 @@ T.Suite("input_blocker", function()
         T.AssertFalse(stillOn, "blocker should deactivate when Block is released")
         T.AssertFalse(state._QuickCastInputBlocked)
         T.AssertEq(#env.subState.removedCalls, 1)
-        T.AssertTrue(env.subState.removedCalls[1].opts.bIgnoreAllPressedKeysUntilRelease)
+        T.AssertFalse(env.subState.removedCalls[1].opts.bIgnoreAllPressedKeysUntilRelease, "must not lock out currently pressed keys on release")
     end)
 
     T.Test("blocks menu/shortcut hotkeys (Q, I, K, Tab) and never self-blocks active modifier keys", function()
@@ -264,5 +264,44 @@ T.Suite("input_blocker", function()
         T.AssertFalse(ok)
         T.AssertFalse(state._QuickCastInputBlocked)
         T.AssertEq(#env.subState.removedCalls, 1)
+    end)
+
+    T.Test("respects per-binding controllerModifier independently of keyboard modifier", function()
+        local env = SetupEnhancedInputEnvironment()
+        local config = ConfigManager.CreateDefaultConfig()
+        local bindings = {
+            { modifier = "SHIFT", controllerModifier = "GP_LB", keysRaw = "5, GP_UP", target = "FireSurgeCombo" }
+        }
+        local function parseWithDpad(s)
+            local out = {}
+            for tok in tostring(s or ""):gmatch("[^,|;]+") do
+                local t = tok:gsub("^%s*(.-)%s*$", "%1"):upper()
+                if t == "5" then table.insert(out, "Five")
+                elseif t == "GP_UP" then table.insert(out, "Gamepad_DPad_Up")
+                elseif t == "GP_LB" then table.insert(out, "Gamepad_LeftShoulder")
+                else table.insert(out, t) end
+            end
+            return out
+        end
+        local function normWithDpad(k)
+            local t = tostring(k or ""):upper()
+            if t == "GP_LB" then return "Gamepad_LeftShoulder" end
+            if t == "GP_UP" then return "Gamepad_DPad_Up" end
+            return NormalizeKey(k)
+        end
+
+        -- Holding SHIFT only -> suppresses Five, NOT Gamepad_DPad_Up
+        local keysShift = InputBlocker.CollectActiveSuppressedKeys(
+            config, env.pc, bindings, parseWithDpad,
+            function(_, m) return m == "SHIFT" end, normWithDpad)
+        T.AssertEq(#keysShift, 1)
+        T.AssertEq(keysShift[1], "Five")
+
+        -- Holding GP_LB only -> suppresses Gamepad_DPad_Up, NOT Five
+        local keysLb = InputBlocker.CollectActiveSuppressedKeys(
+            config, env.pc, bindings, parseWithDpad,
+            function(_, m) return m == "GP_LB" end, normWithDpad)
+        T.AssertEq(#keysLb, 1)
+        T.AssertEq(keysLb[1], "Gamepad_DPad_Up")
     end)
 end)

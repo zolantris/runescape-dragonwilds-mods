@@ -375,27 +375,30 @@ function AssetCatalog.BuildCatalog(opts)
         }
     end
     table.sort(spellsList, function(a, b)
-        if a.category ~= b.category then return a.category:lower() < b.category:lower() end
-        if a.stepIndex ~= b.stepIndex then return a.stepIndex < b.stepIndex end
-        return a.shortName:lower() < b.shortName:lower()
+        local ac, bc = tostring(a.category or ""):lower(), tostring(b.category or ""):lower()
+        if ac ~= bc then return ac < bc end
+        local as, bs = tonumber(a.stepIndex) or 0, tonumber(b.stepIndex) or 0
+        if as ~= bs then return as < bs end
+        return tostring(a.shortName or ""):lower() < tostring(b.shortName or ""):lower()
     end)
 
     local function finalizeMediaList(map)
         local list = {}
         for _, item in pairs(map) do
-            table.sort(item.aliases, function(a, b) return a:lower() < b:lower() end)
+            table.sort(item.aliases, function(a, b) return tostring(a or ""):lower() < tostring(b or ""):lower() end)
             list[#list + 1] = {
-                shortName = item.shortName,
-                path = item.path,
+                shortName = tostring(item.shortName or ""),
+                path = tostring(item.path or ""),
                 kind = item.kind,
                 aliases = Json.AsArray(item.aliases),
             }
         end
         table.sort(list, function(a, b)
-            if a.shortName:lower() ~= b.shortName:lower() then
-                return a.shortName:lower() < b.shortName:lower()
+            local an, bn = tostring(a.shortName or ""):lower(), tostring(b.shortName or ""):lower()
+            if an ~= bn then
+                return an < bn
             end
-            return a.path:lower() < b.path:lower()
+            return tostring(a.path or ""):lower() < tostring(b.path or ""):lower()
         end)
         return Json.AsArray(list)
     end
@@ -403,15 +406,16 @@ function AssetCatalog.BuildCatalog(opts)
     local montagesList = {}
     for _, m in pairs(montagesByPath) do
         montagesList[#montagesList + 1] = {
-            shortName = m.shortName,
-            path = m.path,
+            shortName = tostring(m.shortName or ""),
+            path = tostring(m.path or ""),
         }
     end
     table.sort(montagesList, function(a, b)
-        if a.shortName:lower() ~= b.shortName:lower() then
-            return a.shortName:lower() < b.shortName:lower()
+        local an, bn = tostring(a.shortName or ""):lower(), tostring(b.shortName or ""):lower()
+        if an ~= bn then
+            return an < bn
         end
-        return a.path:lower() < b.path:lower()
+        return tostring(a.path or ""):lower() < tostring(b.path or ""):lower()
     end)
 
     local generatedAt = opts.generatedAt or os.date("!%Y-%m-%dT%H:%M:%SZ")

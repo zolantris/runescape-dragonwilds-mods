@@ -15,7 +15,7 @@
     "overrideDefaults": {
       "type": "boolean",
       "default": true,
-      "description": "When true, replaces the mod's default quick_cast.txt bindings with the bindings listed here."
+      "description": "When true, replaces the mod's default quick_cast.json bindings with the bindings listed here."
     },
     "bindings": {
       "type": "array",
@@ -29,6 +29,12 @@
             "type": "string",
             "enum": ["BLOCK", "SHIFT", "ALT", "CTRL", "NONE"],
             "default": "BLOCK"
+          },
+          "controllerModifier": {
+            "type": "string",
+            "enum": ["", "BLOCK", "GP_LT", "GP_LB", "GP_RB", "GP_RT", "NONE"],
+            "default": "",
+            "description": "Optional controller-only modifier override for gamepad keys in this binding. When empty or omitted, gamepad keys inherit modifier."
           },
           "keys": {
             "type": "array",
