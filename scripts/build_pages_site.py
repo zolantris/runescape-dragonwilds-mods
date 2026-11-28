@@ -57,6 +57,31 @@ def parse_quick_cast(path: Path) -> list[dict]:
     bindings: list[dict] = []
     if not path.is_file():
         return bindings
+    if path.suffix.lower() == ".json":
+        try:
+            doc = json.loads(strip_jsonc(path.read_text(encoding="utf-8")))
+            raw_bindings = doc.get("bindings", []) if isinstance(doc, dict) else []
+            for item in raw_bindings:
+                if not isinstance(item, dict):
+                    continue
+                mod = str(item.get("modifier", "BLOCK")).strip().upper()
+                if mod in {"RMB", "MODIFIER", "MOD"}:
+                    mod = "BLOCK"
+                elif mod in {"OFF", "FALSE", ""}:
+                    mod = "NONE"
+                keys = [str(k).strip() for k in item.get("keys", []) if str(k).strip()]
+                target = str(item.get("target", "")).strip()
+                enabled = bool(item.get("enabled", True))
+                if keys and target:
+                    bindings.append({
+                        "enabled": enabled,
+                        "modifier": mod,
+                        "keys": keys,
+                        "target": target,
+                    })
+        except Exception:
+            pass
+        return bindings
     for line in path.read_text(encoding="utf-8").splitlines():
         clean = line.strip()
         if not clean or clean.startswith("#") or clean.startswith(";"):
@@ -369,7 +394,10 @@ def stage_site(out_dir: Path, mod_dir: Path = MOD_DIR) -> None:
         if src_path.is_file():
             shutil.copy2(src_path, data_dst / dst_name)
 
-    qc_bindings = parse_quick_cast(mod_dir / "quick_cast.txt")
+    qc_path = mod_dir / "quick_cast.json"
+    if not qc_path.is_file():
+        qc_path = mod_dir / "quick_cast.txt"
+    qc_bindings = parse_quick_cast(qc_path)
     (data_dst / "defaults_quickcast.json").write_text(
         json.dumps(qc_bindings, indent=2) + "\n", encoding="utf-8"
     )

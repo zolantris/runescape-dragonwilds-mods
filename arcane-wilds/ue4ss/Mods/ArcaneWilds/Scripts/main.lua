@@ -22,6 +22,7 @@ local Paths = {
     SPELL_NAMES_PATH        = MOD_DIR .. "spell_names.txt",
     CUSTOM_SPELLS_JSON_PATH = MOD_DIR .. "custom_spells.json",
     CUSTOM_SPELLS_PATH      = MOD_DIR .. "custom_spells.txt",
+    QUICK_CAST_JSON_PATH    = MOD_DIR .. "quick_cast.json",
     QUICK_CAST_PATH         = MOD_DIR .. "quick_cast.txt",
     DETECTED_PATH           = MOD_DIR .. "detected_spells.txt",
     DETECTED_VFX_PATH       = MOD_DIR .. "detected_vfx.txt",

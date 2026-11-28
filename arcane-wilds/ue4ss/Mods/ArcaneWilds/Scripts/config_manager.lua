@@ -168,6 +168,19 @@ local DEFAULT_CUSTOM_SPELLS_JSON_CONTENT = [[{
 }
 ]]
 
+local DEFAULT_QUICK_CAST_JSON_CONTENT = table.concat({
+    '{',
+    '  "$schema": "./schemas/user_quick_cast.schema.json",',
+    '  "schemaVersion": 1,',
+    '  "bindings": [',
+    '    { "enabled": true, "modifier": "BLOCK", "keys": ["1", "GP_X"], "target": "AirBlast" },',
+    '    { "enabled": true, "modifier": "BLOCK", "keys": ["2", "GP_Y"], "target": "FlamesOfZamorak" },',
+    '    { "enabled": true, "modifier": "BLOCK", "keys": ["3", "GP_B"], "target": "StormOfArmadyl" },',
+    '    { "enabled": true, "modifier": "BLOCK", "keys": ["4", "GP_A"], "target": "SaradominStrike" }',
+    '  ]',
+    '}'
+}, "\n") .. "\n"
+
 local DEFAULT_QUICK_CAST_CONTENT = table.concat({
     "# ArcaneWilds Quick-Cast Hotkeys (Hot-Reloaded Automatically on Save!)",
     "# Syntax: [Modifier +] Key1, Key2 = SpellName (or Category@spell:speed -> ...)",
@@ -227,7 +240,7 @@ function ConfigManager.CreateDefaultConfig()
         EnableQuickCastHotkeys = true,
         QuickCastRequireModifier = true,
         QuickCastSuppressGameActions = true,
-        ActiveQuickCastCount = "Loading quick_cast.txt...",
+        ActiveQuickCastCount = "Loading quick_cast.json...",
         QuickCastHotkey1 = "1,GP_X",
         QuickCastSpell1 = "AirBlast",
         QuickCastHotkey2 = "2,GP_Y",
@@ -911,12 +924,59 @@ local function ParseUserQuickCastJson(rawJson, defaultRequireMod)
     return bindings, overrideDefaults, nil
 end
 
-function ConfigManager.LoadQuickCastFile(paths, config, state, logFn, forceReload, modMenuSlotsChanged)
-    if not paths.QUICK_CAST_PATH and not paths.USER_QUICK_CAST_PATH then return end
+local function SerializeQuickCastJsonFromConfig(config)
+    local mod = (config.QuickCastRequireModifier ~= false) and "BLOCK" or "NONE"
+    local bindings = {}
+    for i = 1, 4 do
+        local k = ConfigManager.Trim(config["QuickCastHotkey" .. i] or "")
+        local sp = ConfigManager.Trim(config["QuickCastSpell" .. i] or "")
+        if k ~= "" and sp ~= "" then
+            local keys = {}
+            for tok in k:gmatch("[^,|;]+") do
+                local tk = ConfigManager.Trim(tok)
+                if tk ~= "" then table.insert(keys, tk) end
+            end
+            if #keys > 0 then
+                table.insert(bindings, {
+                    enabled = true,
+                    modifier = mod,
+                    keys = keys,
+                    target = sp,
+                })
+            end
+        end
+    end
+    local doc = {
+        ["$schema"] = "./schemas/user_quick_cast.schema.json",
+        schemaVersion = 1,
+        bindings = bindings,
+    }
+    local encoded = Json.Encode(doc, { pretty = true, indent = 2 })
+    return (encoded or DEFAULT_QUICK_CAST_JSON_CONTENT) .. "\n"
+end
 
-    if modMenuSlotsChanged and paths.QUICK_CAST_PATH then
-        local newRaw = SerializeQuickCastFromConfig(config)
-        local wf = io.open(paths.QUICK_CAST_PATH, "w")
+function ConfigManager.LoadQuickCastFile(paths, config, state, logFn, forceReload, modMenuSlotsChanged)
+    if not paths.QUICK_CAST_JSON_PATH and not paths.QUICK_CAST_PATH and not paths.USER_QUICK_CAST_PATH then return end
+
+    local hasJson = paths.QUICK_CAST_JSON_PATH and (ReadExistingFile(paths.QUICK_CAST_JSON_PATH) ~= nil)
+    local hasTxt = paths.QUICK_CAST_PATH and (ReadExistingFile(paths.QUICK_CAST_PATH) ~= nil)
+    local useJson = false
+    local basePath = nil
+    local baseLabel = "quick_cast.json"
+
+    if paths.QUICK_CAST_JSON_PATH and (hasJson or not hasTxt) then
+        useJson = true
+        basePath = paths.QUICK_CAST_JSON_PATH
+        baseLabel = "quick_cast.json"
+    elseif paths.QUICK_CAST_PATH then
+        useJson = false
+        basePath = paths.QUICK_CAST_PATH
+        baseLabel = "quick_cast.txt"
+    end
+
+    if modMenuSlotsChanged and basePath then
+        local newRaw = useJson and SerializeQuickCastJsonFromConfig(config) or SerializeQuickCastFromConfig(config)
+        local wf = io.open(basePath, "w")
         if wf then
             wf:write(newRaw)
             wf:close()
@@ -924,15 +984,15 @@ function ConfigManager.LoadQuickCastFile(paths, config, state, logFn, forceReloa
     end
 
     local raw = ""
-    if paths.QUICK_CAST_PATH then
-        local f = io.open(paths.QUICK_CAST_PATH, "r")
+    if basePath then
+        local f = io.open(basePath, "r")
         if not f then
-            local wf = io.open(paths.QUICK_CAST_PATH, "w")
+            local wf = io.open(basePath, "w")
             if wf then
-                wf:write(DEFAULT_QUICK_CAST_CONTENT)
+                wf:write(useJson and DEFAULT_QUICK_CAST_JSON_CONTENT or DEFAULT_QUICK_CAST_CONTENT)
                 wf:close()
             end
-            f = io.open(paths.QUICK_CAST_PATH, "r")
+            f = io.open(basePath, "r")
         end
         if f then
             raw = f:read("*a") or ""
@@ -941,19 +1001,19 @@ function ConfigManager.LoadQuickCastFile(paths, config, state, logFn, forceReloa
     end
 
     local userQcRaw = ReadExistingFile(paths.USER_QUICK_CAST_PATH)
-    local combinedKey = raw .. "\0USER_QC:" .. tostring(userQcRaw or "")
+    local combinedKey = baseLabel .. "\0" .. raw .. "\0USER_QC:" .. tostring(userQcRaw or "")
 
     if forceReload or state.LastQuickCastRaw ~= combinedKey then
         local isInitial = (state.LastQuickCastRaw == nil)
         state.LastQuickCastRaw = combinedKey
 
         local activeBindings = nil
-        local sourceLabel = "quick_cast.txt"
+        local sourceLabel = baseLabel
         if userQcRaw and ConfigManager.Trim(userQcRaw) ~= "" then
             local uBindings, overrideDefaults, uErr = ParseUserQuickCastJson(userQcRaw, config.QuickCastRequireModifier ~= false)
             if uErr then
                 if logFn then
-                    logFn("[ERROR] Failed to parse user_quick_cast.json (" .. tostring(uErr) .. ") - falling back to quick_cast.txt")
+                    logFn("[ERROR] Failed to parse user_quick_cast.json (" .. tostring(uErr) .. ") - falling back to " .. baseLabel)
                 end
             elseif overrideDefaults then
                 activeBindings = uBindings
@@ -962,7 +1022,19 @@ function ConfigManager.LoadQuickCastFile(paths, config, state, logFn, forceReloa
         end
 
         if activeBindings == nil then
-            activeBindings = ParseQuickCastBindings(raw, config.QuickCastRequireModifier ~= false)
+            if useJson then
+                local jBindings, _, jErr = ParseUserQuickCastJson(raw, config.QuickCastRequireModifier ~= false)
+                if jErr then
+                    if logFn then
+                        logFn("[ERROR] Failed to parse " .. baseLabel .. " (" .. tostring(jErr) .. ") - keeping previous quick-cast bindings")
+                    end
+                    activeBindings = state.QuickCastBindings or {}
+                else
+                    activeBindings = jBindings
+                end
+            else
+                activeBindings = ParseQuickCastBindings(raw, config.QuickCastRequireModifier ~= false)
+            end
         end
         state.QuickCastBindings = activeBindings
 

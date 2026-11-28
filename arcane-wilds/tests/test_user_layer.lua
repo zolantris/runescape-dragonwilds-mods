@@ -231,18 +231,25 @@ T.Suite("Persistent User Layer vs Immutable Mod Defaults", function()
 
             local paths = {
                 CONFIG_PATH = modDir .. sep .. "config.txt",
+                QUICK_CAST_JSON_PATH = modDir .. sep .. "quick_cast.json",
                 QUICK_CAST_PATH = modDir .. sep .. "quick_cast.txt",
                 USER_QUICK_CAST_PATH = userDir .. sep .. "user_quick_cast.json",
             }
-            WriteText(paths.QUICK_CAST_PATH, "Block + 1, GP_X = SaradominGodsword\n")
+            WriteText(paths.QUICK_CAST_JSON_PATH, [[{
+                "schemaVersion": 1,
+                "bindings": [
+                    { "enabled": true, "modifier": "BLOCK", "keys": ["1", "GP_X"], "target": "SaradominGodsword" }
+                ]
+            }]])
 
             local cfg = ConfigManager.CreateDefaultConfig()
             local st = MakeBaseState()
 
-            -- 1. No user file -> uses default quick_cast.txt
+            -- 1. No user file -> uses default quick_cast.json
             ConfigManager.LoadQuickCastFile(paths, cfg, st, function() end, true, false)
             T.AssertEq(#st.QuickCastBindings, 1)
             T.AssertEq(st.QuickCastBindings[1].target, "SaradominGodsword")
+            T.AssertContains(cfg.ActiveQuickCastCount, "quick_cast.json")
 
             -- 2. User quick_cast.json with overrideDefaults=true -> overrides defaults
             WriteText(paths.USER_QUICK_CAST_PATH, [[{
@@ -259,11 +266,25 @@ T.Suite("Persistent User Layer vs Immutable Mod Defaults", function()
             T.AssertEq(st.QuickCastBindings[1].target, "MyCustomSpell")
             T.AssertEq(st.QuickCastBindings[1].keysRaw, "F, GP_Y")
 
-            -- 3. Malformed user_quick_cast.json -> falls back cleanly to quick_cast.txt
+            -- 3. Malformed user_quick_cast.json -> falls back cleanly to quick_cast.json
             WriteText(paths.USER_QUICK_CAST_PATH, "{ broken json")
             ConfigManager.LoadQuickCastFile(paths, cfg, st, function() end, false, false)
             T.AssertEq(#st.QuickCastBindings, 1)
             T.AssertEq(st.QuickCastBindings[1].target, "SaradominGodsword")
+
+            -- 4. Malformed quick_cast.json -> preserves previous bindings without crashing
+            os.remove(paths.USER_QUICK_CAST_PATH)
+            WriteText(paths.QUICK_CAST_JSON_PATH, "{ broken base json")
+            ConfigManager.LoadQuickCastFile(paths, cfg, st, function() end, false, false)
+            T.AssertEq(#st.QuickCastBindings, 1)
+            T.AssertEq(st.QuickCastBindings[1].target, "SaradominGodsword")
+
+            -- 5. Mod Menu slot edit writes valid quick_cast.json
+            cfg.QuickCastHotkey1 = "5, GP_LB"
+            cfg.QuickCastSpell1 = "AirBlast"
+            ConfigManager.LoadQuickCastFile(paths, cfg, st, function() end, false, true)
+            T.AssertEq(st.QuickCastBindings[1].target, "AirBlast")
+            T.AssertEq(st.QuickCastBindings[1].keysRaw, "5, GP_LB")
         end)
         CleanupTempDir(dir)
         if not ok then error(testErr) end

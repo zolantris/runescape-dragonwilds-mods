@@ -1,0 +1,30 @@
+{
+  "$schema": "./schemas/user_quick_cast.schema.json",
+  "schemaVersion": 1,
+  "bindings": [
+    {
+      "enabled": true,
+      "modifier": "BLOCK",
+      "keys": ["1", "GP_X"],
+      "target": "AirBlast"
+    },
+    {
+      "enabled": true,
+      "modifier": "BLOCK",
+      "keys": ["2", "GP_Y"],
+      "target": "FlamesOfZamorak"
+    },
+    {
+      "enabled": true,
+      "modifier": "BLOCK",
+      "keys": ["3", "GP_B"],
+      "target": "StormOfArmadyl"
+    },
+    {
+      "enabled": true,
+      "modifier": "BLOCK",
+      "keys": ["4", "GP_A"],
+      "target": "SaradominStrike"
+    }
+  ]
+}
