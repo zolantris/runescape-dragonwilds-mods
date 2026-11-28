@@ -1,0 +1,108 @@
+name: Create GitHub Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      mod:
+        description: "Mod folder to release"
+        required: true
+        default: "arcane-wilds"
+        type: choice
+        options:
+          - arcane-wilds
+          - ultra-wide-menu-alignment
+      version:
+        description: "Version override (optional; defaults to <mod>/version.json)"
+        required: false
+        default: ""
+        type: string
+      channel:
+        description: "Release channel"
+        required: false
+        default: "stable"
+        type: choice
+        options:
+          - stable
+          - beta
+          - alpha
+          - rc
+      skip_pak:
+        description: "Skip UE 5.6 .pak build (recommended on GitHub-hosted runners)"
+        required: false
+        default: true
+        type: boolean
+      force_update:
+        description: "Overwrite existing tag and GitHub Release if present"
+        required: false
+        default: false
+        type: boolean
+      dry_run:
+        description: "Preview release without committing, tagging, or publishing"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: create-release-${{ inputs.mod }}
+  cancel-in-progress: false
+
+jobs:
+  create-release:
+    name: Create Release (${{ inputs.mod }})
+    runs-on: windows-latest
+
+    steps:
+      - name: Enforce main branch
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -ne "refs/heads/main") {
+            Write-Error "Create GitHub Release must be run off the 'main' branch (current ref: '$($env:GITHUB_REF)')."
+            exit 1
+          }
+
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure Git identity
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Build and publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MOD_FOLDER: ${{ inputs.mod }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_CHANNEL: ${{ inputs.channel }}
+          SKIP_PAK: ${{ inputs.skip_pak }}
+          FORCE_UPDATE: ${{ inputs.force_update }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $cliArgs = @("release", $env:MOD_FOLDER)
+          if (-not [string]::IsNullOrWhiteSpace($env:RELEASE_VERSION)) {
+            $cliArgs += @("-Version", $env:RELEASE_VERSION.Trim())
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:RELEASE_CHANNEL)) {
+            $cliArgs += @("-Channel", $env:RELEASE_CHANNEL.Trim())
+          }
+          if ($env:SKIP_PAK -eq "true") {
+            $cliArgs += "-SkipPak"
+          }
+          if ($env:FORCE_UPDATE -eq "true") {
+            $cliArgs += "-ForceUpdate"
+          }
+          if ($env:DRY_RUN -eq "true") {
+            $cliArgs += "-DryRun"
+          }
+
+          .\mod.ps1 @cliArgs
