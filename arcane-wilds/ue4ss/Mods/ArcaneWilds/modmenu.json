@@ -87,8 +87,8 @@
       "key": "QuickCastSpell1",
       "type": "text",
       "label": "Quick-Cast Spell #1",
-      "description": "Spell name from custom_spells.json, spell_names.txt, or DA_Spell_* asset name (e.g. SaradominGodsword).",
-      "default": "SaradominGodsword"
+      "description": "Spell name from custom_spells.json, spell_names.txt, or DA_Spell_* asset name (e.g. AirBlast).",
+      "default": "AirBlast"
     },
     {
       "key": "QuickCastHotkey2",

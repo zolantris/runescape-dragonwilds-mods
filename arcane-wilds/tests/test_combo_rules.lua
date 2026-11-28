@@ -82,12 +82,16 @@ T.Suite("combo_rules + rule_parser + combat_engine", function()
         T.AssertEq(m.stages[2].steps[1].assetName, "SaradominGodsword")
     end)
 
-    T.Test("parses all 20 example rules in combo_rules_examples.json with zero errors", function()
+    T.Test("parses all 25 example rules in combo_rules_examples.json with zero errors", function()
         local byCat, globalMap = LoadDefaultNameMaps()
         local raw = ReadFile(MOD_ROOT .. "/combo_rules_examples.json")
         local macros, err = RuleParser.ParseWeightedMacros(raw, byCat, globalMap, {})
         T.AssertNil(err)
-        T.AssertEq(#macros, 20)
+        T.AssertEq(#macros, 25)
+
+        -- Verify default QuickCastSpell1 is AirBlast
+        local defCfg = ConfigManager.CreateDefaultConfig()
+        T.AssertEq(defCfg.QuickCastSpell1, "AirBlast")
 
         -- Check 3-element chain (Fire -> Water -> Air)
         local threeStage = nil

@@ -82,12 +82,12 @@ local DEFAULT_COMBO_RULES_JSON_CONTENT = [[{
       ]
     },
     {
-      "name": "Water Opener -> Saradomin Godsword",
+      "name": "Air Opener -> Air Blast",
       "enabled": true,
       "weight": 5,
       "stages": [
-        { "category": "Water", "spells": ["bolt", "waterfall", "wave"], "speed": 2.0 },
-        { "spell": "SaradominGodsword", "speed": 1.5 }
+        { "category": "Air", "spells": ["bolt", "gust"], "speed": 2.0 },
+        { "spell": "AirBlast", "speed": 1.6 }
       ]
     },
     {
@@ -124,7 +124,7 @@ local DEFAULT_QUICK_CAST_CONTENT = table.concat({
     "# Syntax: [Modifier +] Key1, Key2 = SpellName (or Category@spell:speed -> ...)",
     "# Modifiers: Block (RMB / LT / RB), Shift, Alt, Ctrl, None",
     "# Controller Aliases: GP_X, GP_Y, GP_B, GP_A, GP_LB, GP_RB, GP_LT, GP_RT",
-    "Block + 1, GP_X = SaradominGodsword",
+    "Block + 1, GP_X = AirBlast",
     "Block + 2, GP_Y = FlamesOfZamorak",
     "Block + 3, GP_B = StormOfArmadyl",
     "Block + 4, GP_A = SaradominStrike"
@@ -176,7 +176,7 @@ function ConfigManager.CreateDefaultConfig()
         QuickCastSuppressGameActions = true,
         ActiveQuickCastCount = "Loading quick_cast.txt...",
         QuickCastHotkey1 = "1,GP_X",
-        QuickCastSpell1 = "SaradominGodsword",
+        QuickCastSpell1 = "AirBlast",
         QuickCastHotkey2 = "2,GP_Y",
         QuickCastSpell2 = "FlamesOfZamorak",
         QuickCastHotkey3 = "3,GP_B",

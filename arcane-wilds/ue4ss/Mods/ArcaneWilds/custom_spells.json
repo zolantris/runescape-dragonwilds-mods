@@ -130,9 +130,123 @@
         }
       ]
     },
-    "SaradominGodsword": {
+    "AirBlast": {
       "enabled": true,
+      "displayName": "Air Blast",
+      "description": "Single native Air Vortex spell cast directly via baseSpell (no montage or spawnActor needed).",
+      "baseSpell": "DA_Spell_Primary_Air_03",
+      "category": "Air",
+      "speed": 1.6,
+      "clamp": true,
+      "runeCost": {
+        "type": "air",
+        "count": 1
+      }
+    },
+    "FireBlast": {
+      "enabled": true,
+      "displayName": "Fire Blast",
+      "description": "Singular Fire spell example: casts native Fire Burst (DA_Spell_Primary_Fire_03) via baseSpell.",
+      "baseSpell": "DA_Spell_Primary_Fire_03",
+      "category": "Fire",
+      "speed": 1.6,
+      "clamp": true,
+      "runeCost": {
+        "type": "fire",
+        "count": 1
+      }
+    },
+    "WaterWave": {
+      "enabled": true,
+      "displayName": "Water Wave",
+      "description": "Singular Water spell example: casts native Water Wave (DA_Spell_Primary_Water_03) via baseSpell.",
+      "baseSpell": "DA_Spell_Primary_Water_03",
+      "category": "Water",
+      "speed": 1.6,
+      "clamp": true,
+      "runeCost": {
+        "type": "water",
+        "count": 1
+      }
+    },
+    "FireSurgeCombo": {
+      "enabled": true,
+      "displayName": "Fire Surge Combo",
+      "description": "Fire combo packaged as a single custom spell: chains Fire Bolt -> Fire Burst -> Fire Explosion using spell cues.",
+      "baseSpell": null,
+      "category": "Fire",
+      "speed": 1.6,
+      "clamp": true,
+      "runeCost": {
+        "type": "fire",
+        "count": 2
+      },
+      "timelineDuration": "auto",
+      "stepAdvanceAt": 1.35,
+      "cancelOnRelease": false,
+      "overlapPolicy": "replace",
+      "cues": [
+        {
+          "type": "spell",
+          "id": "fire_1",
+          "at": "@0.00",
+          "asset": "DA_Spell_Primary_Fire_01"
+        },
+        {
+          "type": "spell",
+          "id": "fire_2",
+          "at": "@0.45",
+          "asset": "DA_Spell_Primary_Fire_03"
+        },
+        {
+          "type": "spell",
+          "id": "fire_3",
+          "at": "@0.95",
+          "asset": "DA_Spell_Primary_Fire_04"
+        }
+      ]
+    },
+    "TidalSurgeCombo": {
+      "enabled": true,
+      "displayName": "Tidal Surge Combo",
+      "description": "Water combo packaged as a single custom spell: chains Water Bolt -> Water Wave -> Tsunami using spell cues.",
+      "baseSpell": null,
+      "category": "Water",
+      "speed": 1.6,
+      "clamp": true,
+      "runeCost": {
+        "type": "water",
+        "count": 2
+      },
+      "timelineDuration": "auto",
+      "stepAdvanceAt": 1.35,
+      "cancelOnRelease": false,
+      "overlapPolicy": "replace",
+      "cues": [
+        {
+          "type": "spell",
+          "id": "water_1",
+          "at": "@0.00",
+          "asset": "DA_Spell_Primary_Water_01"
+        },
+        {
+          "type": "spell",
+          "id": "water_2",
+          "at": "@0.45",
+          "asset": "DA_Spell_Primary_Water_03"
+        },
+        {
+          "type": "spell",
+          "id": "water_3",
+          "at": "@0.95",
+          "asset": "DA_Spell_Primary_Water_04"
+        }
+      ]
+    },
+    "SaradominGodsword": {
+      "enabled": false,
       "displayName": "Saradomin Godsword",
+      "description": "Disabled tester example demonstrating custom melee montage + around-player spinHitbox.",
       "scaleWithStaff": false,
       "baseSpell": null,
       "category": "Air",

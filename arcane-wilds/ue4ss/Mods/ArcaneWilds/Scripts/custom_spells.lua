@@ -707,11 +707,19 @@ function CustomSpells.BuildCustomRegistryEntries(defs, spellRegistry, spellChain
             end
         end
 
-        local montObj, _, montShort = FindObjectFast(def.montage, safeGetNameFn, extractShortFn)
-        if not montObj and def.montage and def.montage ~= "" then
-            montObj = FindAssetByKeywordOnDemand("AnimMontage", def.montage, safeGetNameFn)
-            if montObj and montObj:IsValid() then
-                montShort = extractShortFn(safeGetNameFn(montObj))
+        local montObj, montShort = nil, nil
+        local montageLooksLikeSpellData = def.montage and def.montage ~= "" and (
+            def.montage:lower():find("^da_spell_") ~= nil
+            or (spellRegistry[def.montage:lower()] ~= nil and not spellRegistry[def.montage:lower()].suppressBaseSpell)
+        )
+        if not montageLooksLikeSpellData then
+            local mFound, _, mShort = FindObjectFast(def.montage, safeGetNameFn, extractShortFn)
+            montObj, montShort = mFound, mShort
+            if not montObj and def.montage and def.montage ~= "" then
+                montObj = FindAssetByKeywordOnDemand("AnimMontage", def.montage, safeGetNameFn)
+                if montObj and montObj:IsValid() then
+                    montShort = extractShortFn(safeGetNameFn(montObj))
+                end
             end
         end
         if not montObj and timeline and timeline.cues then

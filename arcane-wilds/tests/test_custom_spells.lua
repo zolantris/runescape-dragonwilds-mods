@@ -20,11 +20,16 @@ T.Suite("custom_spells + timeline_parser", function()
         T.AssertNil(err)
         T.AssertNotNil(defs)
 
-        -- 4 enabled spells, 1 disabled template (SaradominTempest)
+        -- 8 enabled spells, 2 disabled examples (SaradominGodsword, SaradominTempest)
         T.AssertNotNil(defs["flamesofzamorak"], "FlamesOfZamorak should be loaded")
         T.AssertNotNil(defs["saradominstrike"], "SaradominStrike should be loaded")
         T.AssertNotNil(defs["stormofarmadyl"], "StormOfArmadyl should be loaded")
-        T.AssertNotNil(defs["saradomingodsword"], "SaradominGodsword should be loaded")
+        T.AssertNotNil(defs["airblast"], "AirBlast should be loaded")
+        T.AssertNotNil(defs["fireblast"], "FireBlast should be loaded")
+        T.AssertNotNil(defs["waterwave"], "WaterWave should be loaded")
+        T.AssertNotNil(defs["firesurgecombo"], "FireSurgeCombo should be loaded")
+        T.AssertNotNil(defs["tidalsurgecombo"], "TidalSurgeCombo should be loaded")
+        T.AssertNil(defs["saradomingodsword"], "Disabled SaradominGodsword tester must be skipped")
         T.AssertNil(defs["saradomintempest"], "Disabled SaradominTempest must be skipped")
 
         -- FlamesOfZamorak
@@ -66,20 +71,45 @@ T.Suite("custom_spells + timeline_parser", function()
         T.AssertNotNil(soa.jsonCues)
         T.AssertEq(#soa.jsonCues, 3)
 
-        -- SaradominGodsword (legacy flat hitbox fields compiled cleanly)
-        local sgs = defs["saradomingodsword"]
-        T.AssertFalse(sgs.scaleWithStaff)
-        T.AssertTrue(sgs.suppressBaseSpell)
-        T.AssertTrue(sgs.spinHitbox)
-        T.AssertEq(sgs.hitRadius, 400)
-        T.AssertEq(sgs.hitDamageMin, 85)
-        T.AssertEq(sgs.hitDamageMax, 165)
-        T.AssertNear(sgs.hitDelaySec, 0.35)
-        T.AssertEq(sgs.damageClass, "melee")
-        T.AssertEq(sgs.damageForce, 260)
-        T.AssertEq(sgs.floatieOffsetZ, 90)
-        T.AssertEq(sgs.runeCost, "air")
-        T.AssertEq(sgs.runeCount, 1)
+        -- AirBlast, FireBlast, WaterWave (singular native baseSpell examples)
+        local ab = defs["airblast"]
+        T.AssertEq(ab.displayName, "Air Blast")
+        T.AssertEq(ab.baseSpell, "DA_Spell_Primary_Air_03")
+        T.AssertFalse(ab.suppressBaseSpell)
+        T.AssertEq(ab.category, "Air")
+        T.AssertNear(ab.speed, 1.6)
+        T.AssertTrue(ab.clamp)
+        T.AssertEq(ab.runeCost, "air")
+        T.AssertEq(ab.runeCount, 1)
+
+        local fb = defs["fireblast"]
+        T.AssertEq(fb.baseSpell, "DA_Spell_Primary_Fire_03")
+        T.AssertFalse(fb.suppressBaseSpell)
+        T.AssertEq(fb.category, "Fire")
+        T.AssertEq(fb.runeCost, "fire")
+
+        local ww = defs["waterwave"]
+        T.AssertEq(ww.baseSpell, "DA_Spell_Primary_Water_03")
+        T.AssertFalse(ww.suppressBaseSpell)
+        T.AssertEq(ww.category, "Water")
+        T.AssertEq(ww.runeCost, "water")
+
+        -- FireSurgeCombo & TidalSurgeCombo (multi-spell combo custom spells)
+        local fsc = defs["firesurgecombo"]
+        T.AssertTrue(fsc.suppressBaseSpell)
+        T.AssertNil(fsc.baseSpell)
+        T.AssertEq(fsc.category, "Fire")
+        T.AssertEq(fsc.runeCost, "fire")
+        T.AssertEq(fsc.runeCount, 2)
+        T.AssertEq(#fsc.jsonCues, 3)
+
+        local tsc = defs["tidalsurgecombo"]
+        T.AssertTrue(tsc.suppressBaseSpell)
+        T.AssertNil(tsc.baseSpell)
+        T.AssertEq(tsc.category, "Water")
+        T.AssertEq(tsc.runeCost, "water")
+        T.AssertEq(tsc.runeCount, 2)
+        T.AssertEq(#tsc.jsonCues, 3)
     end)
 
     T.Test("builds validated timelines from SaradominStrike (chainstrike) and StormOfArmadyl (anchored cues)", function()
@@ -156,10 +186,62 @@ T.Suite("custom_spells + timeline_parser", function()
         T.AssertNear(c3.params.dur, 0.5)
     end)
 
-    T.Test("compiles SaradominGodsword legacy flat fields into anim + hit cues", function()
+    T.Test("builds multi-spell timelines for FireSurgeCombo and TidalSurgeCombo", function()
         local raw = ReadFile(MOD_ROOT .. "/custom_spells.json")
         local defs = CustomSpells.ParseDefinitions(raw)
-        local tl, warnings = TimelineParser.BuildTimeline(defs["saradomingodsword"])
+
+        local tlFire, warnFire = TimelineParser.BuildTimeline(defs["firesurgecombo"])
+        T.AssertNotNil(tlFire)
+        T.AssertEq(#warnFire, 0)
+        T.AssertFalse(tlFire.isLegacyCompiled)
+        T.AssertEq(#tlFire.cues, 3)
+        T.AssertEq(tlFire.cues[1].type, "spell")
+        T.AssertEq(tlFire.cues[1].asset, "DA_Spell_Primary_Fire_01")
+        T.AssertEq(tlFire.cues[2].asset, "DA_Spell_Primary_Fire_03")
+        T.AssertNear(tlFire.cues[2].timing.offset, 0.45)
+        T.AssertEq(tlFire.cues[3].asset, "DA_Spell_Primary_Fire_04")
+        T.AssertNear(tlFire.cues[3].timing.offset, 0.95)
+
+        local tlWater, warnWater = TimelineParser.BuildTimeline(defs["tidalsurgecombo"])
+        T.AssertNotNil(tlWater)
+        T.AssertEq(#warnWater, 0)
+        T.AssertFalse(tlWater.isLegacyCompiled)
+        T.AssertEq(#tlWater.cues, 3)
+        T.AssertEq(tlWater.cues[1].asset, "DA_Spell_Primary_Water_01")
+        T.AssertEq(tlWater.cues[2].asset, "DA_Spell_Primary_Water_03")
+        T.AssertEq(tlWater.cues[3].asset, "DA_Spell_Primary_Water_04")
+    end)
+
+    T.Test("compiles legacy flat montage + spinHitbox fields into anim + hit cues", function()
+        local fixture = [[{
+            "spells": {
+                "LegacySpinTest": {
+                    "enabled": true,
+                    "scaleWithStaff": false,
+                    "baseSpell": null,
+                    "category": "Air",
+                    "montage": "AM_PlayerM_Attack_2H_Greatsword_Secondary",
+                    "spinHitbox": true,
+                    "hitRadius": 400,
+                    "hitDamageMin": 85,
+                    "hitDamageMax": 165,
+                    "hitDelaySec": 0.35,
+                    "damageClass": "Melee",
+                    "damageForce": 260,
+                    "floatieOffsetZ": 90,
+                    "runeCost": { "type": "air", "count": 1 }
+                }
+            }
+        }]]
+        local defs, err = CustomSpells.ParseDefinitions(fixture)
+        T.AssertNil(err)
+        local sgs = defs["legacyspintest"]
+        T.AssertFalse(sgs.scaleWithStaff)
+        T.AssertTrue(sgs.suppressBaseSpell)
+        T.AssertTrue(sgs.spinHitbox)
+        T.AssertEq(sgs.damageClass, "melee")
+
+        local tl, warnings = TimelineParser.BuildTimeline(sgs)
         T.AssertNotNil(tl)
         T.AssertEq(#warnings, 0)
         T.AssertTrue(tl.isLegacyCompiled)
@@ -170,6 +252,71 @@ T.Suite("custom_spells + timeline_parser", function()
         T.AssertNear(tl.cues[2].timing.offset, 0.35)
         T.AssertEq(tl.cues[2].params.dmgMin, 85)
         T.AssertEq(tl.cues[2].params.dmgMax, 165)
+    end)
+
+    T.Test("regression: DominionSpellData asset in montage/anim cue is rejected safely without AnimSequence scan", function()
+        Mock.Reset()
+        CustomSpells.ClearCache()
+        local TimelineRunner = require("timeline_runner")
+        TimelineRunner.ClearValidationCache()
+
+        local air3 = Mock.MakeUObject("DominionSpellData /Game/Spells/DA_Spell_Primary_Air_03.DA_Spell_Primary_Air_03")
+        local pc = Mock.MakeUObject("DominionPlayerController /Game/Maps/Main.PC")
+        local pawn = Mock.MakeUObject("BP_PlayerCharacter_C /Game/Maps/Main.Player", {
+            K2_GetActorLocation = function() return { X = 0, Y = 0, Z = 0 } end,
+            K2_GetActorRotation = function() return { Pitch = 0, Yaw = 0, Roll = 0 } end
+        })
+        Mock.RegisterClassInstance("PlayerController", pc)
+
+        local animSeqScanned = false
+        local origFindAllOf = _G.FindAllOf
+        _G.FindAllOf = function(clsName)
+            if clsName == "AnimSequence" or clsName == "AnimMontage" then
+                animSeqScanned = true
+            end
+            return origFindAllOf(clsName)
+        end
+
+        local ok, testErr = pcall(function()
+            local badJson = [[{
+                "spells": {
+                    "BadAirBlast": {
+                        "enabled": true,
+                        "baseSpell": null,
+                        "category": "Air",
+                        "montage": "DA_Spell_Primary_Air_03"
+                    }
+                }
+            }]]
+            local defs, err = CustomSpells.ParseDefinitions(badJson)
+            T.AssertNil(err)
+            local spellRegistry = {
+                ["da_spell_primary_air_03"] = {
+                    spellObj = air3,
+                    shortName = "DA_Spell_Primary_Air_03",
+                    fullName = air3:GetFullName(),
+                    categoryTag = "Air"
+                }
+            }
+            local entries = CustomSpells.BuildCustomRegistryEntries(
+                defs, spellRegistry, {}, {},
+                function(o) return o:GetFullName() end,
+                function(s) return s:match("%.([^%.]+)$") or s end
+            )
+            T.AssertNotNil(entries["badairblast"])
+            T.AssertNil(entries["badairblast"].montageObj, "DA_Spell_* must not resolve as AnimMontage")
+            T.AssertFalse(animSeqScanned, "BuildCustomRegistryEntries must not scan AnimMontage for DA_Spell_*")
+
+            local state = { SpellRegistry = spellRegistry, ActiveTimelines = {} }
+            local tlInst = TimelineRunner.StartSpellTimeline(
+                {}, state, pawn, nil, entries["badairblast"], 1.0,
+                CustomSpells, function(o) return o:GetFullName() end, nil
+            )
+            T.AssertNotNil(tlInst)
+            T.AssertFalse(animSeqScanned, "TimelineRunner must reject DA_Spell_* anim cue before scanning AnimSequence")
+        end)
+        _G.FindAllOf = origFindAllOf
+        if not ok then error(testErr) end
     end)
 
     T.Test("JSON format matches legacy INI custom_spells.txt semantics identically", function()

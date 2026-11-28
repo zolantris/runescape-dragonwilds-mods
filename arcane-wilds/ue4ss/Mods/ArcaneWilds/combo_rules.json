@@ -92,6 +92,99 @@
           "speed": 1.0
         }
       ]
+    },
+    {
+      "name": "Air Opener -> Air Blast",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        {
+          "category": "Air",
+          "spells": [
+            "bolt",
+            "gust"
+          ],
+          "speed": 2.2
+        },
+        {
+          "spell": "AirBlast",
+          "speed": 1.6
+        }
+      ]
+    },
+    {
+      "name": "Fire Opener -> Fire Blast",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        {
+          "category": "Fire",
+          "spells": [
+            "bolt_1",
+            "bolt_2"
+          ],
+          "speed": 2.2
+        },
+        {
+          "spell": "FireBlast",
+          "speed": 1.6
+        }
+      ]
+    },
+    {
+      "name": "Fire Opener -> Fire Surge Combo",
+      "enabled": true,
+      "weight": 4,
+      "stages": [
+        {
+          "category": "Fire",
+          "spells": [
+            "bolt_1"
+          ],
+          "speed": 2.2
+        },
+        {
+          "spell": "FireSurgeCombo",
+          "speed": 1.6
+        }
+      ]
+    },
+    {
+      "name": "Water Opener -> Water Wave",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        {
+          "category": "Water",
+          "spells": [
+            "bolt",
+            "waterfall"
+          ],
+          "speed": 2.2
+        },
+        {
+          "spell": "WaterWave",
+          "speed": 1.6
+        }
+      ]
+    },
+    {
+      "name": "Water Opener -> Tidal Surge Combo",
+      "enabled": true,
+      "weight": 4,
+      "stages": [
+        {
+          "category": "Water",
+          "spells": [
+            "bolt"
+          ],
+          "speed": 2.2
+        },
+        {
+          "spell": "TidalSurgeCombo",
+          "speed": 1.6
+        }
+      ]
     }
   ]
 }
