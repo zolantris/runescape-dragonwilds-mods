@@ -143,6 +143,9 @@ Commands:
                        Options: -GameDir <path>, -WhatIf
   release      <mod>   Build & publish a tagged GitHub Release via gh CLI (aliases: r, publish)
                        Options: --dry-run (-DryRun), --force-update (-ForceUpdate), -SkipBuild, -Version, -Channel
+  nexus        <mod>   Build & publish a mod archive to Nexus Mods via Upload API v3 (aliases: publish-nexus, nm)
+                       Options: --dry-run (-DryRun), -SkipBuild, -Version, -Channel, -Category, -ArchivePath,
+                                -NoArchiveOld, -NoUpdateModVersion, -NotesFile, -ApiKey
   changelog    <mod>   Update folder-scoped Git changelog in <mod>/README.md
                        Options: -Version <ver>, -MaxCommits <n>
   test         <mod>   Validate JSON configs and run offline Lua unit/regression tests + coverage (alias: t)
@@ -165,6 +168,7 @@ Examples:
   .\mod.ps1 wipe arcane-wilds
   .\mod.ps1 wipe arcane-wilds -WhatIf
   .\mod.ps1 release arcane-wilds --dry-run
+  .\mod.ps1 nexus arcane-wilds --dry-run
   .\mod.ps1 editor arcane-wilds -Sandbox -SeedMockCatalog
   .\mod.ps1 editor arcane-wilds -SmokeTest
   .\mod.ps1 list
@@ -346,6 +350,27 @@ switch ($cmd) {
             & (Join-Path $scriptsDir "publish-release.ps1") @params @extra
         } else {
             & (Join-Path $scriptsDir "publish-release.ps1") @params
+        }
+        return
+    }
+
+    { $_ -in @("nexus", "publish-nexus", "nm") } {
+        $parsed = Parse-CliArgs -RawArgs $RemainingArgs `
+            -SwitchNames @("DryRun", "SkipBuild", "NoArchiveOld", "NoUpdateModVersion", "Verbose", "Debug") `
+            -PassThroughFlags @("--dry-run", "-dry-run", "--skip-build", "--no-archive-old", "--no-update-mod-version")
+        $params = $parsed.Named
+        if (-not $params.ContainsKey("ModFolder")) {
+            if ($parsed.Positional.Count -lt 1) {
+                throw "Missing mod name. Example: .\mod.ps1 nexus <mod> --dry-run"
+            }
+            $params["ModFolder"] = [string]$parsed.Positional[0]
+        }
+        $params["ModFolder"] = Resolve-ModFolderName $params["ModFolder"]
+        $extra = $parsed.PassThrough
+        if ($extra.Count -gt 0) {
+            & (Join-Path $scriptsDir "publish-nexus.ps1") @params @extra
+        } else {
+            & (Join-Path $scriptsDir "publish-nexus.ps1") @params
         }
         return
     }

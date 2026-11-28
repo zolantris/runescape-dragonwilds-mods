@@ -1,0 +1,95 @@
+name: Publish Mod to Nexus Mods
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "GitHub Release tag to publish (e.g. ArcaneWilds-v1.0.0)"
+        required: true
+        type: string
+      category:
+        description: "Nexus Mods file category"
+        required: false
+        default: "main"
+        type: choice
+        options:
+          - main
+          - optional
+          - miscellaneous
+      dry_run:
+        description: "Preview upload without publishing to Nexus Mods"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  publish-nexus:
+    name: Publish to Nexus Mods
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Download release asset and publish to Nexus Mods
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXUSMODS_API_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          NEXUS_CATEGORY: ${{ inputs.category }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          if ($env:RELEASE_TAG -notmatch '^([A-Za-z0-9_-]+)-v(\d+\.\d+\.\d+)(?:-(.+))?$') {
+            throw "Release tag '$($env:RELEASE_TAG)' does not match '<ModName>-v<Major.Minor.Patch>[-<Channel>]'."
+          }
+          $modName = $Matches[1]
+          $version = $Matches[2]
+          $channel = if ($Matches[3]) { $Matches[3] } else { "stable" }
+
+          $downloadDir = Join-Path $env:RUNNER_TEMP "nexus-release-asset"
+          New-Item -ItemType Directory -Path $downloadDir -Force | Out-Null
+
+          Write-Host "Downloading release archive for tag '$($env:RELEASE_TAG)'..." -ForegroundColor Cyan
+          gh release download $env:RELEASE_TAG --pattern "*.zip" --dir $downloadDir
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to download .zip asset from GitHub Release '$($env:RELEASE_TAG)'."
+          }
+
+          $zips = @(Get-ChildItem -LiteralPath $downloadDir -Filter "*.zip")
+          if ($zips.Count -ne 1) {
+            throw "Expected exactly 1 .zip asset in release '$($env:RELEASE_TAG)', found $($zips.Count)."
+          }
+          $zipPath = $zips[0].FullName
+
+          $notesPath = Join-Path $downloadDir "release-notes.md"
+          $body = gh release view $env:RELEASE_TAG --json body --jq .body
+          if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($body)) {
+            Set-Content -LiteralPath $notesPath -Value $body -Encoding UTF8
+          } else {
+            $notesPath = $null
+          }
+
+          $cliArgs = @(
+            "nexus", $modName,
+            "-Version", $version,
+            "-Channel", $channel,
+            "-Category", $env:NEXUS_CATEGORY,
+            "-ArchivePath", $zipPath,
+            "-SkipBuild"
+          )
+          if ($notesPath) {
+            $cliArgs += @("-NotesFile", $notesPath)
+          }
+          if ($env:DRY_RUN -eq "true") {
+            $cliArgs += "-DryRun"
+          }
+
+          .\mod.ps1 @cliArgs
