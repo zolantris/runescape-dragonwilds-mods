@@ -233,8 +233,8 @@ function ConfigManager.CreateDefaultConfig()
     return {
         Enabled = true,
         DebugMode = true,
-        AllowDebugCommands = true,
-        DebugHotkey = "OEM_5",
+        AllowDebugCommands = false,
+        DebugHotkey = "",
         EnableWebEditorHotkey = true,
         WebEditorHotkey = "F9",
         LaunchWebEditorNow = false,
@@ -1115,7 +1115,7 @@ function ConfigManager.LoadConfigFile(paths, config, state, logFn, forceRebuildM
                 if k == "Enabled" then config.Enabled = ConfigManager.ParseBool(v, true)
                 elseif k == "DebugMode" then config.DebugMode = ConfigManager.ParseBool(v, false)
                 elseif k == "AllowDebugCommands" then config.AllowDebugCommands = ConfigManager.ParseBool(v, false)
-                elseif k == "DebugHotkey" then config.DebugHotkey = (v ~= "" and v or "OEM_5")
+                elseif k == "DebugHotkey" then config.DebugHotkey = v
                 elseif k == "EnableWebEditorHotkey" then config.EnableWebEditorHotkey = ConfigManager.ParseBool(v, true)
                 elseif k == "WebEditorHotkey" then config.WebEditorHotkey = (v ~= "" and v:upper() or "F9")
                 elseif k == "LaunchWebEditorNow" then config.LaunchWebEditorNow = ConfigManager.ParseBool(v, false)

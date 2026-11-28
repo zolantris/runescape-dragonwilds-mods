@@ -1,7 +1,7 @@
 Enabled=true
-DebugMode=true
-AllowDebugCommands=true
-DebugHotkey=BackSlash
+DebugMode=false
+AllowDebugCommands=false
+DebugHotkey=
 RequireModifierKey=true
 ModifierKey=RMB
 ConsumeRunesOnSwappedCasts=true

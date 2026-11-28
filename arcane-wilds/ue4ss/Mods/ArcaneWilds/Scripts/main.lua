@@ -554,7 +554,17 @@ local function StartHotkeyListener()
 end
 
 local function BindDebugHotkey()
-    local rawTrim = tostring(Config.DebugHotkey or "BackSlash"):gsub("^%s*(.-)%s*$", "%1")
+    if not Config.AllowDebugCommands then
+        State.ListeningForDebugHotkey = false
+        State.BoundDebugKey = nil
+        return
+    end
+    local rawTrim = tostring(Config.DebugHotkey or ""):gsub("^%s*(.-)%s*$", "%1")
+    if rawTrim == "" then
+        State.ListeningForDebugHotkey = false
+        State.BoundDebugKey = nil
+        return
+    end
     local upper = rawTrim:upper()
     if upper == "LISTEN" or upper == "BIND" or upper == "CAPTURE" or upper == "?" then
         StartHotkeyListener()

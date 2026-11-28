@@ -14,6 +14,31 @@
   "settings": [
     {
       "type": "header",
+      "label": "Spell & Combo Studio (Browser Editor)"
+    },
+    {
+      "key": "EnableWebEditorHotkey",
+      "type": "toggle",
+      "label": "Enable Spell & Combo Studio Hotkey",
+      "description": "Press SHIFT + Spell & Combo Studio Hotkey in-game to open the Spell & Combo Studio in your browser (edits hot-reload live).",
+      "default": true
+    },
+    {
+      "key": "WebEditorHotkey",
+      "type": "text",
+      "label": "Spell & Combo Studio Hotkey (SHIFT + Key)",
+      "description": "Key combined with SHIFT to open the Spell & Combo Studio (default: F9; e.g. F9, F10, F11, BackSlash, HOME).",
+      "default": "F9"
+    },
+    {
+      "key": "LaunchWebEditorNow",
+      "type": "toggle",
+      "label": "Open Spell & Combo Studio Now",
+      "description": "Toggle ON to immediately open the Spell & Combo Studio in your browser (auto-resets to OFF).",
+      "default": false
+    },
+    {
+      "type": "header",
       "label": "Core Arcane Wilds & Stance Modifier"
     },
     {
@@ -43,31 +68,6 @@
       "label": "Consume Runes on Swapped/Macro Casts",
       "description": "Deduct matching element runes/items from inventory when casting swapped elements or Ancient Magicks.",
       "default": true
-    },
-    {
-      "type": "header",
-      "label": "Spell & Combo Studio (Web GUI)"
-    },
-    {
-      "key": "EnableWebEditorHotkey",
-      "type": "toggle",
-      "label": "Enable Web Editor Hotkey (SHIFT + F9)",
-      "description": "Press SHIFT + Web Editor Hotkey in-game to launch the Arcane Wilds Spell & Combo Studio in your browser (edits hot-reload live).",
-      "default": true
-    },
-    {
-      "key": "WebEditorHotkey",
-      "type": "text",
-      "label": "Web Editor Hotkey (SHIFT + Key)",
-      "description": "Key combined with SHIFT to open the Spell & Combo Studio (default: F9; e.g. F9, F10, F11, HOME).",
-      "default": "F9"
-    },
-    {
-      "key": "LaunchWebEditorNow",
-      "type": "toggle",
-      "label": "Launch Web Editor Now",
-      "description": "Toggle ON to immediately open the Arcane Wilds Spell & Combo Studio in your browser (auto-resets to OFF).",
-      "default": false
     },
     {
       "type": "header",
@@ -348,16 +348,16 @@
     {
       "key": "AllowDebugCommands",
       "type": "toggle",
-      "label": "Allow Debug Commands (SHIFT + Hotkey)",
-      "description": "Enables SHIFT + Debug Hotkey to re-export detected_spells.txt and log rule-to-asset bindings.",
+      "label": "Allow Debug Log Dump (SHIFT + Debug Hotkey)",
+      "description": "Enables SHIFT + Debug Log Dump Hotkey to re-export detected_spells.txt and log rule-to-asset bindings to UE4SS.log.",
       "default": false
     },
     {
       "key": "DebugHotkey",
       "type": "text",
-      "label": "Debug Hotkey",
-      "description": "Key combined with SHIFT when Allow Debug Commands is ON (e.g. OEM_5, PAUSE, INSERT, END).",
-      "default": "OEM_5"
+      "label": "Debug Log Dump Hotkey (SHIFT + Key)",
+      "description": "Optional key combined with SHIFT when Allow Debug Log Dump is ON (blank = unbound; e.g. PAUSE, INSERT, END).",
+      "default": ""
     },
     {
       "key": "DebugMode",
