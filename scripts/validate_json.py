@@ -1,27 +1,33 @@
 #!/usr/bin/env python3
-import json
 import sys
 from pathlib import Path
+import json5
 from jsonschema import Draft7Validator
+
+
+def load_json(path: Path):
+    with path.open("r", encoding="utf-8-sig") as f:
+        try:
+            return json5.load(f)
+        except ValueError as exc:
+            raise ValueError(f"{path}: {exc}") from None
 
 
 def main() -> int:
     root = Path("arcane-wilds")
     mod_root = root / "ue4ss/Mods/ArcaneWilds"
 
-    # 1. Verify every .json file under arcane-wilds is valid JSON
-    for jf in sorted(root.rglob("*.json")):
+    # 1. Verify every .json/.jsonc file under arcane-wilds is valid JSON/JSONC
+    for jf in sorted(p for p in root.rglob("*.json*") if p.suffix in (".json", ".jsonc")):
         if "Intermediate" in jf.parts or "Saved" in jf.parts:
             continue
-        with jf.open("r", encoding="utf-8-sig") as f:
-            json.load(f)
+        load_json(jf)
         print(f"JSON OK: {jf}")
 
     # 2. Verify all Draft-07 schemas themselves are valid
     schema_dir = mod_root / "schemas"
     for sf in sorted(schema_dir.glob("*.schema.json")):
-        with sf.open("r", encoding="utf-8-sig") as f:
-            Draft7Validator.check_schema(json.load(f))
+        Draft7Validator.check_schema(load_json(sf))
         print(f"META-SCHEMA OK: {sf}")
 
     # 3. Validate configs against their Draft-07 JSON Schemas and verify schemaVersion
@@ -32,13 +38,11 @@ def main() -> int:
     ]
 
     for data_path, schema_path in pairs:
-        with schema_path.open("r", encoding="utf-8-sig") as sf:
-            schema = json.load(sf)
+        schema = load_json(schema_path)
         Draft7Validator.check_schema(schema)
         validator = Draft7Validator(schema)
 
-        with data_path.open("r", encoding="utf-8-sig") as df:
-            data = json.load(df)
+        data = load_json(data_path)
 
         if not isinstance(data.get("schemaVersion"), int) or data.get("schemaVersion") < 1:
             print(f"SCHEMA FAIL: {data_path} missing integer schemaVersion >= 1")
