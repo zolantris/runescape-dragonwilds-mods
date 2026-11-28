@@ -4,6 +4,9 @@ A collection of lightweight, modular **UE4SS** quality-of-life (QoL) and magic c
 
 Each mod in this repository is packaged independently in the standard `ue4ss/Mods/<ModName>/` structure for one-click installation via **Vortex** or manual extraction into your game directory.
 
+* **Discord:** [Join our Discord](https://discord.gg/QwktYjdbtx)
+* **Support:** [Support on Ko-fi](https://ko-fi.com/zolantris)
+
 ---
 
 ## Mods Overview

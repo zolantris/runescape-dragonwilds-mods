@@ -146,6 +146,9 @@ Commands:
   nexus        <mod>   Build & publish a mod archive to Nexus Mods via Upload API v3 (aliases: publish-nexus, nm)
                        Options: --dry-run (-DryRun), -SkipBuild, -Version, -Channel, -Category, -ArchivePath,
                                 -NoArchiveOld, -NoUpdateModVersion, -NotesFile, -ApiKey
+  nexus-desc   <mod>   Convert <mod>/README.md into clean Nexus Mods BBCode (aliases: bbcode, nd)
+                       Options: -OutputPath <file>, -Branch <name>, -RepoUrl <url>,
+                                -IncludeChangelog, -NoRepoBanner, -Copy
   changelog    <mod>   Update folder-scoped Git changelog in <mod>/README.md
                        Options: -Version <ver>, -MaxCommits <n>
   test         <mod>   Validate JSON configs and run offline Lua unit/regression tests + coverage (alias: t)
@@ -169,6 +172,7 @@ Examples:
   .\mod.ps1 wipe arcane-wilds -WhatIf
   .\mod.ps1 release arcane-wilds --dry-run
   .\mod.ps1 nexus arcane-wilds --dry-run
+  .\mod.ps1 nexus-desc arcane-wilds -Copy
   .\mod.ps1 editor arcane-wilds -Sandbox -SeedMockCatalog
   .\mod.ps1 editor arcane-wilds -SmokeTest
   .\mod.ps1 list
@@ -372,6 +376,22 @@ switch ($cmd) {
         } else {
             & (Join-Path $scriptsDir "publish-nexus.ps1") @params
         }
+        return
+    }
+
+    { $_ -in @("nexus-desc", "bbcode", "nd") } {
+        $parsed = Parse-CliArgs -RawArgs $RemainingArgs -SwitchNames @(
+            "IncludeChangelog", "NoRepoBanner", "Copy", "PassThru", "Verbose", "Debug"
+        )
+        $params = $parsed.Named
+        if (-not $params.ContainsKey("ModFolder")) {
+            if ($parsed.Positional.Count -lt 1) {
+                throw "Missing mod name. Example: .\mod.ps1 nexus-desc arcane-wilds"
+            }
+            $params["ModFolder"] = [string]$parsed.Positional[0]
+        }
+        $params["ModFolder"] = Resolve-ModFolderName $params["ModFolder"]
+        & (Join-Path $scriptsDir "export-nexus-description.ps1") @params
         return
     }
 

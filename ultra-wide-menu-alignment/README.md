@@ -2,6 +2,9 @@
 
 Centers dynamic UI panels (Player Inventory, Chests, Personal Chests, Crafting Stations, Processing Stations, Building, Spellcasting, and Pause/Save menus) into an ultrawide safe zone while leaving your persistent HUD untouched for HUD layout mods like **Rune UI**.
 
+* **Discord:** [Join our Discord](https://discord.gg/QwktYjdbtx)
+* **Support:** [Support on Ko-fi](https://ko-fi.com/zolantris)
+
 ## Archive & Monorepo Structure
 ```text
 ue4ss/
