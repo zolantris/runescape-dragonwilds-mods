@@ -7,7 +7,9 @@ param(
     [string]$Bump = "",
     [string]$EngineDir = "C:\Program Files\Epic Games\UE_5.6",
     [switch]$SkipPak,
-    [switch]$ForceRebuildPak
+    [switch]$ForceRebuildPak,
+    [Alias("Production")]
+    [switch]$Prod
 )
 
 $ErrorActionPreference     = "Stop"
@@ -224,9 +226,49 @@ if ($hasPak) {
     $archiveInputPath = Join-Path $stageRoot "ue4ss"
 }
 
-# Strip local snapshots, logs, runtime layout overrides, exports, backups, and detected catalogs from release archive
-Get-ChildItem -Path $stageRoot -Recurse -Include "snapshots","exports","*.log","*.bak","panel_layouts.lua","detected_catalog.json" |
+# Strip local snapshots, logs, runtime layout overrides, exports, backups, dev config overlays, and detected catalogs from release archive
+Get-ChildItem -Path $stageRoot -Recurse -Include "snapshots","exports","*.log","*.bak","panel_layouts.lua","detected_catalog.json","config.dev.txt" |
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
+# Apply dev config overlay (config.dev.txt -> staged config.txt) for non-production builds
+$srcDevConfig = Join-Path $srcModDir "config.dev.txt"
+$stagedConfig = Join-Path $stagedModDir "config.txt"
+$configProfile = if ($Prod) { "prod" } else { "dev" }
+if (-not $Prod -and (Test-Path -LiteralPath $srcDevConfig -PathType Leaf) -and (Test-Path -LiteralPath $stagedConfig -PathType Leaf)) {
+    $overrideLines = Get-Content -LiteralPath $srcDevConfig -Encoding UTF8
+    $overrides = [ordered]@{}
+    foreach ($line in $overrideLines) {
+        $trimmed = $line.Trim()
+        if ([string]::IsNullOrWhiteSpace($trimmed) -or $trimmed.StartsWith("#") -or $trimmed.StartsWith(";")) { continue }
+        $eqIdx = $trimmed.IndexOf("=")
+        if ($eqIdx -le 0) { continue }
+        $k = $trimmed.Substring(0, $eqIdx).Trim()
+        $v = $trimmed.Substring($eqIdx + 1).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($k)) {
+            $overrides[$k] = $v
+        }
+    }
+    if ($overrides.Count -gt 0) {
+        $cfgLines = [System.Collections.Generic.List[string]]::new()
+        foreach ($l in (Get-Content -LiteralPath $stagedConfig -Encoding UTF8)) {
+            $cfgLines.Add($l)
+        }
+        foreach ($k in $overrides.Keys) {
+            $pattern = '^\s*' + [regex]::Escape($k) + '\s*='
+            $replaced = $false
+            for ($i = 0; $i -lt $cfgLines.Count; $i++) {
+                if ($cfgLines[$i] -match $pattern) {
+                    $cfgLines[$i] = "$k=$($overrides[$k])"
+                    $replaced = $true
+                }
+            }
+            if (-not $replaced) {
+                $cfgLines.Add("$k=$($overrides[$k])")
+            }
+        }
+        [System.IO.File]::WriteAllText($stagedConfig, ($cfgLines -join "`r`n") + "`r`n", (New-Object System.Text.UTF8Encoding($false)))
+    }
+}
 
 # Sync version into staged modmenu.json (updates top-level version and/or nested mod.version if present)
 $stagedMenu = Join-Path $stagedModDir "modmenu.json"
@@ -274,4 +316,4 @@ $pakStageCleanup = Join-Path $env:TEMP "rsdw-pak-$modName"
 if (Test-Path $pakStageCleanup) { Remove-Item $pakStageCleanup -Recurse -Force -ErrorAction SilentlyContinue }
 
 $layoutNote = if ($hasPak) { "Combo UE4SS + Pak ($pakInstallFolder)" } else { "UE4SS only" }
-Write-Host "Built: $zipPath (version: $fullVersion, layout: $layoutNote)" -ForegroundColor Green
+Write-Host "Built: $zipPath (version: $fullVersion, profile: $configProfile, layout: $layoutNote)" -ForegroundColor Green

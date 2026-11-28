@@ -117,13 +117,14 @@ try {
     if (-not $SkipBuild) {
         if ($DryRun) {
             $pakFlag = if ($SkipPak) { " -SkipPak" } else { "" }
-            Write-Host "[DRY-RUN] Would run build-mod.ps1 -ModFolder '$ModFolder' -Version '$Version' -Channel '$Channel'$pakFlag" -ForegroundColor DarkCyan
+            Write-Host "[DRY-RUN] Would run build-mod.ps1 -ModFolder '$ModFolder' -Version '$Version' -Channel '$Channel' -Prod$pakFlag" -ForegroundColor DarkCyan
         } else {
             $buildScript = Join-Path $PSScriptRoot "build-mod.ps1"
             $buildArgs = @{
                 ModFolder = $ModFolder
                 Version   = $Version
                 Channel   = $Channel
+                Prod      = $true
             }
             if ($SkipPak) {
                 $buildArgs["SkipPak"] = $true

@@ -138,13 +138,13 @@ if (-not $SkipBuild) {
     $changelogScript = Join-Path $PSScriptRoot "update-changelog.ps1"
     if ($DryRun) {
         Write-Host "[DRY-RUN] Would run update-changelog.ps1 -ModFolder '$ModFolder' -Version '$fullVersion'" -ForegroundColor DarkCyan
-        Write-Host "[DRY-RUN] Would run build-mod.ps1 -ModFolder '$ModFolder' -Version '$Version' -Channel '$Channel'" -ForegroundColor DarkCyan
+        Write-Host "[DRY-RUN] Would run build-mod.ps1 -ModFolder '$ModFolder' -Version '$Version' -Channel '$Channel' -Prod" -ForegroundColor DarkCyan
     } else {
         if (Test-Path -LiteralPath $changelogScript -PathType Leaf) {
             & $changelogScript -ModFolder $ModFolder -Version $fullVersion
         }
         $buildScript = Join-Path $PSScriptRoot "build-mod.ps1"
-        & $buildScript -ModFolder $ModFolder -Version $Version -Channel $Channel
+        & $buildScript -ModFolder $ModFolder -Version $Version -Channel $Channel -Prod
     }
 }
 
