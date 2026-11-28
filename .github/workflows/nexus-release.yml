@@ -31,10 +31,8 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout release tag
+      - name: Checkout repository
         uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.tag }}
 
       - name: Download release asset and publish to Nexus Mods
         shell: pwsh
