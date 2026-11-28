@@ -382,7 +382,12 @@ if (-not $NoBrowser) {
 
 try {
     while ($listener.IsListening) {
-        $ctx = $listener.GetContext()
+        $ctxTask = $listener.GetContextAsync()
+        while (-not $ctxTask.Wait(200)) {
+            if (-not $listener.IsListening) { break }
+        }
+        if (-not $listener.IsListening -or -not $ctxTask.IsCompleted) { break }
+        $ctx = $ctxTask.GetAwaiter().GetResult()
         $req = $ctx.Request
         $res = $ctx.Response
 

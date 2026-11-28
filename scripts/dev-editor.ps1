@@ -144,6 +144,10 @@ if ($SeedMockCatalog -or $SmokeTest) {
 if ($SmokeTest) {
     Write-Host "=== Running Headless Web GUI Smoke Test ($modName) ===" -ForegroundColor Cyan
     $testPort = if ($Port -ne 47821) { $Port } else { 47892 }
+    $serverOutLog = Join-Path $resolvedUserDir "_smoke_server_out.log"
+    $serverErrLog = Join-Path $resolvedUserDir "_smoke_server_err.log"
+
+    Write-Host "  [1/8] Starting editor server on http://127.0.0.1:$testPort ..." -ForegroundColor DarkGray
     $proc = Start-Process powershell.exe -ArgumentList @(
         "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $serverScript,
         "-ModDir", $targetModDir,
@@ -151,12 +155,18 @@ if ($SmokeTest) {
         "-CatalogPath", $catalogOverride,
         "-Port", [string]$testPort,
         "-NoBrowser"
-    ) -PassThru -WindowStyle Hidden
+    ) -PassThru -WindowStyle Hidden -RedirectStandardOutput $serverOutLog -RedirectStandardError $serverErrLog
 
     try {
         $baseUrl = "http://127.0.0.1:$testPort"
         $ready = $false
         for ($i = 0; $i -lt 30; $i++) {
+            if ($proc.HasExited) {
+                $errText = if (Test-Path -LiteralPath $serverErrLog) { [System.IO.File]::ReadAllText($serverErrLog).Trim() } else { "" }
+                $outText = if (Test-Path -LiteralPath $serverOutLog) { [System.IO.File]::ReadAllText($serverOutLog).Trim() } else { "" }
+                $details = (@($errText, $outText) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join "`n"
+                throw "Editor server exited early (code $($proc.ExitCode)).`n$details"
+            }
             try {
                 $st = Invoke-RestMethod "$baseUrl/api/status" -TimeoutSec 2
                 if ($st.ok) { $ready = $true; break }
@@ -165,55 +175,56 @@ if ($SmokeTest) {
             }
         }
         if (-not $ready) {
-            throw "Editor server did not become ready on $baseUrl within timeout."
+            $errText = if (Test-Path -LiteralPath $serverErrLog) { [System.IO.File]::ReadAllText($serverErrLog).Trim() } else { "" }
+            throw "Editor server did not become ready on $baseUrl within timeout.`n$errText"
         }
+        Write-Host "  PASS [1/8] GET /api/status (server ready)" -ForegroundColor Green
 
-        $htmlRes = Invoke-WebRequest -UseBasicParsing "$baseUrl/"
+        $htmlRes = Invoke-WebRequest -UseBasicParsing "$baseUrl/" -TimeoutSec 5
         if ($htmlRes.StatusCode -ne 200) { throw "GET / returned $($htmlRes.StatusCode)" }
+        Write-Host "  PASS [2/8] GET / (HTML 200)" -ForegroundColor Green
 
-        $cat = Invoke-RestMethod "$baseUrl/api/catalog"
+        $cat = Invoke-RestMethod "$baseUrl/api/catalog" -TimeoutSec 5
         if ($cat.spells.Count -lt 1 -or $cat.vfx.Count -lt 1 -or $cat.sfx.Count -lt 1) {
             throw "Catalog missing expected spells/vfx/sfx entries."
         }
+        Write-Host "  PASS [3/8] GET /api/catalog ($($cat.spells.Count) spells, $($cat.vfx.Count) VFX, $($cat.sfx.Count) SFX, $($cat.montages.Count) montages)" -ForegroundColor Green
 
-        $defs = Invoke-RestMethod "$baseUrl/api/defaults"
+        $defs = Invoke-RestMethod "$baseUrl/api/defaults" -TimeoutSec 5
         if (-not $defs.ok) { throw "GET /api/defaults failed." }
+        Write-Host "  PASS [4/8] GET /api/defaults" -ForegroundColor Green
 
         # Save user spells, user combos, user quickcast, and export JSON
         $spPayload = '{"schemaVersion":1,"format":"arcane-wilds.user_spells","disabledDefaults":["FlamesOfZamorak"],"spells":{"SmokeSpell":{"enabled":true,"category":"Air","speed":1.5}}}'
-        $spSave = Invoke-RestMethod -Method Put -Uri "$baseUrl/api/user/spells" -Body $spPayload -ContentType "application/json"
+        $spSave = Invoke-RestMethod -Method Put -Uri "$baseUrl/api/user/spells" -Body $spPayload -ContentType "application/json" -TimeoutSec 5
         if (-not $spSave.ok -or -not (Test-Path -LiteralPath (Join-Path $resolvedUserDir "user_spells.json"))) {
             throw "PUT /api/user/spells did not write user_spells.json"
         }
+        Write-Host "  PASS [5/8] PUT /api/user/spells -> user_spells.json" -ForegroundColor Green
 
         $cbPayload = '{"schemaVersion":1,"format":"arcane-wilds.user_combos","disableAllDefaults":false,"disabledDefaultIds":["default.fire_to_air"],"rules":[{"name":"SmokeCombo","enabled":true,"weight":5,"stages":[{"category":"Air","spells":["bolt"],"speed":2.0}]}]}'
-        $cbSave = Invoke-RestMethod -Method Put -Uri "$baseUrl/api/user/combos" -Body $cbPayload -ContentType "application/json"
+        $cbSave = Invoke-RestMethod -Method Put -Uri "$baseUrl/api/user/combos" -Body $cbPayload -ContentType "application/json" -TimeoutSec 5
         if (-not $cbSave.ok -or -not (Test-Path -LiteralPath (Join-Path $resolvedUserDir "user_combos.json"))) {
             throw "PUT /api/user/combos did not write user_combos.json"
         }
+        Write-Host "  PASS [6/8] PUT /api/user/combos -> user_combos.json" -ForegroundColor Green
 
         $qcPayload = '{"schemaVersion":1,"format":"arcane-wilds.user_quick_cast","overrideDefaults":true,"bindings":[{"enabled":true,"modifier":"BLOCK","keys":["1","GP_X"],"target":"SmokeSpell"}]}'
-        $qcSave = Invoke-RestMethod -Method Put -Uri "$baseUrl/api/user/quickcast" -Body $qcPayload -ContentType "application/json"
+        $qcSave = Invoke-RestMethod -Method Put -Uri "$baseUrl/api/user/quickcast" -Body $qcPayload -ContentType "application/json" -TimeoutSec 5
         if (-not $qcSave.ok -or -not (Test-Path -LiteralPath (Join-Path $resolvedUserDir "user_quick_cast.json"))) {
             throw "PUT /api/user/quickcast did not write user_quick_cast.json"
         }
+        $qcDel = Invoke-RestMethod -Method Delete -Uri "$baseUrl/api/user/quickcast" -TimeoutSec 5
+        if (-not $qcDel.ok) { throw "DELETE /api/user/quickcast failed" }
+        Write-Host "  PASS [7/8] PUT & DELETE /api/user/quickcast -> user_quick_cast.json" -ForegroundColor Green
 
         $expBody = @{ filename = "smoke-bundle.json"; openExplorer = $false; content = '{"schemaVersion":1,"format":"arcane-wilds.bundle","spells":{},"rules":[]}' } | ConvertTo-Json
-        $expRes = Invoke-RestMethod -Method Post -Uri "$baseUrl/api/export" -Body $expBody -ContentType "application/json"
+        $expRes = Invoke-RestMethod -Method Post -Uri "$baseUrl/api/export" -Body $expBody -ContentType "application/json" -TimeoutSec 5
         if (-not $expRes.ok -or -not (Test-Path -LiteralPath $expRes.path)) {
             throw "POST /api/export did not write exported file"
         }
+        Write-Host "  PASS [8/8] POST /api/export -> exports\smoke-bundle.json" -ForegroundColor Green
 
-        $qcDel = Invoke-RestMethod -Method Delete -Uri "$baseUrl/api/user/quickcast"
-        if (-not $qcDel.ok) { throw "DELETE /api/user/quickcast failed" }
-
-        Write-Host "  PASS GET / (HTML 200)" -ForegroundColor Green
-        Write-Host "  PASS GET /api/catalog ($($cat.spells.Count) spells, $($cat.vfx.Count) VFX, $($cat.sfx.Count) SFX, $($cat.montages.Count) montages)" -ForegroundColor Green
-        Write-Host "  PASS GET /api/defaults" -ForegroundColor Green
-        Write-Host "  PASS PUT /api/user/spells -> user_spells.json" -ForegroundColor Green
-        Write-Host "  PASS PUT /api/user/combos -> user_combos.json" -ForegroundColor Green
-        Write-Host "  PASS PUT & DELETE /api/user/quickcast -> user_quick_cast.json" -ForegroundColor Green
-        Write-Host "  PASS POST /api/export -> exports\smoke-bundle.json" -ForegroundColor Green
         Write-Host "Web GUI Smoke Test PASSED!" -ForegroundColor Green
     } finally {
         if ($proc -and -not $proc.HasExited) {
