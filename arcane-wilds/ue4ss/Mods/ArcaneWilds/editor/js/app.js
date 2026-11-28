@@ -463,7 +463,7 @@ async function bootstrap() {
     el.connectionBadge.title = "Hosted Web Studio — edits auto-save in your browser; download JSON to install.";
     if (el.standaloneBannerText) {
       el.standaloneBannerText.innerHTML =
-        '<strong>Web Mode:</strong> Your edits auto-save in this browser. Click <strong>Save</strong> or <strong>Bundle</strong> to download JSON and drop it into <code>%LOCALAPPDATA%\\ArcaneWilds</code>, or run <code>Launch-ArcaneWilds-Editor.bat</code> for 1-click Save.';
+        '<strong>Web Mode:</strong> Your edits auto-save in this browser. Click <strong>Save</strong> or <strong>Bundle</strong> to download JSON and drop it into <code>%LOCALAPPDATA%\\RSDragonwilds\\Saved\\Config\\ArcaneWilds</code>, or run <code>Launch-ArcaneWilds-Editor.bat</code> for 1-click Save.';
     }
   } else {
     el.connectionBadge.textContent = "Standalone Mode";
@@ -500,13 +500,13 @@ async function saveUserSpells() {
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
       state.dirtySpells = false;
-      toast("Saved user_spells.json to %LOCALAPPDATA%\\ArcaneWilds — persists across mod updates!", "success");
+      toast("Saved user_spells.json to %LOCALAPPDATA%\\RSDragonwilds\\Saved\\Config\\ArcaneWilds — persists across mod updates!", "success");
     } catch (err) {
       toast(`Failed to save user_spells.json: ${err.message}`, "error");
     }
   } else {
     downloadJsonFile("user_spells.json", jsonText);
-    toast("Downloaded user_spells.json (place in %LOCALAPPDATA%\\ArcaneWilds\\).", "warn");
+    toast("Downloaded user_spells.json (place in %LOCALAPPDATA%\\RSDragonwilds\\Saved\\Config\\ArcaneWilds\\).", "warn");
   }
 }
 
@@ -531,13 +531,13 @@ async function saveUserCombos() {
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
       state.dirtyCombos = false;
-      toast("Saved user_combos.json to %LOCALAPPDATA%\\ArcaneWilds — persists across mod updates!", "success");
+      toast("Saved user_combos.json to %LOCALAPPDATA%\\RSDragonwilds\\Saved\\Config\\ArcaneWilds — persists across mod updates!", "success");
     } catch (err) {
       toast(`Failed to save user_combos.json: ${err.message}`, "error");
     }
   } else {
     downloadJsonFile("user_combos.json", jsonText);
-    toast("Downloaded user_combos.json (place in %LOCALAPPDATA%\\ArcaneWilds\\).", "warn");
+    toast("Downloaded user_combos.json (place in %LOCALAPPDATA%\\RSDragonwilds\\Saved\\Config\\ArcaneWilds\\).", "warn");
   }
 }
 
@@ -560,13 +560,13 @@ async function saveUserQuickCast() {
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
       state.dirtyQuickCast = false;
-      toast("Saved user_quick_cast.json to %LOCALAPPDATA%\\ArcaneWilds!", "success");
+      toast("Saved user_quick_cast.json to %LOCALAPPDATA%\\RSDragonwilds\\Saved\\Config\\ArcaneWilds!", "success");
     } catch (err) {
       toast(`Failed to save user_quick_cast.json: ${err.message}`, "error");
     }
   } else {
     downloadJsonFile("user_quick_cast.json", jsonText);
-    toast("Downloaded user_quick_cast.json (place in %LOCALAPPDATA%\\ArcaneWilds\\).", "warn");
+    toast("Downloaded user_quick_cast.json (place in %LOCALAPPDATA%\\RSDragonwilds\\Saved\\Config\\ArcaneWilds\\).", "warn");
   }
 }
 

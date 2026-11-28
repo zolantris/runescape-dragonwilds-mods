@@ -87,9 +87,9 @@ Define complete custom spells in `custom_spells.json` (JSONC comments and traili
 Use **Arcane Wilds Studio** to visually build and edit **Spell Combos**, **Custom Spells**, and **Quick-Cast Hotkeys** without hand-editing JSON.
 
 * **Web Studio (GitHub Pages — no install required):** [https://zolantris.github.io/runescape-dragonwilds-mods/](https://zolantris.github.io/runescape-dragonwilds-mods/)
-  * Edit configs in your browser, then click **Export & Reveal** (or **Bundle**) and drop the exported `user_*.json` files into `%LOCALAPPDATA%\ArcaneWilds\`.
+  * Edit configs in your browser, then click **Export & Reveal** (or **Bundle**) and drop the exported `user_*.json` files into `%LOCALAPPDATA%\RSDragonwilds\Saved\Config\ArcaneWilds\`.
   * Also publishes [`llms.txt`](https://zolantris.github.io/runescape-dragonwilds-mods/llms.txt), JSON schemas, and the asset catalog so you can generate spells/combos with an AI assistant and paste them via **Import JSON**.
-* **Local Mode (1-click Save & live hot-reload):** Double-click `Launch-ArcaneWilds-Editor.bat` inside `ue4ss/Mods/ArcaneWilds/` (or run `.\mod.ps1 editor arcane-wilds`) to save directly to `%LOCALAPPDATA%\ArcaneWilds\` and hot-reload changes in-game immediately.
+* **Local Mode (1-click Save & live hot-reload):** Double-click `Launch-ArcaneWilds-Editor.bat` inside `ue4ss/Mods/ArcaneWilds/` (or run `.\mod.ps1 editor arcane-wilds`) to save directly to `%LOCALAPPDATA%\RSDragonwilds\Saved\Config\ArcaneWilds\` and hot-reload changes in-game immediately.
 
 > **Full step-by-step tutorial:** See [`docs/studio-guide.md`](./docs/studio-guide.md).
 

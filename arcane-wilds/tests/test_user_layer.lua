@@ -50,6 +50,35 @@ T.Suite("Persistent User Layer vs Immutable Mod Defaults", function()
         T.AssertContains(uPaths.USER_QUICK_CAST_PATH, "user_quick_cast.json")
     end)
 
+    T.Test("ResolveUserDir prefers RSDragonwilds Saved Config path when it exists and falls back to top-level ArcaneWilds", function()
+        Mock.Reset()
+        local localAppData = os.getenv("LOCALAPPDATA") or os.getenv("APPDATA")
+        local envOverride = os.getenv("ARCANE_WILDS_USER_DIR")
+        if localAppData and localAppData ~= "" and (not envOverride or envOverride == "") then
+            local sep = package.config:sub(1, 1)
+            local cleanBase = localAppData:gsub("[\\/]+$", "")
+            local expectedGameConfig = cleanBase .. sep .. "RSDragonwilds" .. sep .. "Saved" .. sep .. "Config"
+
+            local checkedPath = nil
+            local primary = ConfigManager.ResolveUserDir(nil, function(p)
+                checkedPath = p
+                return true
+            end)
+            T.AssertEq(checkedPath, expectedGameConfig)
+            T.AssertEq(primary, expectedGameConfig .. sep .. "ArcaneWilds" .. sep)
+
+            local fallback = ConfigManager.ResolveUserDir(nil, function()
+                return false
+            end)
+            T.AssertEq(fallback, cleanBase .. sep .. "ArcaneWilds" .. sep)
+
+            -- Default filesystem check without injected stub still returns a valid ArcaneWilds path
+            local realResolved = ConfigManager.ResolveUserDir()
+            T.AssertNotNil(realResolved)
+            T.AssertContains(realResolved, "ArcaneWilds" .. sep)
+        end
+    end)
+
     T.Test("Built-in default spells are immutable, toggleable via disabledDefaults, and coexist with user spells", function()
         Mock.Reset()
         local dir, sep = MakeTempDir()
