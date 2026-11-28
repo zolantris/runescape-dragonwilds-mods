@@ -1,4 +1,4 @@
-# Arcane Wilds (`ArcaneWilds` v1.0.0)
+# Arcane Wilds (`ArcaneWilds` v1.1.0)
 
 **Arcane Wilds** is a script-driven **UE4SS** magic combat overhaul and custom spell framework for *RuneScape: Dragonwilds*. It unlocks move-while-casting, adds weighted cross-element and Ancient Magicks combo chaining, provides Block/Modifier Quick-Cast hotkeys with EnhancedInput action suppression, introduces a JSON-schema-validated custom spell timeline engine with crowd control, progression gating, and staff/Magic damage scaling, and fixes vanilla Air finisher aim—all with **zero vanilla asset overrides**.
 
@@ -159,6 +159,12 @@ See [`scripts/README.md`](../scripts/README.md) and [`unreal-engine/README.md`](
 ## Changelog
 
 <!-- CHANGELOG:START -->
+### v1.1.0
+_Changes since [ArcaneWilds-v1.0.0](https://github.com/zolantris/runescape-dragonwilds-mods/releases/tag/ArcaneWilds-v1.0.0)_
+
+
+- **2026-11-27** - Feat/arcane wilds gui (#3) ([4f26f92](https://github.com/zolantris/runescape-dragonwilds-mods/commit/4f26f925b03681a0693aa1f165a1c5af7a282471))
+
 ### v1.0.0
 
 - **2026-11-26** - - set arcane-wilds to 1.0.0 - set fire combos on ([60f8ab7](https://github.com/zolantris/runescape-dragonwilds-mods/commit/60f8ab7af6288ca8433d3800c321599c885e324b))
