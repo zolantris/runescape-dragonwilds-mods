@@ -149,14 +149,14 @@ T.Suite("input_blocker", function()
         T.AssertEq(state._QuickCastBlockerSource, "StaticConstructObject")
         T.AssertTrue(state._QuickCastIA.bConsumeInput, "IA must set bConsumeInput=true")
         T.AssertTrue(state._QuickCastIA.bConsumesActionAndAxisMappings, "IA must set bConsumesActionAndAxisMappings=true")
-        T.AssertTrue(state._QuickCastIA.bReserveAllMappings, "IA must set bReserveAllMappings=true")
+        T.AssertFalse(state._QuickCastIA.bReserveAllMappings, "IA must set bReserveAllMappings=false to avoid global input lockout")
         T.AssertEq(state._QuickCastIMC.InputModeFilterOptions, 2, "IMC must set DoNotFilter (2)")
         T.AssertEq(state._QuickCastIMC.RegistrationTrackingMode, 0, "IMC must set Untracked (0)")
         T.AssertEq(#env.subState.addedCalls, 1)
         T.AssertEq(env.subState.addedCalls[1].prio, 100000)
         T.AssertEq(#state._QuickCastIMC._mapped, 8, "all 8 default Block keys should be mapped")
 
-        -- Releasing Block removes the mapping context with bIgnoreAllPressedKeysUntilRelease = true
+        -- Releasing Block removes the mapping context with bIgnoreAllPressedKeysUntilRelease = false
         heldMods.BLOCK = false
         local stillOn = InputBlocker.Sync(
             config, state, env.pc, bindings, ParseKeyList,
@@ -166,7 +166,7 @@ T.Suite("input_blocker", function()
         T.AssertFalse(stillOn, "blocker should deactivate when Block is released")
         T.AssertFalse(state._QuickCastInputBlocked)
         T.AssertEq(#env.subState.removedCalls, 1)
-        T.AssertTrue(env.subState.removedCalls[1].opts.bIgnoreAllPressedKeysUntilRelease)
+        T.AssertFalse(env.subState.removedCalls[1].opts.bIgnoreAllPressedKeysUntilRelease, "must not lock out currently pressed keys on release")
     end)
 
     T.Test("blocks menu/shortcut hotkeys (Q, I, K, Tab) and never self-blocks active modifier keys", function()

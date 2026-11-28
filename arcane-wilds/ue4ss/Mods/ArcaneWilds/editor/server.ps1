@@ -351,6 +351,27 @@ function Build-FallbackCatalog {
     } | ConvertTo-Json -Depth 10
 }
 
+# Single-instance check: if an Arcane Wilds editor server is already running on $Port,
+# just open the browser to the existing URL and exit instead of spawning a duplicate server.
+$existingUrl = "http://127.0.0.1:$Port/"
+try {
+    $probeReq = [System.Net.HttpWebRequest]::Create("${existingUrl}api/status")
+    $probeReq.Method = "GET"
+    $probeReq.Timeout = 500
+    $probeReq.ReadWriteTimeout = 500
+    $probeRes = $probeReq.GetResponse()
+    $probeOk = ($probeRes.StatusCode -eq [System.Net.HttpStatusCode]::OK)
+    $probeRes.Close()
+    if ($probeOk) {
+        if (-not $NoBrowser) {
+            Start-Process $existingUrl | Out-Null
+        }
+        exit 0
+    }
+} catch {
+    # Not running on $Port yet; proceed to start listener
+}
+
 # Start HttpListener on the first free port starting at $Port
 $listener = $null
 $boundPort = $Port

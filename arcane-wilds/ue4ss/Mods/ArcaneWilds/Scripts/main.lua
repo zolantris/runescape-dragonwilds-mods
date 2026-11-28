@@ -158,11 +158,12 @@ local function RefreshSpells()
         ConfigManager.LogParsedMacrosSpellMapping(Config, State, Log, "Initial Spell Scan -> Direct Spell Asset Mapping")
     end
 
-    local now = os.clock()
-    if State.LastVfxScanTime == 0 or (now - State.LastVfxScanTime) >= 12.0 then
-        State.LastVfxScanTime = now
-        RefreshVfxCatalog(State._ExportedVfxOnce ~= true)
+    -- Export detected_catalog.json once on initial world load (when spells are populated)
+    -- instead of every 12 seconds on the Game Thread, preventing 6s+ stalls.
+    if State._ExportedVfxOnce ~= true and next(State.BaseSpellRegistry) ~= nil then
+        State.LastVfxScanTime = os.clock()
         State._ExportedVfxOnce = true
+        RefreshVfxCatalog(true)
     end
 end
 
@@ -560,15 +561,21 @@ local function BindDebugHotkey()
     local normalized = NormalizeKeyName(rawTrim)
     if State.BoundDebugKey == normalized then return end
     State.BoundDebugKey = normalized
+    State.RegisteredDebugKeys = State.RegisteredDebugKeys or {}
 
-    local keyEnum = Key[normalized] or Key[upper] or Key.BackSlash or Key.OEM_5
-    pcall(function()
-        RegisterKeyBind(keyEnum, { ModifierKey.SHIFT }, function()
-            if Config.AllowDebugCommands then
-                ExecuteInGameThread(function() RunDebugInspection() end)
-            end
+    if not State.RegisteredDebugKeys[normalized] then
+        State.RegisteredDebugKeys[normalized] = true
+        local boundKey = normalized
+        local keyEnum = Key[normalized] or Key[upper] or Key.BackSlash or Key.OEM_5
+        pcall(function()
+            RegisterKeyBind(keyEnum, { ModifierKey.SHIFT }, function()
+                if State.BoundDebugKey ~= boundKey then return end
+                if Config.AllowDebugCommands then
+                    ExecuteInGameThread(function() RunDebugInspection() end)
+                end
+            end)
         end)
-    end)
+    end
     Log("Debug dump hotkey bound to: SHIFT + " .. tostring(normalized) .. " (set DebugHotkey=LISTEN in config.txt to rebind interactively)")
 end
 
@@ -578,12 +585,25 @@ local function LaunchWebEditor()
         return
     end
     State.LastEditorLaunchTime = now
-    local launcherBat = MOD_DIR .. "Launch-ArcaneWilds-Editor.bat"
-    local cmd = string.format('start "" /min cmd /c ""%s""', launcherBat)
+    local serverPs1 = MOD_DIR .. "editor\\server.ps1"
+    local cleanModDir = MOD_DIR:gsub("[\\/]+$", "")
+    -- Launch hidden PowerShell without opening a persistent console window; server.ps1 is single-instance
+    -- and reuses an already-running server on port 47821 if present.
+    local cmd = string.format(
+        'start "" /b powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%s" -ModDir "%s"',
+        serverPs1, cleanModDir
+    )
     Log("Launching Arcane Wilds Spell & Combo Studio (Web GUI)...")
-    pcall(function()
-        os.execute(cmd)
-    end)
+    local function doExec()
+        pcall(function()
+            os.execute(cmd)
+        end)
+    end
+    if type(ExecuteAsync) == "function" then
+        ExecuteAsync(doExec)
+    else
+        doExec()
+    end
 end
 
 local function BindWebEditorHotkey()
@@ -591,15 +611,21 @@ local function BindWebEditorHotkey()
     local normalized = NormalizeKeyName(rawTrim)
     if State.BoundEditorKey == normalized then return end
     State.BoundEditorKey = normalized
+    State.RegisteredEditorKeys = State.RegisteredEditorKeys or {}
 
-    local keyEnum = Key[normalized] or Key[rawTrim:upper()] or Key.F9
-    pcall(function()
-        RegisterKeyBind(keyEnum, { ModifierKey.SHIFT }, function()
-            if Config.EnableWebEditorHotkey ~= false then
-                ExecuteInGameThread(function() LaunchWebEditor() end)
-            end
+    if not State.RegisteredEditorKeys[normalized] then
+        State.RegisteredEditorKeys[normalized] = true
+        local boundKey = normalized
+        local keyEnum = Key[normalized] or Key[rawTrim:upper()] or Key.F9
+        pcall(function()
+            RegisterKeyBind(keyEnum, { ModifierKey.SHIFT }, function()
+                if State.BoundEditorKey ~= boundKey then return end
+                if Config.EnableWebEditorHotkey ~= false then
+                    LaunchWebEditor()
+                end
+            end)
         end)
-    end)
+    end
     Log("Web Editor hotkey bound to: SHIFT + " .. tostring(normalized))
 end
 

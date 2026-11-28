@@ -14,7 +14,7 @@ local ADD_CONTEXT_OPTS = {
 }
 
 local REMOVE_CONTEXT_OPTS = {
-    bIgnoreAllPressedKeysUntilRelease = true,
+    bIgnoreAllPressedKeysUntilRelease = false,
     bForceImmediately = true,
     bNotifyUserSettings = false
 }
@@ -89,7 +89,7 @@ end
 local function ConfigureBlockerObjects(imc, ia)
     pcall(function() ia.bConsumeInput = true end)
     pcall(function() ia.bConsumesActionAndAxisMappings = true end)
-    pcall(function() ia.bReserveAllMappings = true end)
+    pcall(function() ia.bReserveAllMappings = false end)
     pcall(function() ia.ValueType = 0 end) -- EInputActionValueType::Boolean
     pcall(function() imc.InputModeFilterOptions = 2 end) -- EMappingContextInputModeFilterOptions::DoNotFilter
     pcall(function() imc.RegistrationTrackingMode = 0 end) -- EMappingContextRegistrationTrackingMode::Untracked
