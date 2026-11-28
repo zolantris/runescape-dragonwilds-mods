@@ -293,6 +293,7 @@ function RuleParser.ParseJsonMacros(rawJson, nameMapByCat, globalNameMap, discov
     local macros = {}
     for rIdx, rule in ipairs(rulesList) do
         if type(rule) == "table" and rule.enabled ~= false then
+            local ruleId = rule.id ~= nil and Trim(tostring(rule.id)) or nil
             local ruleName = rule.name ~= nil and Trim(tostring(rule.name)) or nil
             local weight = tonumber(rule.weight)
             if weight == nil then weight = 1.0 end
@@ -337,6 +338,7 @@ function RuleParser.ParseJsonMacros(rawJson, nameMapByCat, globalNameMap, discov
 
                     if #stages > 0 then
                         table.insert(macros, {
+                            id = ruleId,
                             name = ruleName,
                             raw = FormatMacroDisplaySummary(ruleName, stages, weight),
                             weight = weight,
@@ -349,6 +351,7 @@ function RuleParser.ParseJsonMacros(rawJson, nameMapByCat, globalNameMap, discov
                     local parsed = ParseLegacyMacroList(chainStr, nameMapByCat, globalNameMap, discoveredAssets)
                     for _, m in ipairs(parsed) do
                         if rule.weight ~= nil then m.weight = weight end
+                        m.id = ruleId
                         m.name = ruleName
                         if ruleName and ruleName ~= "" then
                             m.raw = "[" .. ruleName .. "] " .. m.raw

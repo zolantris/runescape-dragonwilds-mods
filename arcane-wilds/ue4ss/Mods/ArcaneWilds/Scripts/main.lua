@@ -40,6 +40,12 @@ local ProgressionScaling = require("progression_scaling")
 local InputBlocker   = require("input_blocker")
 local AssetCatalog   = require("asset_catalog")
 
+local UserPaths = ConfigManager.BuildUserPaths(ConfigManager.ResolveUserDir())
+Paths.USER_DIR             = UserPaths.USER_DIR
+Paths.USER_SPELLS_PATH     = UserPaths.USER_SPELLS_PATH
+Paths.USER_COMBOS_PATH     = UserPaths.USER_COMBOS_PATH
+Paths.USER_QUICK_CAST_PATH = UserPaths.USER_QUICK_CAST_PATH
+
 local Config = ConfigManager.CreateDefaultConfig()
 
 local State = {

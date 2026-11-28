@@ -22,11 +22,13 @@ export class ImportModal {
     this.expectedKind = expectedKind;
     this.parsedResult = null;
     this.titleEl.textContent =
-      expectedKind === "custom_spells"
+      expectedKind === "user_spells" || expectedKind === "custom_spells"
         ? "Import Custom Spells JSON"
-        : expectedKind === "combo_rules"
+        : expectedKind === "user_combos" || expectedKind === "combo_rules"
           ? "Import Combo Rules JSON"
-          : "Import Arcane Wilds JSON";
+          : expectedKind === "user_quick_cast"
+            ? "Import Quick-Cast JSON"
+            : "Import Arcane Wilds JSON";
 
     this.renderBody();
     this.modalEl.classList.remove("hidden");
@@ -152,6 +154,11 @@ export class ImportModal {
 
     const spellCount = migrated.doc.spells ? Object.keys(migrated.doc.spells).length : 0;
     const ruleCount = Array.isArray(migrated.doc.rules) ? migrated.doc.rules.length : 0;
+    const qcCount = Array.isArray(migrated.doc.bindings)
+      ? migrated.doc.bindings.length
+      : Array.isArray(migrated.doc.quickCast?.bindings)
+        ? migrated.doc.quickCast.bindings.length
+        : 0;
 
     const summaryParts = [];
     if (fileName) summaryParts.push(`<strong>File:</strong> ${escapeHtml(fileName)}`);
@@ -159,11 +166,14 @@ export class ImportModal {
     summaryParts.push(
       `<strong>Schema Version:</strong> v${migrated.fromVersion} → v${migrated.toVersion}`
     );
-    if (detectedKind === "custom_spells" || detectedKind === "bundle") {
+    if (detectedKind === "custom_spells" || detectedKind === "user_spells" || detectedKind === "bundle") {
       summaryParts.push(`<strong>Custom Spells:</strong> ${spellCount}`);
     }
-    if (detectedKind === "combo_rules" || detectedKind === "bundle") {
+    if (detectedKind === "combo_rules" || detectedKind === "user_combos" || detectedKind === "bundle") {
       summaryParts.push(`<strong>Combo Rules:</strong> ${ruleCount}`);
+    }
+    if (detectedKind === "user_quick_cast" || (detectedKind === "bundle" && qcCount > 0)) {
+      summaryParts.push(`<strong>Quick-Cast Bindings:</strong> ${qcCount}`);
     }
 
     let notesHtml = "";

@@ -4,8 +4,40 @@
 local RuleParser = require("rule_parser")
 local SpellScanner = require("spell_scanner")
 local CustomSpells = require("custom_spells")
+local Json = require("json")
+local SchemaMigrator = require("schema_migrator")
 
 local ConfigManager = {}
+
+-- Resolve persistent user profile directory outside the mod install folder so updates
+-- never overwrite or wipe player customizations (%LOCALAPPDATA%\ArcaneWilds).
+function ConfigManager.ResolveUserDir(overrideDir)
+    local sep = package.config:sub(1, 1)
+    local base = overrideDir
+    if not base or base == "" then
+        base = os.getenv("ARCANE_WILDS_USER_DIR")
+    end
+    if base and base ~= "" then
+        return (base:gsub("[\\/]+$", "")) .. sep
+    end
+    local localAppData = os.getenv("LOCALAPPDATA") or os.getenv("APPDATA")
+    if localAppData and localAppData ~= "" then
+        return (localAppData:gsub("[\\/]+$", "")) .. sep .. "ArcaneWilds" .. sep
+    end
+    return nil
+end
+
+function ConfigManager.BuildUserPaths(userDir)
+    if not userDir or userDir == "" then return {} end
+    local sep = package.config:sub(1, 1)
+    local norm = (userDir:gsub("[\\/]+$", "")) .. sep
+    return {
+        USER_DIR             = norm,
+        USER_SPELLS_PATH     = norm .. "user_spells.json",
+        USER_COMBOS_PATH     = norm .. "user_combos.json",
+        USER_QUICK_CAST_PATH = norm .. "user_quick_cast.json",
+    }
+end
 
 local DEFAULT_SPELL_NAMES_CONTENT = table.concat({
     "# ArcaneWilds Direct Spell Name -> Asset Map (Hot-Reloaded Automatically on Save!)",
@@ -388,13 +420,14 @@ function ConfigManager.LoadCustomSpellsFile(paths, state, logFn)
         end
     end
 
+    local userRaw = ReadExistingFile(paths.USER_SPELLS_PATH)
     local sourceLabel = isJson and "custom_spells.json" or "custom_spells.txt"
-    local rawKey = sourceLabel .. "\0" .. raw
+    local rawKey = sourceLabel .. "\0" .. raw .. "\0USER:" .. tostring(userRaw or "")
     if state.LastCustomSpellsRaw ~= rawKey then
         local isInitial = (state.LastCustomSpellsRaw == nil)
         state.LastCustomSpellsRaw = rawKey
-        local parsedDefs, parseErr = CustomSpells.ParseDefinitions(raw)
-        if parseErr or not parsedDefs then
+        local defaultDefs, parseErr = CustomSpells.ParseDefinitions(raw)
+        if parseErr or not defaultDefs then
             state.LastCustomSpellsError = tostring(parseErr or "unknown parse error")
             if logFn then
                 logFn(string.format("[ERROR] Failed to parse %s (%s) - keeping previous valid custom spells!",
@@ -402,10 +435,88 @@ function ConfigManager.LoadCustomSpellsFile(paths, state, logFn)
             end
             return false
         end
+
+        local mergedDefs = {}
+        local disabledDefaults = {}
+
+        if userRaw and ConfigManager.Trim(userRaw) ~= "" then
+            local userDoc, uDecErr = Json.Decode(userRaw)
+            if uDecErr or type(userDoc) ~= "table" then
+                state.LastCustomSpellsError = "user_spells.json: " .. tostring(uDecErr or "invalid JSON")
+                if logFn then
+                    logFn(string.format("[ERROR] Failed to parse user_spells.json (%s) - keeping previous valid custom spells!",
+                        state.LastCustomSpellsError))
+                end
+                return false
+            end
+            local migratedUser, uMigErr = SchemaMigrator.Migrate("user_spells", userDoc)
+            if uMigErr or type(migratedUser) ~= "table" then
+                state.LastCustomSpellsError = "user_spells.json: " .. tostring(uMigErr or "migration error")
+                if logFn then
+                    logFn(string.format("[ERROR] Failed to migrate user_spells.json (%s) - keeping previous valid custom spells!",
+                        state.LastCustomSpellsError))
+                end
+                return false
+            end
+
+            if type(migratedUser.disabledDefaults) == "table" then
+                for _, idStr in ipairs(migratedUser.disabledDefaults) do
+                    local idClean = ConfigManager.Trim(tostring(idStr or "")):lower()
+                    if idClean ~= "" then
+                        disabledDefaults[idClean] = true
+                    end
+                end
+            end
+
+            for kLower, dDef in pairs(defaultDefs) do
+                if not disabledDefaults[kLower] then
+                    dDef.isModDefault = true
+                    mergedDefs[kLower] = dDef
+                end
+            end
+
+            if type(migratedUser.spells) == "table" then
+                local wrappedJson, encErr = Json.Encode({
+                    schemaVersion = SchemaMigrator.GetCurrentVersion("custom_spells"),
+                    spells = migratedUser.spells,
+                })
+                if not encErr and wrappedJson then
+                    local userDefs, uParseErr = CustomSpells.ParseJsonDefinitions(wrappedJson)
+                    if uParseErr or not userDefs then
+                        state.LastCustomSpellsError = "user_spells.json: " .. tostring(uParseErr or "invalid spells")
+                        if logFn then
+                            logFn(string.format("[ERROR] Failed to parse spells in user_spells.json (%s) - keeping previous valid custom spells!",
+                                state.LastCustomSpellsError))
+                        end
+                        return false
+                    end
+                    for kLower, uDef in pairs(userDefs) do
+                        if defaultDefs[kLower] ~= nil then
+                            -- Built-in default spells are immutable and cannot be overwritten in place
+                            if logFn then
+                                logFn(string.format(
+                                    "[WARN] User spell '%s' matches a built-in mod default spell ID and was skipped (use 'Clone to My Spells' under a new ID instead).",
+                                    tostring(uDef.name or kLower)
+                                ))
+                            end
+                        else
+                            uDef.isUserSpell = true
+                            mergedDefs[kLower] = uDef
+                        end
+                    end
+                end
+            end
+        else
+            for kLower, dDef in pairs(defaultDefs) do
+                dDef.isModDefault = true
+                mergedDefs[kLower] = dDef
+            end
+        end
+
         state.LastCustomSpellsError = nil
-        state.CustomSpellDefs = parsedDefs
+        state.CustomSpellDefs = mergedDefs
         if not isInitial and logFn then
-            logFn("Hot-reloaded " .. sourceLabel)
+            logFn("Hot-reloaded " .. sourceLabel .. (userRaw and " + user_spells.json" or ""))
         end
         return true
     end
@@ -505,17 +616,18 @@ function ConfigManager.LoadComboRulesFile(paths, config, state, logFn, forceRebu
         if raw == nil then return end
     end
 
+    local userCombosRaw = ReadExistingFile(paths.USER_COMBOS_PATH)
     local sourceLabel = isJson and "combo_rules.json" or "combo_rules.txt"
     local parseInput = isJson and raw or NormalizeLegacyComboRulesText(raw)
-    local rawKey = sourceLabel .. "\0" .. parseInput
+    local rawKey = sourceLabel .. "\0" .. parseInput .. "\0USER:" .. tostring(userCombosRaw or "")
 
     if forceRebuild or namesChanged or customChanged or state.LastComboRulesRaw ~= rawKey then
         local isInitial = (state.LastComboRulesRaw == nil)
         state.LastComboRulesRaw = rawKey
-        local parsedMacros, parseErr = RuleParser.ParseWeightedMacros(
+        local defaultMacros, parseErr = RuleParser.ParseWeightedMacros(
             parseInput, state.NameMapByCat, state.GlobalNameMap, state.DiscoveredLookup)
 
-        if parseErr or not parsedMacros then
+        if parseErr or not defaultMacros then
             state.LastComboRulesError = tostring(parseErr or "unknown parse error")
             local errStatus = string.format("ERROR in %s (%s)", sourceLabel, state.LastComboRulesError)
             config.ActiveComboRulesCount = errStatus
@@ -530,11 +642,80 @@ function ConfigManager.LoadComboRulesFile(paths, config, state, logFn, forceRebu
             return
         end
 
+        local parsedMacros = {}
+        local userActive = false
+        if userCombosRaw and ConfigManager.Trim(userCombosRaw) ~= "" then
+            local uDoc, uDecErr = Json.Decode(userCombosRaw)
+            if uDecErr or type(uDoc) ~= "table" then
+                state.LastComboRulesError = "user_combos.json: " .. tostring(uDecErr or "invalid JSON")
+                if logFn then
+                    logFn(string.format("[ERROR] Failed to parse user_combos.json (%s) - keeping previous %d active macro(s)!",
+                        state.LastComboRulesError, #(state.ParsedMacros or {})))
+                end
+                return
+            end
+            local migratedUser, uMigErr = SchemaMigrator.Migrate("user_combos", uDoc)
+            if uMigErr or type(migratedUser) ~= "table" then
+                state.LastComboRulesError = "user_combos.json: " .. tostring(uMigErr or "migration error")
+                if logFn then
+                    logFn(string.format("[ERROR] Failed to migrate user_combos.json (%s) - keeping previous %d active macro(s)!",
+                        state.LastComboRulesError, #(state.ParsedMacros or {})))
+                end
+                return
+            end
+
+            userActive = true
+            local disableAll = (migratedUser.disableAllDefaults == true)
+            local disabledSet = {}
+            if type(migratedUser.disabledDefaultIds) == "table" then
+                for _, did in ipairs(migratedUser.disabledDefaultIds) do
+                    local cleanId = ConfigManager.Trim(tostring(did or "")):lower()
+                    if cleanId ~= "" then disabledSet[cleanId] = true end
+                end
+            end
+
+            if not disableAll then
+                for _, m in ipairs(defaultMacros) do
+                    local idKey = m.id and m.id:lower() or nil
+                    local nameKey = m.name and m.name:lower() or nil
+                    if not ((idKey and disabledSet[idKey]) or (nameKey and disabledSet[nameKey])) then
+                        table.insert(parsedMacros, m)
+                    end
+                end
+            end
+
+            if type(migratedUser.rules) == "table" and #migratedUser.rules > 0 then
+                local wrappedRulesJson, encErr = Json.Encode({
+                    schemaVersion = SchemaMigrator.GetCurrentVersion("combo_rules"),
+                    rules = migratedUser.rules,
+                })
+                if not encErr and wrappedRulesJson then
+                    local userMacros, uRuleErr = RuleParser.ParseJsonMacros(
+                        wrappedRulesJson, state.NameMapByCat, state.GlobalNameMap, state.DiscoveredLookup)
+                    if uRuleErr or not userMacros then
+                        state.LastComboRulesError = "user_combos.json: " .. tostring(uRuleErr or "invalid rules")
+                        if logFn then
+                            logFn(string.format("[ERROR] Failed to parse rules in user_combos.json (%s) - keeping previous %d active macro(s)!",
+                                state.LastComboRulesError, #(state.ParsedMacros or {})))
+                        end
+                        return
+                    end
+                    for _, um in ipairs(userMacros) do
+                        um.isUserCombo = true
+                        table.insert(parsedMacros, um)
+                    end
+                end
+            end
+        else
+            parsedMacros = defaultMacros
+        end
+
         state.LastComboRulesError = nil
         state.LastValidComboRulesRaw = parseInput
         state.ParsedMacros = parsedMacros
 
-        local statusStr = string.format("%d macro(s) active from %s", #state.ParsedMacros, sourceLabel)
+        local activeSource = userActive and (sourceLabel .. " + user_combos.json") or sourceLabel
+        local statusStr = string.format("%d macro(s) active from %s", #state.ParsedMacros, activeSource)
         config.ActiveComboRulesCount = statusStr
         if statusStr ~= state.LastRulesStatusWritten then
             state.LastRulesStatusWritten = statusStr
@@ -543,9 +724,9 @@ function ConfigManager.LoadComboRulesFile(paths, config, state, logFn, forceRebu
 
         if logFn then
             if isInitial then
-                logFn("Loaded " .. tostring(#state.ParsedMacros) .. " macro(s) from " .. sourceLabel)
+                logFn("Loaded " .. tostring(#state.ParsedMacros) .. " macro(s) from " .. activeSource)
             else
-                logFn("Hot-reloaded " .. sourceLabel .. " / spell_names.txt -> " .. tostring(#state.ParsedMacros) .. " macro(s) active!")
+                logFn("Hot-reloaded " .. activeSource .. " / spell_names.txt -> " .. tostring(#state.ParsedMacros) .. " macro(s) active!")
                 for idx, m in ipairs(state.ParsedMacros) do
                     logFn(string.format("  Rule #%d [weight=%s, stages=%d]: %s", idx, tostring(m.weight), #m.stages, m.raw))
                 end
@@ -626,10 +807,53 @@ local function SerializeQuickCastFromConfig(config)
     return table.concat(lines, "\n") .. "\n"
 end
 
-function ConfigManager.LoadQuickCastFile(paths, config, state, logFn, forceReload, modMenuSlotsChanged)
-    if not paths.QUICK_CAST_PATH then return end
+local function ParseUserQuickCastJson(rawJson, defaultRequireMod)
+    local doc, decErr = Json.Decode(rawJson)
+    if decErr or type(doc) ~= "table" then
+        return nil, nil, tostring(decErr or "invalid JSON")
+    end
+    local migrated, migErr = SchemaMigrator.Migrate("user_quick_cast", doc)
+    if migErr or type(migrated) ~= "table" then
+        return nil, nil, tostring(migErr or "migration error")
+    end
+    local overrideDefaults = (migrated.overrideDefaults ~= false)
+    local bindings = {}
+    if type(migrated.bindings) == "table" then
+        for _, item in ipairs(migrated.bindings) do
+            if type(item) == "table" and item.enabled ~= false then
+                local target = ConfigManager.Trim(tostring(item.target or ""))
+                local rawKeys = {}
+                if type(item.keys) == "table" then
+                    for _, k in ipairs(item.keys) do
+                        local ck = ConfigManager.Trim(tostring(k or ""))
+                        if ck ~= "" then table.insert(rawKeys, ck) end
+                    end
+                end
+                if target ~= "" and #rawKeys > 0 then
+                    local mod = item.modifier ~= nil and ConfigManager.Trim(tostring(item.modifier)):upper()
+                        or (defaultRequireMod and "BLOCK" or "NONE")
+                    if mod == "RMB" or mod == "MODIFIER" or mod == "MOD" then mod = "BLOCK"
+                    elseif mod == "OFF" or mod == "FALSE" or mod == "" then mod = "NONE" end
+                    local keysRaw = table.concat(rawKeys, ", ")
+                    table.insert(bindings, {
+                        modifier = mod,
+                        keysRaw = keysRaw,
+                        rawKeys = rawKeys,
+                        target = target,
+                        isCombo = (target:find("@", 1, true) ~= nil) or (target:find("->", 1, true) ~= nil),
+                        raw = mod .. " + " .. keysRaw .. " = " .. target,
+                    })
+                end
+            end
+        end
+    end
+    return bindings, overrideDefaults, nil
+end
 
-    if modMenuSlotsChanged then
+function ConfigManager.LoadQuickCastFile(paths, config, state, logFn, forceReload, modMenuSlotsChanged)
+    if not paths.QUICK_CAST_PATH and not paths.USER_QUICK_CAST_PATH then return end
+
+    if modMenuSlotsChanged and paths.QUICK_CAST_PATH then
         local newRaw = SerializeQuickCastFromConfig(config)
         local wf = io.open(paths.QUICK_CAST_PATH, "w")
         if wf then
@@ -638,25 +862,50 @@ function ConfigManager.LoadQuickCastFile(paths, config, state, logFn, forceReloa
         end
     end
 
-    local f = io.open(paths.QUICK_CAST_PATH, "r")
-    if not f then
-        local wf = io.open(paths.QUICK_CAST_PATH, "w")
-        if wf then
-            wf:write(DEFAULT_QUICK_CAST_CONTENT)
-            wf:close()
+    local raw = ""
+    if paths.QUICK_CAST_PATH then
+        local f = io.open(paths.QUICK_CAST_PATH, "r")
+        if not f then
+            local wf = io.open(paths.QUICK_CAST_PATH, "w")
+            if wf then
+                wf:write(DEFAULT_QUICK_CAST_CONTENT)
+                wf:close()
+            end
+            f = io.open(paths.QUICK_CAST_PATH, "r")
         end
-        f = io.open(paths.QUICK_CAST_PATH, "r")
-        if not f then return end
+        if f then
+            raw = f:read("*a") or ""
+            f:close()
+        end
     end
-    local raw = f:read("*a") or ""
-    f:close()
 
-    if forceReload or state.LastQuickCastRaw ~= raw then
+    local userQcRaw = ReadExistingFile(paths.USER_QUICK_CAST_PATH)
+    local combinedKey = raw .. "\0USER_QC:" .. tostring(userQcRaw or "")
+
+    if forceReload or state.LastQuickCastRaw ~= combinedKey then
         local isInitial = (state.LastQuickCastRaw == nil)
-        state.LastQuickCastRaw = raw
-        state.QuickCastBindings = ParseQuickCastBindings(raw, config.QuickCastRequireModifier ~= false)
+        state.LastQuickCastRaw = combinedKey
 
-        -- Sync first 4 entries back into config.txt so Mod Menu reflects quick_cast.txt edits
+        local activeBindings = nil
+        local sourceLabel = "quick_cast.txt"
+        if userQcRaw and ConfigManager.Trim(userQcRaw) ~= "" then
+            local uBindings, overrideDefaults, uErr = ParseUserQuickCastJson(userQcRaw, config.QuickCastRequireModifier ~= false)
+            if uErr then
+                if logFn then
+                    logFn("[ERROR] Failed to parse user_quick_cast.json (" .. tostring(uErr) .. ") - falling back to quick_cast.txt")
+                end
+            elseif overrideDefaults then
+                activeBindings = uBindings
+                sourceLabel = "user_quick_cast.json"
+            end
+        end
+
+        if activeBindings == nil then
+            activeBindings = ParseQuickCastBindings(raw, config.QuickCastRequireModifier ~= false)
+        end
+        state.QuickCastBindings = activeBindings
+
+        -- Sync first 4 entries back into config.txt so Mod Menu reflects quick-cast edits
         local changedCfg = false
         for i = 1, 4 do
             local b = state.QuickCastBindings[i]
@@ -672,7 +921,7 @@ function ConfigManager.LoadQuickCastFile(paths, config, state, logFn, forceReloa
             end
         end
 
-        local statusStr = string.format("%d binding(s) active from quick_cast.txt", #state.QuickCastBindings)
+        local statusStr = string.format("%d binding(s) active from %s", #state.QuickCastBindings, sourceLabel)
         config.ActiveQuickCastCount = statusStr
         if changedCfg or statusStr ~= state.LastQuickCastStatusWritten then
             state.LastQuickCastStatusWritten = statusStr
@@ -687,12 +936,14 @@ function ConfigManager.LoadQuickCastFile(paths, config, state, logFn, forceReloa
             tostring(config.QuickCastHotkey4 or ""), tostring(config.QuickCastSpell4 or "")
         }, "|")
 
-        if isInitial then
-            logFn("Loaded " .. tostring(#state.QuickCastBindings) .. " quick-cast binding(s) from quick_cast.txt")
-        else
-            logFn("Hot-reloaded quick_cast.txt -> " .. tostring(#state.QuickCastBindings) .. " binding(s) active!")
-            for idx, b in ipairs(state.QuickCastBindings) do
-                logFn(string.format("  QuickCast #%d [%s + %s] => %s", idx, tostring(b.modifier), tostring(b.keysRaw), tostring(b.target)))
+        if logFn then
+            if isInitial then
+                logFn("Loaded " .. tostring(#state.QuickCastBindings) .. " quick-cast binding(s) from " .. sourceLabel)
+            else
+                logFn("Hot-reloaded " .. sourceLabel .. " -> " .. tostring(#state.QuickCastBindings) .. " binding(s) active!")
+                for idx, b in ipairs(state.QuickCastBindings) do
+                    logFn(string.format("  QuickCast #%d [%s + %s] => %s", idx, tostring(b.modifier), tostring(b.keysRaw), tostring(b.target)))
+                end
             end
         end
     end

@@ -6,6 +6,9 @@
     "customSpells": 1,
     "comboRules": 1,
     "detectedCatalog": 1,
-    "bundle": 1
+    "bundle": 1,
+    "userSpells": 1,
+    "userCombos": 1,
+    "userQuickCast": 1
   }
 }

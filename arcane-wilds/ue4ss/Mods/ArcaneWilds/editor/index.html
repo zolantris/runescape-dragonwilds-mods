@@ -23,6 +23,9 @@
       <button id="tab-btn-spells" class="tab-btn" role="tab" aria-selected="false" data-tab="spells">
         Spells <span id="badge-spells-count" class="count-pill">0</span>
       </button>
+      <button id="tab-btn-quickcast" class="tab-btn" role="tab" aria-selected="false" data-tab="quickcast">
+        Quick-Cast <span id="badge-qc-count" class="count-pill">0</span>
+      </button>
     </nav>
 
     <div class="header-status">
@@ -34,6 +37,9 @@
       </div>
       <button id="btn-refresh-catalog" class="btn btn-ghost btn-sm" title="Re-read detected_catalog.json from mod folder">
         ↻ Refresh Assets
+      </button>
+      <button id="btn-open-user-dir" class="btn btn-ghost btn-sm" title="Open persistent %LOCALAPPDATA%\ArcaneWilds folder in Explorer">
+        📁 User Folder
       </button>
       <span id="connection-badge" class="status-pill status-connecting">Connecting…</span>
       <span id="schema-badge" class="status-pill status-schema" title="Current JSON schema version">Schema v1</span>
@@ -53,6 +59,10 @@
         <div class="toolbar-left">
           <h2>Spell Combos</h2>
           <input id="combo-search" type="search" class="input search-input" placeholder="Filter combos by name or spell…" />
+          <label class="field-inline" style="font-size:12px;color:var(--text-muted);cursor:pointer;">
+            <input id="chk-disable-all-default-combos" type="checkbox" />
+            <span>Disable all mod default combos</span>
+          </label>
         </div>
         <div class="toolbar-actions">
           <button id="btn-add-combo" class="btn btn-primary">+ Add Combo</button>
@@ -93,6 +103,25 @@
         </aside>
         <section id="spell-editor-container" class="spell-editor-container"></section>
       </div>
+    </section>
+
+    <!-- QUICK-CAST TAB -->
+    <section id="panel-quickcast" class="tab-panel" role="tabpanel">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <h2>Quick-Cast Hotkeys</h2>
+          <span id="qc-mode-badge" class="status-pill status-schema">Using Mod Defaults</span>
+        </div>
+        <div class="toolbar-actions">
+          <button id="btn-add-qc" class="btn btn-primary">+ Add Binding</button>
+          <button id="btn-reset-qc" class="btn btn-ghost">Reset to Mod Defaults</button>
+          <button id="btn-import-qc" class="btn btn-secondary">Import JSON</button>
+          <button id="btn-export-qc" class="btn btn-secondary">Export &amp; Reveal</button>
+          <button id="btn-save-qc" class="btn btn-success">Save Quick-Cast</button>
+        </div>
+      </div>
+
+      <div id="qc-list" class="combos-list"></div>
     </section>
   </main>
 

@@ -1,12 +1,14 @@
-// Arcane Wilds - Main Web GUI Controller
+// Arcane Wilds - Main Web GUI Controller (Two-Layer: Immutable Mod Defaults + Persistent User Profile)
 
 import { CatalogStore } from "./catalog_store.js";
 import { CombosTab, cleanRuleForSave } from "./combos_tab.js";
 import { SpellsTab } from "./spells_tab.js";
+import { QuickCastTab } from "./quickcast_tab.js";
 import { ImportModal } from "./io_modal.js";
 import {
   MOD_SCHEMA_VERSION,
   CURRENT_VERSIONS,
+  FORMAT_IDS,
   parseJsonc,
   migrateDocument,
   buildExportEnvelope,
@@ -15,23 +17,44 @@ import {
 const state = {
   connected: false,
   modVersion: "1.0.0",
+  userDir: "",
   activeTab: "combos",
-  spells: {},
-  rules: [],
+  defaults: {
+    spells: {},
+    rules: [],
+    quickCast: [],
+  },
+  userSpells: {
+    disabledDefaults: [],
+    spells: {},
+  },
+  userCombos: {
+    disableAllDefaults: false,
+    disabledDefaultIds: [],
+    rules: [],
+  },
+  userQuickCast: {
+    overrideDefaults: false,
+    bindings: [],
+    defaultBindings: [],
+  },
   dirtySpells: false,
   dirtyCombos: false,
+  dirtyQuickCast: false,
 };
 
 const catalogStore = new CatalogStore();
 
-// DOM references
 const el = {
   tabBtnCombos: document.getElementById("tab-btn-combos"),
   tabBtnSpells: document.getElementById("tab-btn-spells"),
+  tabBtnQuickCast: document.getElementById("tab-btn-quickcast"),
   panelCombos: document.getElementById("panel-combos"),
   panelSpells: document.getElementById("panel-spells"),
+  panelQuickCast: document.getElementById("panel-quickcast"),
   badgeCombosCount: document.getElementById("badge-combos-count"),
   badgeSpellsCount: document.getElementById("badge-spells-count"),
+  badgeQcCount: document.getElementById("badge-qc-count"),
   statSpells: document.getElementById("stat-spells"),
   statVfx: document.getElementById("stat-vfx"),
   statSfx: document.getElementById("stat-sfx"),
@@ -40,6 +63,7 @@ const el = {
   schemaBadge: document.getElementById("schema-badge"),
   standaloneBanner: document.getElementById("standalone-banner"),
   btnRefreshCatalog: document.getElementById("btn-refresh-catalog"),
+  btnOpenUserDir: document.getElementById("btn-open-user-dir"),
   btnLoadCatalogFile: document.getElementById("btn-load-catalog-file"),
   fileInputCatalog: document.getElementById("file-input-catalog"),
   toastContainer: document.getElementById("toast-container"),
@@ -52,25 +76,48 @@ function toast(message, type = "info") {
   div.className = `toast toast-${type}`;
   div.textContent = message;
   el.toastContainer.appendChild(div);
-  setTimeout(() => div.remove(), 4200);
+  setTimeout(() => div.remove(), 4500);
 }
 
 function switchTab(tab) {
   state.activeTab = tab;
-  const isCombos = tab === "combos";
-  el.tabBtnCombos.classList.toggle("active", isCombos);
-  el.tabBtnSpells.classList.toggle("active", !isCombos);
-  el.tabBtnCombos.setAttribute("aria-selected", String(isCombos));
-  el.tabBtnSpells.setAttribute("aria-selected", String(!isCombos));
-  el.panelCombos.classList.toggle("active", isCombos);
-  el.panelSpells.classList.toggle("active", !isCombos);
+  const tabs = [
+    ["combos", el.tabBtnCombos, el.panelCombos],
+    ["spells", el.tabBtnSpells, el.panelSpells],
+    ["quickcast", el.tabBtnQuickCast, el.panelQuickCast],
+  ];
+  for (const [name, btn, panel] of tabs) {
+    const active = name === tab;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-selected", String(active));
+    panel.classList.toggle("active", active);
+  }
 }
 
 function updateCountsAndStats() {
-  catalogStore.setCustomSpells(state.spells);
+  catalogStore.setSpellLayers(
+    state.defaults.spells,
+    state.userSpells.spells,
+    state.userSpells.disabledDefaults
+  );
   const stats = catalogStore.getStats();
-  el.badgeCombosCount.textContent = String(state.rules.length);
-  el.badgeSpellsCount.textContent = String(Object.keys(state.spells).length);
+
+  const disabledComboSet = new Set((state.userCombos.disabledDefaultIds || []).map((x) => String(x).toLowerCase()));
+  const activeDefaultCombos = state.userCombos.disableAllDefaults
+    ? 0
+    : state.defaults.rules.filter((r, i) => {
+        if (r.enabled === false) return false;
+        const k = (r.id || r.name || `default_${i}`).toLowerCase();
+        return !disabledComboSet.has(k);
+      }).length;
+
+  const activeQc = state.userQuickCast.overrideDefaults
+    ? state.userQuickCast.bindings.length
+    : state.defaults.quickCast.length;
+
+  el.badgeCombosCount.textContent = String(state.userCombos.rules.length + activeDefaultCombos);
+  el.badgeSpellsCount.textContent = String(stats.customSpells);
+  el.badgeQcCount.textContent = String(activeQc);
   el.statSpells.textContent = String(stats.spells);
   el.statVfx.textContent = String(stats.vfx);
   el.statSfx.textContent = String(stats.sfx);
@@ -80,17 +127,18 @@ function updateCountsAndStats() {
 const combosTab = new CombosTab({
   containerEl: document.getElementById("combos-list"),
   searchInputEl: document.getElementById("combo-search"),
+  disableAllDefaultsEl: document.getElementById("chk-disable-all-default-combos"),
   catalogStore,
-  getRules: () => state.rules,
-  setRules: (r) => { state.rules = r; },
+  getDefaultRules: () => state.defaults.rules,
+  getUserCombosState: () => state.userCombos,
   onDirty: () => {
     state.dirtyCombos = true;
     updateCountsAndStats();
   },
   onCreateCustomSpell: (onCreatedCb) => {
-    const newId = spellsTab.createNewSpell("CustomComboSpell");
+    const newId = spellsTab.createNewSpell("MyComboSpell");
     switchTab("spells");
-    toast(`Created '${newId}' — customize it and switch back to Combos!`, "success");
+    toast(`Created '${newId}' in My Custom Spells — customize it and switch back to Combos!`, "success");
     if (typeof onCreatedCb === "function") onCreatedCb(newId);
   },
 });
@@ -100,13 +148,39 @@ const spellsTab = new SpellsTab({
   editorEl: document.getElementById("spell-editor-container"),
   searchInputEl: document.getElementById("spell-search"),
   catalogStore,
-  getSpells: () => state.spells,
-  setSpells: (s) => { state.spells = s; },
+  getDefaultSpells: () => state.defaults.spells,
+  getUserSpellsState: () => state.userSpells,
   onDirty: () => {
     state.dirtySpells = true;
     updateCountsAndStats();
   },
+  onWarn: (msg) => toast(msg, "warn"),
 });
+
+const quickCastTab = new QuickCastTab({
+  containerEl: document.getElementById("qc-list"),
+  modeBadgeEl: document.getElementById("qc-mode-badge"),
+  catalogStore,
+  getState: () => state.userQuickCast,
+  onDirty: () => {
+    state.dirtyQuickCast = true;
+    updateCountsAndStats();
+  },
+});
+
+function filterBuiltInSpellCollisions(incomingSpells) {
+  const builtInLower = new Set(Object.keys(state.defaults.spells || {}).map((k) => k.toLowerCase()));
+  const accepted = {};
+  const skipped = [];
+  for (const [id, def] of Object.entries(incomingSpells || {})) {
+    if (builtInLower.has(id.toLowerCase())) {
+      skipped.push(id);
+    } else {
+      accepted[id] = def;
+    }
+  }
+  return { accepted, skipped };
+}
 
 const importModal = new ImportModal({
   modalEl: document.getElementById("io-modal"),
@@ -115,31 +189,69 @@ const importModal = new ImportModal({
   footerEl: document.getElementById("io-modal-footer"),
   closeBtn: document.getElementById("io-modal-close"),
   onApplyImport: ({ kind, doc, notes, mode }) => {
-    if (kind === "custom_spells" || kind === "bundle") {
+    let skippedBuiltIns = [];
+
+    if (kind === "custom_spells" || kind === "user_spells" || kind === "bundle") {
+      const { accepted, skipped } = filterBuiltInSpellCollisions(doc.spells || {});
+      skippedBuiltIns = skipped;
       if (mode === "replace") {
-        state.spells = structuredClone(doc.spells || {});
+        state.userSpells.spells = structuredClone(accepted);
+        if (Array.isArray(doc.disabledDefaults)) {
+          state.userSpells.disabledDefaults = [...doc.disabledDefaults];
+        }
       } else {
-        state.spells = { ...state.spells, ...(doc.spells || {}) };
+        state.userSpells.spells = { ...state.userSpells.spells, ...accepted };
+        if (Array.isArray(doc.disabledDefaults)) {
+          state.userSpells.disabledDefaults = [
+            ...new Set([...state.userSpells.disabledDefaults, ...doc.disabledDefaults]),
+          ];
+        }
       }
       state.dirtySpells = true;
     }
-    if (kind === "combo_rules" || kind === "bundle") {
+
+    if (kind === "combo_rules" || kind === "user_combos" || kind === "bundle") {
+      const incomingRules = Array.isArray(doc.rules) ? doc.rules : [];
       if (mode === "replace") {
-        state.rules = structuredClone(doc.rules || []);
+        state.userCombos.rules = structuredClone(incomingRules);
+        if (typeof doc.disableAllDefaults === "boolean") state.userCombos.disableAllDefaults = doc.disableAllDefaults;
+        if (Array.isArray(doc.disabledDefaultIds)) state.userCombos.disabledDefaultIds = [...doc.disabledDefaultIds];
       } else {
-        state.rules = [...state.rules, ...(doc.rules || [])];
+        state.userCombos.rules = [...state.userCombos.rules, ...incomingRules];
+        if (Array.isArray(doc.disabledDefaultIds)) {
+          state.userCombos.disabledDefaultIds = [
+            ...new Set([...state.userCombos.disabledDefaultIds, ...doc.disabledDefaultIds]),
+          ];
+        }
       }
       state.dirtyCombos = true;
     }
+
+    if (kind === "user_quick_cast" || (kind === "bundle" && doc.quickCast)) {
+      const qcDoc = kind === "bundle" ? doc.quickCast : doc;
+      if (Array.isArray(qcDoc.bindings)) {
+        state.userQuickCast.overrideDefaults = qcDoc.overrideDefaults !== false;
+        state.userQuickCast.bindings =
+          mode === "replace"
+            ? structuredClone(qcDoc.bindings)
+            : [...state.userQuickCast.bindings, ...qcDoc.bindings];
+        state.dirtyQuickCast = true;
+      }
+    }
+
     updateCountsAndStats();
     combosTab.render();
     spellsTab.render();
+    quickCastTab.render();
+
     const migSuffix = notes.length ? ` (${notes.length} migration step(s) applied)` : "";
-    toast(`Imported ${kind} (${mode})${migSuffix}. Click Save to apply in-game.`, "success");
+    toast(`Imported ${kind} (${mode})${migSuffix}. Click Save to persist to your user profile.`, "success");
+    if (skippedBuiltIns.length) {
+      toast(`Skipped built-in spell IDs (${skippedBuiltIns.join(", ")}) to protect mod defaults.`, "warn");
+    }
   },
 });
 
-// API Helpers
 async function fetchJsonText(url) {
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -149,8 +261,7 @@ async function fetchJsonText(url) {
 async function loadCatalogFromServer() {
   try {
     const raw = await fetchJsonText("/api/catalog");
-    const parsed = parseJsonc(raw);
-    const mig = migrateDocument("detected_catalog", parsed);
+    const mig = migrateDocument("detected_catalog", parseJsonc(raw));
     if (!mig.error && mig.doc) {
       catalogStore.setCatalog(mig.doc);
       if (mig.doc.modVersion) state.modVersion = mig.doc.modVersion;
@@ -163,36 +274,55 @@ async function loadCatalogFromServer() {
 
 async function bootstrap() {
   try {
-    const statusRaw = await fetchJsonText("/api/status");
-    const status = JSON.parse(statusRaw);
+    const status = JSON.parse(await fetchJsonText("/api/status"));
     if (status?.ok) {
       state.connected = true;
-      el.connectionBadge.textContent = "Connected to Mod Folder";
+      state.userDir = status.userDir || "";
+      el.connectionBadge.textContent = "Connected (User Profile)";
+      el.connectionBadge.title = `User Profile: ${state.userDir}\nMod Dir: ${status.modDir || ""}`;
       el.connectionBadge.className = "status-pill status-connected";
       el.standaloneBanner.classList.add("hidden");
 
       await loadCatalogFromServer();
 
-      const [spellsRaw, combosRaw] = await Promise.all([
-        fetchJsonText("/api/spells"),
-        fetchJsonText("/api/combos"),
+      const [defaultsRaw, userSpellsRaw, userCombosRaw, userQcRaw] = await Promise.all([
+        fetchJsonText("/api/defaults"),
+        fetchJsonText("/api/user/spells"),
+        fetchJsonText("/api/user/combos"),
+        fetchJsonText("/api/user/quickcast"),
       ]);
 
-      const spMig = migrateDocument("custom_spells", parseJsonc(spellsRaw));
-      if (!spMig.error && spMig.doc) {
-        state.spells = spMig.doc.spells || {};
-        if (spMig.notes.length) toast(spMig.notes.join("; "), "info");
+      const defs = JSON.parse(defaultsRaw);
+      const defSpMig = migrateDocument("custom_spells", parseJsonc(defs.spellsRaw || "{}"));
+      if (!defSpMig.error && defSpMig.doc) state.defaults.spells = defSpMig.doc.spells || {};
+      const defCbMig = migrateDocument("combo_rules", parseJsonc(defs.combosRaw || "{}"));
+      if (!defCbMig.error && defCbMig.doc) state.defaults.rules = defCbMig.doc.rules || [];
+      state.defaults.quickCast = Array.isArray(defs.quickCast) ? defs.quickCast : [];
+      state.userQuickCast.defaultBindings = structuredClone(state.defaults.quickCast);
+
+      const uSpMig = migrateDocument("user_spells", parseJsonc(userSpellsRaw));
+      if (!uSpMig.error && uSpMig.doc) {
+        state.userSpells.disabledDefaults = Array.isArray(uSpMig.doc.disabledDefaults) ? uSpMig.doc.disabledDefaults : [];
+        state.userSpells.spells = uSpMig.doc.spells || {};
       }
 
-      const cbMig = migrateDocument("combo_rules", parseJsonc(combosRaw));
-      if (!cbMig.error && cbMig.doc) {
-        state.rules = cbMig.doc.rules || [];
-        if (cbMig.notes.length) toast(cbMig.notes.join("; "), "info");
+      const uCbMig = migrateDocument("user_combos", parseJsonc(userCombosRaw));
+      if (!uCbMig.error && uCbMig.doc) {
+        state.userCombos.disableAllDefaults = uCbMig.doc.disableAllDefaults === true;
+        state.userCombos.disabledDefaultIds = Array.isArray(uCbMig.doc.disabledDefaultIds) ? uCbMig.doc.disabledDefaultIds : [];
+        state.userCombos.rules = Array.isArray(uCbMig.doc.rules) ? uCbMig.doc.rules : [];
+      }
+
+      const uQcMig = migrateDocument("user_quick_cast", parseJsonc(userQcRaw));
+      if (!uQcMig.error && uQcMig.doc) {
+        state.userQuickCast.overrideDefaults = uQcMig.doc.overrideDefaults === true;
+        state.userQuickCast.bindings = Array.isArray(uQcMig.doc.bindings) ? uQcMig.doc.bindings : [];
       }
 
       updateCountsAndStats();
       combosTab.render();
       spellsTab.render();
+      quickCastTab.render();
       return;
     }
   } catch {
@@ -206,19 +336,21 @@ async function bootstrap() {
   updateCountsAndStats();
   combosTab.render();
   spellsTab.render();
+  quickCastTab.render();
 }
 
-async function saveSpells() {
+async function saveUserSpells() {
   const payload = {
-    $schema: "./schemas/custom_spells.schema.json",
-    schemaVersion: CURRENT_VERSIONS.custom_spells,
-    spells: state.spells,
+    schemaVersion: CURRENT_VERSIONS.user_spells,
+    format: FORMAT_IDS.user_spells,
+    disabledDefaults: state.userSpells.disabledDefaults,
+    spells: state.userSpells.spells,
   };
   const jsonText = JSON.stringify(payload, null, 2);
 
   if (state.connected) {
     try {
-      const res = await fetch("/api/spells", {
+      const res = await fetch("/api/user/spells", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: jsonText,
@@ -226,27 +358,29 @@ async function saveSpells() {
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
       state.dirtySpells = false;
-      toast("Saved custom_spells.json — game will hot-reload automatically!", "success");
+      toast("Saved user_spells.json to %LOCALAPPDATA%\\ArcaneWilds — persists across mod updates!", "success");
     } catch (err) {
-      toast(`Failed to save custom_spells.json: ${err.message}`, "error");
+      toast(`Failed to save user_spells.json: ${err.message}`, "error");
     }
   } else {
-    downloadJsonFile("custom_spells.json", jsonText);
-    toast("Downloaded custom_spells.json (replace file in ArcaneWilds folder).", "warn");
+    downloadJsonFile("user_spells.json", jsonText);
+    toast("Downloaded user_spells.json (place in %LOCALAPPDATA%\\ArcaneWilds\\).", "warn");
   }
 }
 
-async function saveCombos() {
+async function saveUserCombos() {
   const payload = {
-    $schema: "./schemas/combo_rules.schema.json",
-    schemaVersion: CURRENT_VERSIONS.combo_rules,
-    rules: state.rules.map(cleanRuleForSave),
+    schemaVersion: CURRENT_VERSIONS.user_combos,
+    format: FORMAT_IDS.user_combos,
+    disableAllDefaults: state.userCombos.disableAllDefaults === true,
+    disabledDefaultIds: state.userCombos.disabledDefaultIds,
+    rules: state.userCombos.rules.map(cleanRuleForSave),
   };
   const jsonText = JSON.stringify(payload, null, 2);
 
   if (state.connected) {
     try {
-      const res = await fetch("/api/combos", {
+      const res = await fetch("/api/user/combos", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: jsonText,
@@ -254,14 +388,58 @@ async function saveCombos() {
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
       state.dirtyCombos = false;
-      toast("Saved combo_rules.json — game will hot-reload automatically!", "success");
+      toast("Saved user_combos.json to %LOCALAPPDATA%\\ArcaneWilds — persists across mod updates!", "success");
     } catch (err) {
-      toast(`Failed to save combo_rules.json: ${err.message}`, "error");
+      toast(`Failed to save user_combos.json: ${err.message}`, "error");
     }
   } else {
-    downloadJsonFile("combo_rules.json", jsonText);
-    toast("Downloaded combo_rules.json (replace file in ArcaneWilds folder).", "warn");
+    downloadJsonFile("user_combos.json", jsonText);
+    toast("Downloaded user_combos.json (place in %LOCALAPPDATA%\\ArcaneWilds\\).", "warn");
   }
+}
+
+async function saveUserQuickCast() {
+  const payload = {
+    schemaVersion: CURRENT_VERSIONS.user_quick_cast,
+    format: FORMAT_IDS.user_quick_cast,
+    overrideDefaults: state.userQuickCast.overrideDefaults === true,
+    bindings: state.userQuickCast.bindings,
+  };
+  const jsonText = JSON.stringify(payload, null, 2);
+
+  if (state.connected) {
+    try {
+      const res = await fetch("/api/user/quickcast", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: jsonText,
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      state.dirtyQuickCast = false;
+      toast("Saved user_quick_cast.json to %LOCALAPPDATA%\\ArcaneWilds!", "success");
+    } catch (err) {
+      toast(`Failed to save user_quick_cast.json: ${err.message}`, "error");
+    }
+  } else {
+    downloadJsonFile("user_quick_cast.json", jsonText);
+    toast("Downloaded user_quick_cast.json (place in %LOCALAPPDATA%\\ArcaneWilds\\).", "warn");
+  }
+}
+
+async function resetUserQuickCast() {
+  state.userQuickCast.overrideDefaults = false;
+  state.userQuickCast.bindings = [];
+  if (state.connected) {
+    try {
+      await fetch("/api/user/quickcast", { method: "DELETE" });
+    } catch {
+      // Ignore
+    }
+  }
+  updateCountsAndStats();
+  quickCastTab.render();
+  toast("Reset Quick-Cast to mod defaults.", "info");
 }
 
 async function exportAndReveal(kind) {
@@ -269,18 +447,42 @@ async function exportAndReveal(kind) {
   let envelope;
   let filename;
 
-  if (kind === "custom_spells") {
-    envelope = buildExportEnvelope("custom_spells", state.spells, state.modVersion);
-    filename = `custom_spells-${stamp}.json`;
-  } else if (kind === "combo_rules") {
-    envelope = buildExportEnvelope("combo_rules", state.rules.map(cleanRuleForSave), state.modVersion);
-    filename = `combo_rules-${stamp}.json`;
+  if (kind === "user_spells") {
+    envelope = buildExportEnvelope("user_spells", {
+      disabledDefaults: state.userSpells.disabledDefaults,
+      spells: state.userSpells.spells,
+    }, state.modVersion);
+    filename = `user_spells-${stamp}.json`;
+  } else if (kind === "user_combos") {
+    envelope = buildExportEnvelope("user_combos", {
+      disableAllDefaults: state.userCombos.disableAllDefaults,
+      disabledDefaultIds: state.userCombos.disabledDefaultIds,
+      rules: state.userCombos.rules.map(cleanRuleForSave),
+    }, state.modVersion);
+    filename = `user_combos-${stamp}.json`;
+  } else if (kind === "user_quick_cast") {
+    envelope = buildExportEnvelope("user_quick_cast", {
+      overrideDefaults: state.userQuickCast.overrideDefaults,
+      bindings: state.userQuickCast.bindings,
+    }, state.modVersion);
+    filename = `user_quick_cast-${stamp}.json`;
   } else {
     envelope = buildExportEnvelope("bundle", {
-      spells: state.spells,
-      rules: state.rules.map(cleanRuleForSave),
+      disabledDefaults: state.userSpells.disabledDefaults,
+      spells: state.userSpells.spells,
+      disableAllDefaults: state.userCombos.disableAllDefaults,
+      disabledDefaultIds: state.userCombos.disabledDefaultIds,
+      rules: state.userCombos.rules.map(cleanRuleForSave),
+      quickCast: state.userQuickCast.overrideDefaults
+        ? {
+            schemaVersion: CURRENT_VERSIONS.user_quick_cast,
+            format: FORMAT_IDS.user_quick_cast,
+            overrideDefaults: true,
+            bindings: state.userQuickCast.bindings,
+          }
+        : undefined,
     }, state.modVersion);
-    filename = `arcane-wilds-bundle-${stamp}.json`;
+    filename = `arcane-wilds-user-bundle-${stamp}.json`;
   }
 
   const content = JSON.stringify(envelope, null, 2);
@@ -317,24 +519,39 @@ function downloadJsonFile(filename, text) {
 // Event bindings
 el.tabBtnCombos.addEventListener("click", () => switchTab("combos"));
 el.tabBtnSpells.addEventListener("click", () => switchTab("spells"));
+el.tabBtnQuickCast.addEventListener("click", () => switchTab("quickcast"));
 
 document.getElementById("btn-add-combo").addEventListener("click", () => combosTab.addNewCombo());
 document.getElementById("btn-combo-new-spell").addEventListener("click", () => {
-  const newId = spellsTab.createNewSpell("NewCustomSpell");
+  const newId = spellsTab.createNewSpell("MyCustomSpell");
   switchTab("spells");
   toast(`Created '${newId}' — edit it here, then pick it in any Combo dropdown!`, "success");
 });
-document.getElementById("btn-import-combos").addEventListener("click", () => importModal.open("combo_rules"));
-document.getElementById("btn-export-combos").addEventListener("click", () => exportAndReveal("combo_rules"));
-document.getElementById("btn-save-combos").addEventListener("click", () => saveCombos());
+document.getElementById("btn-import-combos").addEventListener("click", () => importModal.open("user_combos"));
+document.getElementById("btn-export-combos").addEventListener("click", () => exportAndReveal("user_combos"));
+document.getElementById("btn-save-combos").addEventListener("click", () => saveUserCombos());
 
-document.getElementById("btn-add-spell").addEventListener("click", () => spellsTab.createNewSpell("NewCustomSpell"));
-document.getElementById("btn-import-spells").addEventListener("click", () => importModal.open("custom_spells"));
-document.getElementById("btn-export-spells").addEventListener("click", () => exportAndReveal("custom_spells"));
-document.getElementById("btn-save-spells").addEventListener("click", () => saveSpells());
+document.getElementById("btn-add-spell").addEventListener("click", () => spellsTab.createNewSpell("MyCustomSpell"));
+document.getElementById("btn-import-spells").addEventListener("click", () => importModal.open("user_spells"));
+document.getElementById("btn-export-spells").addEventListener("click", () => exportAndReveal("user_spells"));
+document.getElementById("btn-save-spells").addEventListener("click", () => saveUserSpells());
+
+document.getElementById("btn-add-qc").addEventListener("click", () => quickCastTab.addBinding());
+document.getElementById("btn-reset-qc").addEventListener("click", () => resetUserQuickCast());
+document.getElementById("btn-import-qc").addEventListener("click", () => importModal.open("user_quick_cast"));
+document.getElementById("btn-export-qc").addEventListener("click", () => exportAndReveal("user_quick_cast"));
+document.getElementById("btn-save-qc").addEventListener("click", () => saveUserQuickCast());
 
 document.getElementById("btn-export-bundle-1").addEventListener("click", () => exportAndReveal("bundle"));
 document.getElementById("btn-export-bundle-2").addEventListener("click", () => exportAndReveal("bundle"));
+
+el.btnOpenUserDir.addEventListener("click", async () => {
+  if (!state.connected) {
+    toast("Run Launch-ArcaneWilds-Editor.bat to open the persistent user folder directly.", "warn");
+    return;
+  }
+  await fetch("/api/open-user-dir", { method: "POST" });
+});
 
 el.btnRefreshCatalog.addEventListener("click", async () => {
   if (!state.connected) {
@@ -344,6 +561,7 @@ el.btnRefreshCatalog.addEventListener("click", async () => {
   await loadCatalogFromServer();
   combosTab.render();
   spellsTab.render();
+  quickCastTab.render();
   toast("Refreshed detected asset catalog from mod folder.", "info");
 });
 
@@ -360,6 +578,7 @@ el.fileInputCatalog.addEventListener("change", () => {
       updateCountsAndStats();
       combosTab.render();
       spellsTab.render();
+      quickCastTab.render();
       toast(`Loaded ${file.name} (${catalogStore.getStats().detectedSpells} spells, ${catalogStore.getStats().vfx} VFX, ${catalogStore.getStats().sfx} SFX).`, "success");
     } catch (err) {
       toast(`Failed to load catalog: ${err.message}`, "error");

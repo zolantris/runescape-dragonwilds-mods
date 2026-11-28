@@ -74,6 +74,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional stable identifier (used on mod default rules so players can disable them individually across updates)."
+        },
         "name": {
           "type": "string",
           "description": "Optional friendly label shown in debug logs."

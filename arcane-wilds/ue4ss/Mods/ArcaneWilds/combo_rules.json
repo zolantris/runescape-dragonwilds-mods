@@ -3,6 +3,7 @@
   "schemaVersion": 1,
   "rules": [
     {
+      "id": "default.air_full_chain",
       "name": "Air Full Chain",
       "enabled": false,
       "weight": 5,
@@ -20,6 +21,7 @@
       ]
     },
     {
+      "id": "default.water_full_chain",
       "name": "Water Full Chain",
       "enabled": false,
       "weight": 5,
@@ -37,6 +39,7 @@
       ]
     },
     {
+      "id": "default.fire_to_air",
       "name": "Fire Opener -> Air Finisher",
       "enabled": true,
       "weight": 5,
@@ -60,6 +63,7 @@
       ]
     },
     {
+      "id": "default.earth_to_flames",
       "name": "Earth Opener -> Flames of Zamorak",
       "enabled": false,
       "weight": 5,
@@ -80,6 +84,7 @@
       ],
     },
     {
+      "id": "default.storm_of_armadyl",
       "name": "StormOfArmadyl",
       "enabled": false,
       "weight": 5,

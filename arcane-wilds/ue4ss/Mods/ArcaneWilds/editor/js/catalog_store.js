@@ -11,7 +11,9 @@ export class CatalogStore {
       sfx: [],
       montages: [],
     };
-    this.customSpells = {};
+    this.defaultSpells = {};
+    this.userSpells = {};
+    this.disabledDefaults = new Set();
   }
 
   setCatalog(rawCatalog) {
@@ -27,15 +29,33 @@ export class CatalogStore {
     };
   }
 
-  setCustomSpells(spellsMap) {
-    this.customSpells = spellsMap && typeof spellsMap === "object" ? spellsMap : {};
+  setSpellLayers(defaultSpells, userSpells, disabledDefaults = []) {
+    this.defaultSpells = defaultSpells && typeof defaultSpells === "object" ? defaultSpells : {};
+    this.userSpells = userSpells && typeof userSpells === "object" ? userSpells : {};
+    this.disabledDefaults = new Set((disabledDefaults || []).map((s) => String(s).toLowerCase()));
+  }
+
+  getActiveCustomSpellsMap() {
+    const merged = {};
+    for (const [id, def] of Object.entries(this.defaultSpells)) {
+      if (!this.disabledDefaults.has(id.toLowerCase()) && def?.enabled !== false) {
+        merged[id] = { ...def, _layer: "Built-in" };
+      }
+    }
+    for (const [id, def] of Object.entries(this.userSpells)) {
+      if (!this.defaultSpells[id] && def?.enabled !== false) {
+        merged[id] = { ...def, _layer: "My Spell" };
+      }
+    }
+    return merged;
   }
 
   getStats() {
+    const activeCustom = Object.keys(this.getActiveCustomSpellsMap()).length;
     return {
-      spells: this.catalog.spells.length + Object.keys(this.customSpells).length,
+      spells: this.catalog.spells.length + activeCustom,
       detectedSpells: this.catalog.spells.length,
-      customSpells: Object.keys(this.customSpells).length,
+      customSpells: activeCustom,
       vfx: this.catalog.vfx.length,
       sfx: this.catalog.sfx.length,
       montages: this.catalog.montages.length,
@@ -47,7 +67,7 @@ export class CatalogStore {
     for (const c of this.catalog.categories) {
       if (c) set.add(c);
     }
-    for (const sp of Object.values(this.customSpells)) {
+    for (const sp of Object.values(this.getActiveCustomSpellsMap())) {
       if (sp?.category) set.add(sp.category);
     }
     return [...set].sort((a, b) => a.localeCompare(b)).map((c) => ({
@@ -60,7 +80,7 @@ export class CatalogStore {
 
   /**
    * Options for combo stage spell dropdowns (optionally prioritized by category).
-   * Includes friendly aliases, detected DA_Spell_* assets, and all custom spells.
+   * Includes friendly aliases, detected DA_Spell_* assets, active built-in spells, and user spells.
    */
   getComboSpellOptions(category = "") {
     const catLower = (category || "").trim().toLowerCase();
@@ -74,14 +94,14 @@ export class CatalogStore {
       options.push(opt);
     };
 
-    // 1. Custom spells (always available in any combo stage)
-    for (const [id, def] of Object.entries(this.customSpells)) {
+    // 1. Active Built-in & User custom spells
+    for (const [id, def] of Object.entries(this.getActiveCustomSpellsMap())) {
       push({
         value: id,
         label: def?.displayName ? `${id} (${def.displayName})` : id,
-        badge: "Custom",
+        badge: def._layer || "Custom",
         sub: def?.category ? `Category: ${def.category}` : "Custom Spell",
-        priority: 1,
+        priority: def._layer === "My Spell" ? 0.8 : 1,
       });
     }
 

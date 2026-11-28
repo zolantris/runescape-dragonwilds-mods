@@ -51,12 +51,22 @@ export function cleanRuleForSave(rule) {
 }
 
 export class CombosTab {
-  constructor({ containerEl, searchInputEl, catalogStore, getRules, setRules, onDirty, onCreateCustomSpell }) {
+  constructor({
+    containerEl,
+    searchInputEl,
+    disableAllDefaultsEl,
+    catalogStore,
+    getDefaultRules,
+    getUserCombosState,
+    onDirty,
+    onCreateCustomSpell,
+  }) {
     this.containerEl = containerEl;
     this.searchInputEl = searchInputEl;
+    this.disableAllDefaultsEl = disableAllDefaultsEl;
     this.catalogStore = catalogStore;
-    this.getRules = getRules;
-    this.setRules = setRules;
+    this.getDefaultRules = getDefaultRules;
+    this.getUserCombosState = getUserCombosState;
     this.onDirty = onDirty;
     this.onCreateCustomSpell = onCreateCustomSpell;
     this.expandedIndex = null;
@@ -66,34 +76,69 @@ export class CombosTab {
       this.filterText = this.searchInputEl.value.trim().toLowerCase();
       this.render();
     });
+
+    if (this.disableAllDefaultsEl) {
+      this.disableAllDefaultsEl.addEventListener("change", () => {
+        const uState = this.getUserCombosState();
+        uState.disableAllDefaults = this.disableAllDefaultsEl.checked;
+        this.onDirty();
+        this.render();
+      });
+    }
   }
 
   addNewCombo() {
-    const rules = this.getRules();
+    const uState = this.getUserCombosState();
     const newRule = {
-      name: `New Combo ${rules.length + 1}`,
+      name: `My Combo ${uState.rules.length + 1}`,
       enabled: true,
       weight: 5,
       stages: [
         { category: "Air", spells: ["bolt", "gust"], speed: 2.0 },
       ],
     };
-    rules.push(newRule);
-    this.expandedIndex = rules.length - 1;
+    uState.rules.push(newRule);
+    this.expandedIndex = uState.rules.length - 1;
+    this.onDirty();
+    this.render();
+  }
+
+  cloneDefaultToUser(defRule) {
+    const uState = this.getUserCombosState();
+    const copy = structuredClone(defRule);
+    delete copy.id;
+    copy.name = `${copy.name || "Combo"} (Custom)`;
+    copy.enabled = true;
+    uState.rules.push(copy);
+    this.expandedIndex = uState.rules.length - 1;
     this.onDirty();
     this.render();
   }
 
   render() {
-    const rules = this.getRules();
+    const uState = this.getUserCombosState();
+    const rules = uState.rules;
+    const defaultRules = this.getDefaultRules() || [];
+    const disabledSet = new Set((uState.disabledDefaultIds || []).map((x) => String(x).toLowerCase()));
+
+    if (this.disableAllDefaultsEl) {
+      this.disableAllDefaultsEl.checked = uState.disableAllDefaults === true;
+    }
+
     this.containerEl.innerHTML = "";
+
+    // Section 1: Player's Persistent Custom Combos
+    const userTitle = document.createElement("div");
+    userTitle.className = "layer-section-title";
+    userTitle.innerHTML = `<span>My Custom Combos (${rules.length})</span><span class="badge-user">Persists Across Updates</span>`;
+    this.containerEl.appendChild(userTitle);
 
     if (!rules.length) {
       const empty = document.createElement("div");
       empty.className = "empty-state";
-      empty.innerHTML = `<p>No combo rules yet. Click <strong>+ Add Combo</strong> to build your first spell chain.</p>`;
+      empty.style.padding = "20px";
+      empty.innerHTML = `<p>No custom combos yet. Click <strong>+ Add Combo</strong> or clone a Mod Default below.</p>`;
       this.containerEl.appendChild(empty);
-      return;
     }
 
     rules.forEach((rule, idx) => {
@@ -204,6 +249,91 @@ export class CombosTab {
 
       this.containerEl.appendChild(row);
     });
+
+    // Section 2: Read-Only Mod Default Combos (Toggleable + Cloneable)
+    if (defaultRules.length > 0) {
+      const defTitle = document.createElement("div");
+      defTitle.className = "layer-section-title";
+      defTitle.style.marginTop = "20px";
+      defTitle.innerHTML = `<span>Mod Default Combos (${defaultRules.length})</span><span class="badge-builtin">Built-in · Read-Only</span>`;
+      this.containerEl.appendChild(defTitle);
+
+      defaultRules.forEach((defRule, dIdx) => {
+        if (this.filterText) {
+          const hay = JSON.stringify(defRule).toLowerCase();
+          if (!hay.includes(this.filterText)) return;
+        }
+        const keyId = defRule.id || defRule.name || `default_${dIdx}`;
+        const keyLower = keyId.toLowerCase();
+        const isDisabledByUser = uState.disableAllDefaults || disabledSet.has(keyLower);
+        const isEffectivelyOn = defRule.enabled !== false && !isDisabledByUser;
+
+        const row = document.createElement("div");
+        row.className = `combo-row${!isEffectivelyOn ? " disabled" : ""}`;
+
+        const header = document.createElement("div");
+        header.className = "combo-row-header";
+
+        const toggle = document.createElement("input");
+        toggle.type = "checkbox";
+        toggle.checked = !isDisabledByUser && defRule.enabled !== false;
+        toggle.disabled = uState.disableAllDefaults === true || defRule.enabled === false;
+        toggle.title = defRule.enabled === false
+          ? "Disabled by default in mod config (Clone to My Combos to enable your own copy)"
+          : "Enable / Disable this built-in combo";
+        toggle.addEventListener("change", () => {
+          const arr = new Set((uState.disabledDefaultIds || []).map((x) => String(x)));
+          if (toggle.checked) {
+            for (const x of [...arr]) {
+              if (x.toLowerCase() === keyLower) arr.delete(x);
+            }
+          } else {
+            arr.add(keyId);
+          }
+          uState.disabledDefaultIds = [...arr];
+          this.onDirty();
+          this.render();
+        });
+
+        const titleCol = document.createElement("div");
+        const titleEl = document.createElement("div");
+        titleEl.className = "combo-row-title";
+        titleEl.innerHTML = `${escapeHtml(defRule.name || keyId)} <span class="badge-builtin">Built-in</span>`;
+        const metaEl = document.createElement("div");
+        metaEl.className = "combo-row-meta";
+        metaEl.textContent = `Weight: ${defRule.weight ?? 1}${defRule.enabled === false ? " · Shipped disabled" : ""}`;
+        titleCol.append(titleEl, metaEl);
+
+        const flowCol = document.createElement("div");
+        flowCol.className = "combo-flow-preview";
+        if (Array.isArray(defRule.stages)) {
+          defRule.stages.forEach((st, sIdx) => {
+            if (sIdx > 0) {
+              const arr = document.createElement("span");
+              arr.className = "stage-arrow";
+              arr.textContent = "→";
+              flowCol.appendChild(arr);
+            }
+            const pill = document.createElement("span");
+            pill.className = "stage-pill";
+            const spList = Array.isArray(st.spells) ? st.spells : st.spell ? [st.spell] : [];
+            const catHtml = st.category ? `<span class="stage-pill-cat">${escapeHtml(st.category)}</span>` : "";
+            pill.innerHTML = `${catHtml}<span>${escapeHtml(spList.join(", "))}</span><span class="stage-pill-spd">${Number(st.speed || 1).toFixed(1)}x</span>`;
+            flowCol.appendChild(pill);
+          });
+        }
+
+        const actionsCol = document.createElement("div");
+        actionsCol.className = "combo-row-actions";
+        actionsCol.appendChild(makeBtn("Clone to My Combos", "btn-secondary btn-sm", () => {
+          this.cloneDefaultToUser(defRule);
+        }));
+
+        header.append(toggle, titleCol, flowCol, actionsCol);
+        row.appendChild(header);
+        this.containerEl.appendChild(row);
+      });
+    }
   }
 
   renderRowEditor(rule) {

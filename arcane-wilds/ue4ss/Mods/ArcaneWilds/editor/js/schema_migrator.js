@@ -8,6 +8,9 @@ export const CURRENT_VERSIONS = {
   combo_rules: 1,
   detected_catalog: 1,
   bundle: 1,
+  user_spells: 1,
+  user_combos: 1,
+  user_quick_cast: 1,
 };
 
 export const FORMAT_IDS = {
@@ -15,6 +18,9 @@ export const FORMAT_IDS = {
   combo_rules: "arcane-wilds.combo_rules",
   detected_catalog: "arcane-wilds.detected_catalog",
   bundle: "arcane-wilds.bundle",
+  user_spells: "arcane-wilds.user_spells",
+  user_combos: "arcane-wilds.user_combos",
+  user_quick_cast: "arcane-wilds.user_quick_cast",
 };
 
 /**
@@ -114,8 +120,17 @@ export function detectKind(doc) {
   if (doc.spells && typeof doc.spells === "object" && Array.isArray(doc.rules)) {
     return "bundle";
   }
+  if (Array.isArray(doc.bindings)) {
+    return "user_quick_cast";
+  }
   if (Array.isArray(doc.vfx) || Array.isArray(doc.sfx) || Array.isArray(doc.categories)) {
     return "detected_catalog";
+  }
+  if (Array.isArray(doc.disabledDefaults) && doc.spells && typeof doc.spells === "object") {
+    return "user_spells";
+  }
+  if ((Array.isArray(doc.disabledDefaultIds) || typeof doc.disableAllDefaults === "boolean") && Array.isArray(doc.rules)) {
+    return "user_combos";
   }
   if (doc.spells && typeof doc.spells === "object") {
     return "custom_spells";
@@ -181,6 +196,46 @@ const MIGRATIONS = {
       note: "Upgraded export bundle (v0 -> v1): added schemaVersion=1",
     }),
   },
+  user_spells: {
+    0: (doc) => ({
+      doc: {
+        $schema: doc.$schema || "./schemas/user_spells.schema.json",
+        ...doc,
+        schemaVersion: 1,
+        format: doc.format || FORMAT_IDS.user_spells,
+        disabledDefaults: Array.isArray(doc.disabledDefaults) ? doc.disabledDefaults : [],
+        spells: doc.spells && typeof doc.spells === "object" ? doc.spells : {},
+      },
+      note: "Upgraded user_spells (v0 -> v1): added schemaVersion=1",
+    }),
+  },
+  user_combos: {
+    0: (doc) => ({
+      doc: {
+        $schema: doc.$schema || "./schemas/user_combos.schema.json",
+        ...doc,
+        schemaVersion: 1,
+        format: doc.format || FORMAT_IDS.user_combos,
+        disableAllDefaults: Boolean(doc.disableAllDefaults),
+        disabledDefaultIds: Array.isArray(doc.disabledDefaultIds) ? doc.disabledDefaultIds : [],
+        rules: Array.isArray(doc.rules) ? doc.rules : [],
+      },
+      note: "Upgraded user_combos (v0 -> v1): added schemaVersion=1",
+    }),
+  },
+  user_quick_cast: {
+    0: (doc) => ({
+      doc: {
+        $schema: doc.$schema || "./schemas/user_quick_cast.schema.json",
+        ...doc,
+        schemaVersion: 1,
+        format: doc.format || FORMAT_IDS.user_quick_cast,
+        overrideDefaults: doc.overrideDefaults !== false,
+        bindings: Array.isArray(doc.bindings) ? doc.bindings : [],
+      },
+      note: "Upgraded user_quick_cast (v0 -> v1): added schemaVersion=1",
+    }),
+  },
 };
 
 export function migrateDocument(kind, doc) {
@@ -243,6 +298,13 @@ export function buildExportEnvelope(kind, payload, modVersion = "1.0.0") {
       spells: payload,
     };
   }
+  if (kind === "user_spells") {
+    return {
+      ...base,
+      disabledDefaults: payload.disabledDefaults || [],
+      spells: payload.spells || {},
+    };
+  }
   if (kind === "combo_rules") {
     return {
       $schema: "./schemas/combo_rules.schema.json",
@@ -250,12 +312,31 @@ export function buildExportEnvelope(kind, payload, modVersion = "1.0.0") {
       rules: payload,
     };
   }
+  if (kind === "user_combos") {
+    return {
+      ...base,
+      disableAllDefaults: Boolean(payload.disableAllDefaults),
+      disabledDefaultIds: payload.disabledDefaultIds || [],
+      rules: payload.rules || [],
+    };
+  }
+  if (kind === "user_quick_cast") {
+    return {
+      ...base,
+      overrideDefaults: payload.overrideDefaults !== false,
+      bindings: payload.bindings || [],
+    };
+  }
   if (kind === "bundle") {
     return {
       $schema: "./schemas/export_bundle.schema.json",
       ...base,
+      disabledDefaults: payload.disabledDefaults || [],
       spells: payload.spells || {},
+      disableAllDefaults: Boolean(payload.disableAllDefaults),
+      disabledDefaultIds: payload.disabledDefaultIds || [],
       rules: payload.rules || [],
+      quickCast: payload.quickCast || undefined,
     };
   }
   throw new Error(`Unsupported export kind: ${kind}`);

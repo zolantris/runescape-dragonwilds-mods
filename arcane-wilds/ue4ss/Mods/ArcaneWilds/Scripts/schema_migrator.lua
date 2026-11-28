@@ -11,6 +11,9 @@ SchemaMigrator.CURRENT_VERSIONS = {
     combo_rules      = 1,
     detected_catalog = 1,
     bundle           = 1,
+    user_spells      = 1,
+    user_combos      = 1,
+    user_quick_cast  = 1,
 }
 
 SchemaMigrator.FORMAT_IDS = {
@@ -18,6 +21,9 @@ SchemaMigrator.FORMAT_IDS = {
     combo_rules      = "arcane-wilds.combo_rules",
     detected_catalog = "arcane-wilds.detected_catalog",
     bundle           = "arcane-wilds.bundle",
+    user_spells      = "arcane-wilds.user_spells",
+    user_combos      = "arcane-wilds.user_combos",
+    user_quick_cast  = "arcane-wilds.user_quick_cast",
 }
 
 local function ShallowCopy(tbl)
@@ -76,6 +82,37 @@ local Migrations = {
             return out, "Upgraded export bundle (v0 -> v1): added schemaVersion=1"
         end,
     },
+    user_spells = {
+        [0] = function(doc)
+            local out = ShallowCopy(doc)
+            out.schemaVersion = 1
+            out.format = out.format or SchemaMigrator.FORMAT_IDS.user_spells
+            out.disabledDefaults = type(out.disabledDefaults) == "table" and out.disabledDefaults or {}
+            out.spells = type(out.spells) == "table" and out.spells or {}
+            return out, "Upgraded user_spells (v0 -> v1): added schemaVersion=1"
+        end,
+    },
+    user_combos = {
+        [0] = function(doc)
+            local out = ShallowCopy(doc)
+            out.schemaVersion = 1
+            out.format = out.format or SchemaMigrator.FORMAT_IDS.user_combos
+            out.disableAllDefaults = (out.disableAllDefaults == true)
+            out.disabledDefaultIds = type(out.disabledDefaultIds) == "table" and out.disabledDefaultIds or {}
+            out.rules = type(out.rules) == "table" and out.rules or {}
+            return out, "Upgraded user_combos (v0 -> v1): added schemaVersion=1"
+        end,
+    },
+    user_quick_cast = {
+        [0] = function(doc)
+            local out = ShallowCopy(doc)
+            out.schemaVersion = 1
+            out.format = out.format or SchemaMigrator.FORMAT_IDS.user_quick_cast
+            if out.overrideDefaults == nil then out.overrideDefaults = true end
+            out.bindings = type(out.bindings) == "table" and out.bindings or {}
+            return out, "Upgraded user_quick_cast (v0 -> v1): added schemaVersion=1"
+        end,
+    },
 }
 
 function SchemaMigrator.GetCurrentVersion(kind)
@@ -116,8 +153,17 @@ function SchemaMigrator.DetectKind(doc)
     if type(doc.spells) == "table" and type(doc.rules) == "table" then
         return "bundle"
     end
+    if type(doc.bindings) == "table" then
+        return "user_quick_cast"
+    end
     if type(doc.vfx) == "table" or type(doc.sfx) == "table" or type(doc.categories) == "table" then
         return "detected_catalog"
+    end
+    if type(doc.disabledDefaults) == "table" and type(doc.spells) == "table" then
+        return "user_spells"
+    end
+    if (type(doc.disabledDefaultIds) == "table" or doc.disableAllDefaults ~= nil) and type(doc.rules) == "table" then
+        return "user_combos"
     end
     if type(doc.spells) == "table" then
         return "custom_spells"

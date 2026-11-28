@@ -1,5 +1,6 @@
 param(
     [string]$ModDir = "",
+    [string]$UserDir = "",
     [int]$Port = 47821,
     [switch]$NoBrowser
 )
@@ -11,6 +12,20 @@ if ([string]::IsNullOrWhiteSpace($ModDir)) {
     $ModDir = Split-Path -Parent $scriptDir
 }
 $ModDir = (Resolve-Path -LiteralPath $ModDir).Path
+
+if ([string]::IsNullOrWhiteSpace($UserDir)) {
+    if ($env:ARCANE_WILDS_USER_DIR) {
+        $UserDir = $env:ARCANE_WILDS_USER_DIR
+    } elseif ($env:LOCALAPPDATA) {
+        $UserDir = Join-Path $env:LOCALAPPDATA "ArcaneWilds"
+    } else {
+        $UserDir = Join-Path $ModDir "user"
+    }
+}
+if (-not (Test-Path -LiteralPath $UserDir -PathType Container)) {
+    New-Item -ItemType Directory -Force -Path $UserDir | Out-Null
+}
+$UserDir = (Resolve-Path -LiteralPath $UserDir).Path
 $editorDir = $scriptDir
 
 $mimeTypes = @{
@@ -354,8 +369,9 @@ if (-not $listener) {
 $url = "http://127.0.0.1:$boundPort/"
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host " Arcane Wilds Spell & Combo Editor" -ForegroundColor Cyan
-Write-Host " URL     : $url" -ForegroundColor Green
-Write-Host " Mod Dir : $ModDir" -ForegroundColor Gray
+Write-Host " URL      : $url" -ForegroundColor Green
+Write-Host " Mod Dir  : $ModDir" -ForegroundColor Gray
+Write-Host " User Dir : $UserDir" -ForegroundColor Yellow
 Write-Host " Press Ctrl+C in this window to stop the editor server." -ForegroundColor DarkGray
 Write-Host "==========================================================" -ForegroundColor Cyan
 
@@ -377,19 +393,137 @@ try {
                 $statusObj = [ordered]@{
                     ok             = $true
                     modDir         = $ModDir
+                    userDir        = $UserDir
                     schemaVersions = [ordered]@{
                         custom_spells    = 1
                         combo_rules      = 1
                         detected_catalog = 1
                         bundle           = 1
+                        user_spells      = 1
+                        user_combos      = 1
+                        user_quick_cast  = 1
                     }
                     files          = [ordered]@{
-                        custom_spells    = Get-FileMtimeIso (Join-Path $ModDir "custom_spells.json")
-                        combo_rules      = Get-FileMtimeIso (Join-Path $ModDir "combo_rules.json")
+                        default_spells   = Get-FileMtimeIso (Join-Path $ModDir "custom_spells.json")
+                        default_combos   = Get-FileMtimeIso (Join-Path $ModDir "combo_rules.json")
+                        default_qc       = Get-FileMtimeIso (Join-Path $ModDir "quick_cast.txt")
                         detected_catalog = Get-FileMtimeIso (Join-Path $ModDir "detected_catalog.json")
+                        user_spells      = Get-FileMtimeIso (Join-Path $UserDir "user_spells.json")
+                        user_combos      = Get-FileMtimeIso (Join-Path $UserDir "user_combos.json")
+                        user_quick_cast  = Get-FileMtimeIso (Join-Path $UserDir "user_quick_cast.json")
                     }
                 }
                 Write-JsonResponse $res 200 ($statusObj | ConvertTo-Json -Depth 6)
+                continue
+            }
+
+            if ($path -eq "/api/defaults" -and $method -eq "GET") {
+                $defSpPath = Join-Path $ModDir "custom_spells.json"
+                $defCbPath = Join-Path $ModDir "combo_rules.json"
+                $defQcPath = Join-Path $ModDir "quick_cast.txt"
+
+                $defSpRaw = if (Test-Path -LiteralPath $defSpPath -PathType Leaf) { Get-Content -LiteralPath $defSpPath -Raw -Encoding UTF8 } else { '{"schemaVersion":1,"spells":{}}' }
+                $defCbRaw = if (Test-Path -LiteralPath $defCbPath -PathType Leaf) { Get-Content -LiteralPath $defCbPath -Raw -Encoding UTF8 } else { '{"schemaVersion":1,"rules":[]}' }
+
+                $qcBindings = @()
+                if (Test-Path -LiteralPath $defQcPath -PathType Leaf) {
+                    foreach ($line in (Get-Content -LiteralPath $defQcPath -Encoding UTF8)) {
+                        $clean = $line.Trim()
+                        if ($clean -eq "" -or $clean.StartsWith("#") -or $clean.StartsWith(";")) { continue }
+                        $hIdx = $clean.IndexOf("#")
+                        if ($hIdx -ge 0) { $clean = $clean.Substring(0, $hIdx).Trim() }
+                        $eqIdx = $clean.IndexOf("=")
+                        if ($eqIdx -le 0) { continue }
+                        $lhs = $clean.Substring(0, $eqIdx).Trim()
+                        $rhs = $clean.Substring($eqIdx + 1).Trim()
+                        $mod = "BLOCK"
+                        $keysPart = $lhs
+                        if ($lhs -match '^([A-Za-z0-9_]+)\s*\+\s*(.+)$') {
+                            $mod = $Matches[1].Trim().ToUpperInvariant()
+                            $keysPart = $Matches[2].Trim()
+                        }
+                        if ($mod -in @("RMB", "MODIFIER", "MOD")) { $mod = "BLOCK" }
+                        elseif ($mod -in @("OFF", "FALSE", "")) { $mod = "NONE" }
+                        $keys = @($keysPart -split '[,|;]' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" })
+                        if ($keys.Count -gt 0 -and $rhs -ne "") {
+                            $qcBindings += [ordered]@{ enabled = $true; modifier = $mod; keys = $keys; target = $rhs }
+                        }
+                    }
+                }
+
+                $respObj = [ordered]@{
+                    ok        = $true
+                    spellsRaw = $defSpRaw
+                    combosRaw = $defCbRaw
+                    quickCast = $qcBindings
+                }
+                Write-JsonResponse $res 200 ($respObj | ConvertTo-Json -Depth 10)
+                continue
+            }
+
+            if ($path -eq "/api/user/spells") {
+                $uSpPath = Join-Path $UserDir "user_spells.json"
+                if ($method -eq "GET") {
+                    if (Test-Path -LiteralPath $uSpPath -PathType Leaf) {
+                        Write-JsonResponse $res 200 (Get-Content -LiteralPath $uSpPath -Raw -Encoding UTF8)
+                    } else {
+                        Write-JsonResponse $res 200 '{"schemaVersion":1,"format":"arcane-wilds.user_spells","disabledDefaults":[],"spells":{}}'
+                    }
+                    continue
+                } elseif ($method -eq "PUT" -or $method -eq "POST") {
+                    $body = Read-RequestBody $req
+                    Save-JsonAtomically -TargetPath $uSpPath -JsonText $body
+                    $resp = [ordered]@{ ok = $true; path = $uSpPath; savedAt = [DateTime]::UtcNow.ToString("o") } | ConvertTo-Json
+                    Write-JsonResponse $res 200 $resp
+                    continue
+                }
+            }
+
+            if ($path -eq "/api/user/combos") {
+                $uCbPath = Join-Path $UserDir "user_combos.json"
+                if ($method -eq "GET") {
+                    if (Test-Path -LiteralPath $uCbPath -PathType Leaf) {
+                        Write-JsonResponse $res 200 (Get-Content -LiteralPath $uCbPath -Raw -Encoding UTF8)
+                    } else {
+                        Write-JsonResponse $res 200 '{"schemaVersion":1,"format":"arcane-wilds.user_combos","disableAllDefaults":false,"disabledDefaultIds":[],"rules":[]}'
+                    }
+                    continue
+                } elseif ($method -eq "PUT" -or $method -eq "POST") {
+                    $body = Read-RequestBody $req
+                    Save-JsonAtomically -TargetPath $uCbPath -JsonText $body
+                    $resp = [ordered]@{ ok = $true; path = $uCbPath; savedAt = [DateTime]::UtcNow.ToString("o") } | ConvertTo-Json
+                    Write-JsonResponse $res 200 $resp
+                    continue
+                }
+            }
+
+            if ($path -eq "/api/user/quickcast") {
+                $uQcPath = Join-Path $UserDir "user_quick_cast.json"
+                if ($method -eq "GET") {
+                    if (Test-Path -LiteralPath $uQcPath -PathType Leaf) {
+                        Write-JsonResponse $res 200 (Get-Content -LiteralPath $uQcPath -Raw -Encoding UTF8)
+                    } else {
+                        Write-JsonResponse $res 200 '{"schemaVersion":1,"format":"arcane-wilds.user_quick_cast","overrideDefaults":false,"bindings":[]}'
+                    }
+                    continue
+                } elseif ($method -eq "PUT" -or $method -eq "POST") {
+                    $body = Read-RequestBody $req
+                    Save-JsonAtomically -TargetPath $uQcPath -JsonText $body
+                    $resp = [ordered]@{ ok = $true; path = $uQcPath; savedAt = [DateTime]::UtcNow.ToString("o") } | ConvertTo-Json
+                    Write-JsonResponse $res 200 $resp
+                    continue
+                } elseif ($method -eq "DELETE") {
+                    if (Test-Path -LiteralPath $uQcPath -PathType Leaf) {
+                        Remove-Item -LiteralPath $uQcPath -Force
+                    }
+                    Write-JsonResponse $res 200 '{"ok":true,"reset":true}'
+                    continue
+                }
+            }
+
+            if ($path -eq "/api/open-user-dir" -and $method -eq "POST") {
+                Start-Process "explorer.exe" -ArgumentList "`"$UserDir`"" | Out-Null
+                Write-JsonResponse $res 200 ([ordered]@{ ok = $true; path = $UserDir } | ConvertTo-Json)
                 continue
             }
 
@@ -453,7 +587,7 @@ try {
                     $safeName = "$safeName.json"
                 }
 
-                $exportsDir = Join-Path $ModDir "exports"
+                $exportsDir = Join-Path $UserDir "exports"
                 if (-not (Test-Path -LiteralPath $exportsDir -PathType Container)) {
                     New-Item -ItemType Directory -Force -Path $exportsDir | Out-Null
                 }

@@ -23,15 +23,26 @@ const RUNE_ELEMENTS = ["", "air", "fire", "water", "earth", "blood", "death", "c
 const ANIM_SLOTS = ["auto", "FullBody", "Spine", "RightArm", "LeftArm", "Legs", "Pelvis", "Head", "Curves"];
 
 export class SpellsTab {
-  constructor({ listEl, editorEl, searchInputEl, catalogStore, getSpells, setSpells, onDirty }) {
+  constructor({
+    listEl,
+    editorEl,
+    searchInputEl,
+    catalogStore,
+    getDefaultSpells,
+    getUserSpellsState,
+    onDirty,
+    onWarn,
+  }) {
     this.listEl = listEl;
     this.editorEl = editorEl;
     this.searchInputEl = searchInputEl;
     this.catalogStore = catalogStore;
-    this.getSpells = getSpells;
-    this.setSpells = setSpells;
+    this.getDefaultSpells = getDefaultSpells;
+    this.getUserSpellsState = getUserSpellsState;
     this.onDirty = onDirty;
+    this.onWarn = onWarn || (() => {});
     this.selectedId = null;
+    this.selectedLayer = "user"; // "user" | "default"
     this.filterText = "";
 
     this.searchInputEl.addEventListener("input", () => {
@@ -40,12 +51,19 @@ export class SpellsTab {
     });
   }
 
+  hasBuiltInId(id) {
+    const defaults = this.getDefaultSpells() || {};
+    const lower = String(id || "").toLowerCase();
+    return Object.keys(defaults).some((k) => k.toLowerCase() === lower);
+  }
+
   createNewSpell(suggestedName = "") {
-    const spells = this.getSpells();
-    let baseId = suggestedName || "NewCustomSpell";
+    const uState = this.getUserSpellsState();
+    const spells = uState.spells;
+    let baseId = suggestedName || "MyCustomSpell";
     let candidate = baseId;
     let n = 1;
-    while (spells[candidate]) {
+    while (spells[candidate] || this.hasBuiltInId(candidate)) {
       n++;
       candidate = `${baseId}${n}`;
     }
@@ -66,42 +84,105 @@ export class SpellsTab {
       cues: [],
     };
     this.selectedId = candidate;
+    this.selectedLayer = "user";
+    this.onDirty();
+    this.render();
+    return candidate;
+  }
+
+  cloneDefaultToUser(defaultId, disableOriginal = false) {
+    const defaults = this.getDefaultSpells() || {};
+    const src = defaults[defaultId];
+    if (!src) return null;
+
+    const uState = this.getUserSpellsState();
+    let baseId = `My${defaultId}`;
+    let candidate = baseId;
+    let n = 1;
+    while (uState.spells[candidate] || this.hasBuiltInId(candidate)) {
+      n++;
+      candidate = `${baseId}${n}`;
+    }
+    const copy = structuredClone(src);
+    copy.enabled = true;
+    copy.displayName = `${src.displayName || defaultId} (Custom)`;
+    uState.spells[candidate] = copy;
+
+    if (disableOriginal) {
+      const set = new Set((uState.disabledDefaults || []).map((x) => String(x)));
+      set.add(defaultId);
+      uState.disabledDefaults = [...set];
+    }
+
+    this.selectedId = candidate;
+    this.selectedLayer = "user";
     this.onDirty();
     this.render();
     return candidate;
   }
 
   render() {
-    const spells = this.getSpells();
-    const ids = Object.keys(spells);
-    if (!this.selectedId || !spells[this.selectedId]) {
-      this.selectedId = ids[0] || null;
+    const uState = this.getUserSpellsState();
+    const userSpells = uState.spells || {};
+    const defaultSpells = this.getDefaultSpells() || {};
+
+    if (this.selectedLayer === "user" && (!this.selectedId || !userSpells[this.selectedId])) {
+      const uIds = Object.keys(userSpells);
+      const dIds = Object.keys(defaultSpells);
+      if (uIds.length) {
+        this.selectedId = uIds[0];
+        this.selectedLayer = "user";
+      } else if (dIds.length) {
+        this.selectedId = dIds[0];
+        this.selectedLayer = "default";
+      } else {
+        this.selectedId = null;
+      }
+    } else if (this.selectedLayer === "default" && (!this.selectedId || !defaultSpells[this.selectedId])) {
+      const dIds = Object.keys(defaultSpells);
+      this.selectedId = dIds[0] || null;
     }
+
     this.renderList();
     this.renderEditor();
   }
 
   renderList() {
-    const spells = this.getSpells();
-    const ids = Object.keys(spells).sort((a, b) => a.localeCompare(b));
+    const uState = this.getUserSpellsState();
+    const userSpells = uState.spells || {};
+    const defaultSpells = this.getDefaultSpells() || {};
+    const disabledSet = new Set((uState.disabledDefaults || []).map((x) => String(x).toLowerCase()));
+
     this.listEl.innerHTML = "";
 
-    if (!ids.length) {
-      this.listEl.innerHTML = `<div class="empty-state" style="padding:18px;">No custom spells yet.</div>`;
-      return;
+    // Group 1: User Custom Spells
+    const uHead = document.createElement("div");
+    uHead.className = "layer-section-title";
+    uHead.innerHTML = `<span>My Custom Spells (${Object.keys(userSpells).length})</span><span class="badge-user">User</span>`;
+    this.listEl.appendChild(uHead);
+
+    const userIds = Object.keys(userSpells).sort((a, b) => a.localeCompare(b));
+    if (!userIds.length) {
+      const empty = document.createElement("div");
+      empty.className = "combo-row-meta";
+      empty.style.padding = "6px 8px";
+      empty.textContent = "Click + New Spell or clone a Mod Default below.";
+      this.listEl.appendChild(empty);
     }
 
-    ids.forEach((id) => {
-      const def = spells[id];
+    userIds.forEach((id) => {
+      const def = userSpells[id];
       if (this.filterText) {
         const hay = `${id} ${def?.displayName || ""} ${def?.category || ""}`.toLowerCase();
         if (!hay.includes(this.filterText)) return;
       }
 
       const item = document.createElement("div");
-      item.className = `spell-list-item${id === this.selectedId ? " active" : ""}${def?.enabled === false ? " disabled" : ""}`;
+      const isSelected = this.selectedLayer === "user" && id === this.selectedId;
+      item.className = `spell-list-item${isSelected ? " active" : ""}${def?.enabled === false ? " disabled" : ""}`;
       item.addEventListener("click", () => {
         this.selectedId = id;
+        this.selectedLayer = "user";
         this.render();
       });
 
@@ -118,7 +199,7 @@ export class SpellsTab {
       const chk = document.createElement("input");
       chk.type = "checkbox";
       chk.checked = def?.enabled !== false;
-      chk.title = "Enable / Disable spell";
+      chk.title = "Enable / Disable custom spell";
       chk.addEventListener("click", (e) => e.stopPropagation());
       chk.addEventListener("change", () => {
         def.enabled = chk.checked;
@@ -129,16 +210,92 @@ export class SpellsTab {
       item.append(left, chk);
       this.listEl.appendChild(item);
     });
+
+    // Group 2: Read-Only Mod Default Spells
+    const defIds = Object.keys(defaultSpells).sort((a, b) => a.localeCompare(b));
+    if (defIds.length) {
+      const dHead = document.createElement("div");
+      dHead.className = "layer-section-title";
+      dHead.style.marginTop = "14px";
+      dHead.innerHTML = `<span>Mod Defaults (${defIds.length})</span><span class="badge-builtin">Built-in</span>`;
+      this.listEl.appendChild(dHead);
+
+      defIds.forEach((id) => {
+        const def = defaultSpells[id];
+        if (this.filterText) {
+          const hay = `${id} ${def?.displayName || ""} ${def?.category || ""}`.toLowerCase();
+          if (!hay.includes(this.filterText)) return;
+        }
+
+        const isDisabledByUser = disabledSet.has(id.toLowerCase());
+        const isShippedDisabled = def?.enabled === false;
+        const isSelected = this.selectedLayer === "default" && id === this.selectedId;
+
+        const item = document.createElement("div");
+        item.className = `spell-list-item${isSelected ? " active" : ""}${isDisabledByUser || isShippedDisabled ? " disabled" : ""}`;
+        item.addEventListener("click", () => {
+          this.selectedId = id;
+          this.selectedLayer = "default";
+          this.render();
+        });
+
+        const left = document.createElement("div");
+        const nameEl = document.createElement("div");
+        nameEl.className = "spell-item-name";
+        nameEl.textContent = def?.displayName || id;
+        const subEl = document.createElement("div");
+        subEl.className = "spell-item-sub";
+        subEl.textContent = `${id} · ${def?.category || "Built-in"}${isDisabledByUser ? " · Turned Off" : ""}`;
+        left.append(nameEl, subEl);
+
+        const chk = document.createElement("input");
+        chk.type = "checkbox";
+        chk.checked = !isDisabledByUser && !isShippedDisabled;
+        chk.disabled = isShippedDisabled;
+        chk.title = isShippedDisabled
+          ? "Shipped as disabled example template (Clone to My Spells to customize)"
+          : "Enable / Disable this built-in mod spell";
+        chk.addEventListener("click", (e) => e.stopPropagation());
+        chk.addEventListener("change", () => {
+          const set = new Set((uState.disabledDefaults || []).map((x) => String(x)));
+          if (chk.checked) {
+            for (const x of [...set]) {
+              if (x.toLowerCase() === id.toLowerCase()) set.delete(x);
+            }
+          } else {
+            set.add(id);
+          }
+          uState.disabledDefaults = [...set];
+          this.onDirty();
+          this.render();
+        });
+
+        item.append(left, chk);
+        this.listEl.appendChild(item);
+      });
+    }
   }
 
   renderEditor() {
-    const spells = this.getSpells();
+    const uState = this.getUserSpellsState();
+    const userSpells = uState.spells || {};
+    const defaultSpells = this.getDefaultSpells() || {};
     this.editorEl.innerHTML = "";
 
-    if (!this.selectedId || !spells[this.selectedId]) {
-      this.editorEl.innerHTML = `<div class="empty-state"><p>Select a custom spell on the left or click <strong>+ New Spell</strong> to create one.</p></div>`;
+    if (!this.selectedId) {
+      this.editorEl.innerHTML = `<div class="empty-state"><p>Select a spell on the left or click <strong>+ New Spell</strong> to create one.</p></div>`;
       return;
     }
+
+    if (this.selectedLayer === "default") {
+      const def = defaultSpells[this.selectedId];
+      if (!def) return;
+      this.renderReadOnlyDefaultView(this.selectedId, def);
+      return;
+    }
+
+    const spells = userSpells;
+    if (!spells[this.selectedId]) return;
 
     const id = this.selectedId;
     const def = spells[id];
@@ -186,7 +343,8 @@ export class SpellsTab {
         idInput.value = id;
         return;
       }
-      if (spells[nextId]) {
+      if (spells[nextId] || this.hasBuiltInId(nextId)) {
+        this.onWarn(`Cannot use '${nextId}': that spell ID is already taken or reserved by a built-in mod spell.`);
         idInput.value = id;
         return;
       }
@@ -568,6 +726,39 @@ export class SpellsTab {
 
     card.appendChild(grid);
     return card;
+  }
+
+  renderReadOnlyDefaultView(id, def) {
+    const banner = document.createElement("div");
+    banner.className = "readonly-banner";
+    banner.innerHTML = `
+      <div>
+        <span class="badge-builtin">Built-in Mod Spell</span>
+        <strong>${escapeHtml(def.displayName || id)}</strong> (<code>${escapeHtml(id)}</code>) is managed by Arcane Wilds so it automatically receives mod updates.
+        You can toggle it off on the left, or clone it into <strong>My Custom Spells</strong> to customize your own version.
+      </div>
+    `;
+    const btnGroup = document.createElement("div");
+    btnGroup.className = "combo-row-actions";
+    btnGroup.appendChild(makeBtn("Clone to My Spells", "btn-primary btn-sm", () => {
+      this.cloneDefaultToUser(id, false);
+    }));
+    btnGroup.appendChild(makeBtn("Clone & Disable Built-in", "btn-secondary btn-sm", () => {
+      this.cloneDefaultToUser(id, true);
+    }));
+    banner.appendChild(btnGroup);
+    this.editorEl.appendChild(banner);
+
+    const summaryCard = makeSectionCard("Built-in Spell Definition (Read-Only Preview)");
+    const pre = document.createElement("pre");
+    pre.style.margin = "0";
+    pre.style.overflowX = "auto";
+    pre.style.fontFamily = "var(--mono)";
+    pre.style.fontSize = "12px";
+    pre.style.color = "var(--text-muted)";
+    pre.textContent = JSON.stringify(def, null, 2);
+    summaryCard.appendChild(pre);
+    this.editorEl.appendChild(summaryCard);
   }
 
   makeAssetField(label, value, getOptions, onChange) {
