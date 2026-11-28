@@ -142,7 +142,7 @@ Commands:
   wipe         <mod>   Wipe ONLY this mod (ue4ss\Mods\<Mod> + its .pak files) (aliases: w, clean, uninstall)
                        Options: -GameDir <path>, -WhatIf
   release      <mod>   Build & publish a tagged GitHub Release via gh CLI (aliases: r, publish)
-                       Options: --dry-run (-DryRun), --force-update (-ForceUpdate), -SkipBuild, -Version, -Channel
+                       Options: --dry-run (-DryRun), --force-update (-ForceUpdate), -SkipBuild, -SkipPak, -Version, -Channel
   nexus        <mod>   Build & publish a mod archive to Nexus Mods via Upload API v3 (aliases: publish-nexus, nm)
                        Options: --dry-run (-DryRun), -SkipBuild, -Version, -Channel, -Category, -ArchivePath,
                                 -NoArchiveOld, -NoUpdateModVersion, -NotesFile, -ApiKey
@@ -339,8 +339,8 @@ switch ($cmd) {
 
     { $_ -in @("release", "r", "publish") } {
         $parsed = Parse-CliArgs -RawArgs $RemainingArgs `
-            -SwitchNames @("ForceUpdate", "DryRun", "SkipBuild", "Verbose", "Debug") `
-            -PassThroughFlags @("--force-update", "-force-update", "--dry-run", "-dry-run", "--skip-build")
+            -SwitchNames @("ForceUpdate", "DryRun", "SkipBuild", "SkipPak", "Verbose", "Debug") `
+            -PassThroughFlags @("--force-update", "-force-update", "--dry-run", "-dry-run", "--skip-build", "--skip-pak", "-skip-pak")
         $params = $parsed.Named
         if (-not $params.ContainsKey("ModFolder")) {
             if ($parsed.Positional.Count -lt 1) {

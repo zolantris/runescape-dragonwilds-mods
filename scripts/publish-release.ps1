@@ -7,6 +7,7 @@ param(
     [switch]$ForceUpdate,
     [switch]$DryRun,
     [switch]$SkipBuild,
+    [switch]$SkipPak,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$ExtraArgs
 )
@@ -21,6 +22,8 @@ if ($ExtraArgs) {
             "--dry-run"      { $DryRun = $true }
             "-dry-run"       { $DryRun = $true }
             "--skip-build"   { $SkipBuild = $true }
+            "--skip-pak"     { $SkipPak = $true }
+            "-skip-pak"      { $SkipPak = $true }
             default          { throw "Unknown argument: '$arg'" }
         }
     }
@@ -113,10 +116,20 @@ try {
 
     if (-not $SkipBuild) {
         if ($DryRun) {
-            Write-Host "[DRY-RUN] Would run build-mod.ps1 -ModFolder '$ModFolder' -Version '$Version' -Channel '$Channel' -Prod" -ForegroundColor DarkCyan
+            $pakFlag = if ($SkipPak) { " -SkipPak" } else { "" }
+            Write-Host "[DRY-RUN] Would run build-mod.ps1 -ModFolder '$ModFolder' -Version '$Version' -Channel '$Channel' -Prod$pakFlag" -ForegroundColor DarkCyan
         } else {
             $buildScript = Join-Path $PSScriptRoot "build-mod.ps1"
-            & $buildScript -ModFolder $ModFolder -Version $Version -Channel $Channel -Prod
+            $buildArgs = @{
+                ModFolder = $ModFolder
+                Version   = $Version
+                Channel   = $Channel
+                Prod      = $true
+            }
+            if ($SkipPak) {
+                $buildArgs["SkipPak"] = $true
+            }
+            & $buildScript @buildArgs
         }
     }
 

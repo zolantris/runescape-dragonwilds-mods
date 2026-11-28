@@ -17,9 +17,9 @@ Open the hosted studio in any browser (no installation required):
 3. **Export your config:** Click **Export & Reveal** (or **Bundle** to export Spells + Combos together) to download your JSON file(s).
 4. **Install into your user folder:** Move the downloaded files (`user_combos.json`, `user_spells.json`, `user_quick_cast.json`) into:
    ```text
-   %LOCALAPPDATA%\ArcaneWilds\
+   %LOCALAPPDATA%\RSDragonwilds\Saved\Config\ArcaneWilds\
    ```
-   Configs stored in `%LOCALAPPDATA%\ArcaneWilds\` persist across mod updates and hot-reload automatically in-game.
+   Configs stored in `%LOCALAPPDATA%\RSDragonwilds\Saved\Config\ArcaneWilds\` persist across mod updates and hot-reload automatically in-game.
 
 ---
 
@@ -29,8 +29,8 @@ For the fastest workflow while playing or testing:
 
 1. Double-click **`Launch-ArcaneWilds-Editor.bat`** inside your installed `ue4ss/Mods/ArcaneWilds/` folder (or run `.\mod.ps1 editor arcane-wilds` from this repository).
 2. Your browser will open `http://localhost:47821` with a green **Connected** status badge.
-3. Click **Save Combos**, **Save Spells**, or **Save Quick-Cast** to write atomically to `%LOCALAPPDATA%\ArcaneWilds\`—Arcane Wilds detects the change and hot-reloads in-game immediately.
-4. Use **↻ Refresh Assets** after pressing the in-game debug dump hotkey (`SHIFT + \`) to pull newly loaded spells/VFX/SFX into the editor, or click **📁 User Folder** to open `%LOCALAPPDATA%\ArcaneWilds\` in Explorer.
+3. Click **Save Combos**, **Save Spells**, or **Save Quick-Cast** to write atomically to `%LOCALAPPDATA%\RSDragonwilds\Saved\Config\ArcaneWilds\`—Arcane Wilds detects the change and hot-reloads in-game immediately.
+4. Use **↻ Refresh Assets** after pressing the in-game debug dump hotkey (`SHIFT + \`) to pull newly loaded spells/VFX/SFX into the editor, or click **📁 User Folder** to open `%LOCALAPPDATA%\RSDragonwilds\Saved\Config\ArcaneWilds\` in Explorer.
 
 ---
 

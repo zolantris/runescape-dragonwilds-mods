@@ -18,7 +18,12 @@ if ([string]::IsNullOrWhiteSpace($UserDir)) {
     if ($env:ARCANE_WILDS_USER_DIR) {
         $UserDir = $env:ARCANE_WILDS_USER_DIR
     } elseif ($env:LOCALAPPDATA) {
-        $UserDir = Join-Path $env:LOCALAPPDATA "ArcaneWilds"
+        $gameConfigDir = Join-Path $env:LOCALAPPDATA "RSDragonwilds\Saved\Config"
+        if (Test-Path -LiteralPath $gameConfigDir -PathType Container) {
+            $UserDir = Join-Path $gameConfigDir "ArcaneWilds"
+        } else {
+            $UserDir = Join-Path $env:LOCALAPPDATA "ArcaneWilds"
+        }
     } else {
         $UserDir = Join-Path $ModDir "user"
     }
