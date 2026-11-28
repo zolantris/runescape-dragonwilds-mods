@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://arcanewilds.local/schemas/user_combos.schema.json",
   "title": "Arcane Wilds Persistent User Combos",
-  "description": "Player-owned combo rules and default-combo toggles stored in %LOCALAPPDATA%\\ArcaneWilds\\user_combos.json.",
+  "description": "Player-owned combo rules and default-combo toggles stored in %LOCALAPPDATA%\\RSDragonwilds\\Saved\\Config\\ArcaneWilds\\user_combos.json.",
   "type": "object",
   "required": ["schemaVersion", "rules"],
   "additionalProperties": false,

@@ -1,4 +1,4 @@
-// Arcane Wilds - Quick-Cast Hotkey Tab (Saved to %LOCALAPPDATA%\ArcaneWilds\user_quick_cast.json)
+// Arcane Wilds - Quick-Cast Hotkey Tab (Saved to %LOCALAPPDATA%\RSDragonwilds\Saved\Config\ArcaneWilds\user_quick_cast.json)
 
 import { createCombobox } from "./combobox.js";
 

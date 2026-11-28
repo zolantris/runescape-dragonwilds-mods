@@ -9,9 +9,20 @@ local SchemaMigrator = require("schema_migrator")
 
 local ConfigManager = {}
 
+local function DefaultDirExists(path)
+    if not path or path == "" then return false end
+    local ok, _, code = os.rename(path, path)
+    if ok then return true end
+    -- EACCES (13) on rename-in-place also implies the path exists
+    if code == 13 then return true end
+    return false
+end
+
 -- Resolve persistent user profile directory outside the mod install folder so updates
--- never overwrite or wipe player customizations (%LOCALAPPDATA%\ArcaneWilds).
-function ConfigManager.ResolveUserDir(overrideDir)
+-- never overwrite or wipe player customizations.
+-- Prefers %LOCALAPPDATA%\RSDragonwilds\Saved\Config\ArcaneWilds when the game's
+-- Saved\Config directory exists, falling back to %LOCALAPPDATA%\ArcaneWilds otherwise.
+function ConfigManager.ResolveUserDir(overrideDir, dirExistsFn)
     local sep = package.config:sub(1, 1)
     local base = overrideDir
     if not base or base == "" then
@@ -22,7 +33,13 @@ function ConfigManager.ResolveUserDir(overrideDir)
     end
     local localAppData = os.getenv("LOCALAPPDATA") or os.getenv("APPDATA")
     if localAppData and localAppData ~= "" then
-        return (localAppData:gsub("[\\/]+$", "")) .. sep .. "ArcaneWilds" .. sep
+        local cleanBase = localAppData:gsub("[\\/]+$", "")
+        local gameConfigDir = cleanBase .. sep .. "RSDragonwilds" .. sep .. "Saved" .. sep .. "Config"
+        local checkExists = type(dirExistsFn) == "function" and dirExistsFn or DefaultDirExists
+        if checkExists(gameConfigDir) then
+            return gameConfigDir .. sep .. "ArcaneWilds" .. sep
+        end
+        return cleanBase .. sep .. "ArcaneWilds" .. sep
     end
     return nil
 end
