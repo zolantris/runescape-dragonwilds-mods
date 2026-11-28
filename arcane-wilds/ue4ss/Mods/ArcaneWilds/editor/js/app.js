@@ -64,6 +64,7 @@ const el = {
   connectionBadge: document.getElementById("connection-badge"),
   schemaBadge: document.getElementById("schema-badge"),
   standaloneBanner: document.getElementById("standalone-banner"),
+  standaloneBannerText: document.getElementById("standalone-banner-text"),
   btnRefreshCatalog: document.getElementById("btn-refresh-catalog"),
   btnOpenUserDir: document.getElementById("btn-open-user-dir"),
   btnLoadCatalogFile: document.getElementById("btn-load-catalog-file"),
@@ -138,6 +139,7 @@ const combosTab = new CombosTab({
   getUserCombosState: () => state.userCombos,
   onDirty: () => {
     state.dirtyCombos = true;
+    saveWebDraft();
     updateCountsAndStats();
   },
   onCreateCustomSpell: (onCreatedCb) => {
@@ -157,6 +159,7 @@ const spellsTab = new SpellsTab({
   getUserSpellsState: () => state.userSpells,
   onDirty: () => {
     state.dirtySpells = true;
+    saveWebDraft();
     updateCountsAndStats();
   },
   onWarn: (msg) => toast(msg, "warn"),
@@ -169,6 +172,7 @@ const quickCastTab = new QuickCastTab({
   getState: () => state.userQuickCast,
   onDirty: () => {
     state.dirtyQuickCast = true;
+    saveWebDraft();
     updateCountsAndStats();
   },
 });
@@ -244,6 +248,7 @@ const importModal = new ImportModal({
       }
     }
 
+    saveWebDraft();
     updateCountsAndStats();
     combosTab.render();
     spellsTab.render();
@@ -257,10 +262,125 @@ const importModal = new ImportModal({
   },
 });
 
+const WEB_DRAFT_STORAGE_KEY = "arcane_wilds_web_draft_v1";
+
+function saveWebDraft() {
+  if (state.connected) return;
+  try {
+    const payload = {
+      userSpells: state.userSpells,
+      userCombos: state.userCombos,
+      userQuickCast: {
+        overrideDefaults: state.userQuickCast.overrideDefaults === true,
+        bindings: state.userQuickCast.bindings,
+      },
+    };
+    window.localStorage.setItem(WEB_DRAFT_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // Ignore storage errors (private mode / quota)
+  }
+}
+
+function loadWebDraft() {
+  try {
+    const raw = window.localStorage.getItem(WEB_DRAFT_STORAGE_KEY);
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    if (saved?.userSpells) {
+      state.userSpells.disabledDefaults = Array.isArray(saved.userSpells.disabledDefaults) ? saved.userSpells.disabledDefaults : [];
+      state.userSpells.enabledDefaults = Array.isArray(saved.userSpells.enabledDefaults) ? saved.userSpells.enabledDefaults : [];
+      state.userSpells.spells = saved.userSpells.spells && typeof saved.userSpells.spells === "object" ? saved.userSpells.spells : {};
+    }
+    if (saved?.userCombos) {
+      state.userCombos.disableAllDefaults = saved.userCombos.disableAllDefaults === true;
+      state.userCombos.disabledDefaultIds = Array.isArray(saved.userCombos.disabledDefaultIds) ? saved.userCombos.disabledDefaultIds : [];
+      state.userCombos.enabledDefaultIds = Array.isArray(saved.userCombos.enabledDefaultIds) ? saved.userCombos.enabledDefaultIds : [];
+      state.userCombos.rules = Array.isArray(saved.userCombos.rules) ? saved.userCombos.rules : [];
+    }
+    if (saved?.userQuickCast) {
+      state.userQuickCast.overrideDefaults = saved.userQuickCast.overrideDefaults === true;
+      state.userQuickCast.bindings = Array.isArray(saved.userQuickCast.bindings) ? saved.userQuickCast.bindings : [];
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function fetchJsonText(url) {
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return await res.text();
+}
+
+async function tryFetchJsonText(url) {
+  try {
+    return await fetchJsonText(url);
+  } catch {
+    return null;
+  }
+}
+
+async function loadStaticDefaultsAndCatalog() {
+  const [catalogRaw, spellsRaw, combosRaw, qcRaw, versionRaw] = await Promise.all([
+    tryFetchJsonText("./data/fallback_catalog.json"),
+    tryFetchJsonText("./data/defaults_spells.json"),
+    tryFetchJsonText("./data/defaults_combos.json"),
+    tryFetchJsonText("./data/defaults_quickcast.json"),
+    tryFetchJsonText("./data/version.json"),
+  ]);
+
+  if (versionRaw) {
+    try {
+      const ver = JSON.parse(versionRaw);
+      if (ver?.modVersion) state.modVersion = String(ver.modVersion);
+    } catch {
+      // Ignore malformed version.json
+    }
+  }
+
+  if (catalogRaw) {
+    try {
+      const mig = migrateDocument("detected_catalog", parseJsonc(catalogRaw));
+      if (!mig.error && mig.doc) {
+        catalogStore.setCatalog(mig.doc);
+        if (mig.doc.modVersion && mig.doc.modVersion !== "local-fallback") {
+          state.modVersion = mig.doc.modVersion;
+        }
+      }
+    } catch (err) {
+      console.warn("Static fallback catalog load failed:", err);
+    }
+  }
+
+  if (spellsRaw) {
+    try {
+      const defSpMig = migrateDocument("custom_spells", parseJsonc(spellsRaw));
+      if (!defSpMig.error && defSpMig.doc) state.defaults.spells = defSpMig.doc.spells || {};
+    } catch (err) {
+      console.warn("Static default spells load failed:", err);
+    }
+  }
+
+  if (combosRaw) {
+    try {
+      const defCbMig = migrateDocument("combo_rules", parseJsonc(combosRaw));
+      if (!defCbMig.error && defCbMig.doc) state.defaults.rules = defCbMig.doc.rules || [];
+    } catch (err) {
+      console.warn("Static default combos load failed:", err);
+    }
+  }
+
+  if (qcRaw) {
+    try {
+      const parsedQc = JSON.parse(qcRaw);
+      const list = Array.isArray(parsedQc) ? parsedQc : Array.isArray(parsedQc?.bindings) ? parsedQc.bindings : [];
+      state.defaults.quickCast = list;
+      state.userQuickCast.defaultBindings = structuredClone(list);
+    } catch (err) {
+      console.warn("Static default quick-cast load failed:", err);
+    }
+  }
 }
 
 async function loadCatalogFromServer() {
@@ -337,9 +457,23 @@ async function bootstrap() {
   }
 
   state.connected = false;
-  el.connectionBadge.textContent = "Standalone Mode";
+  const isHostedWeb = window.location.protocol === "http:" || window.location.protocol === "https:";
+  if (isHostedWeb) {
+    el.connectionBadge.textContent = "Web Mode";
+    el.connectionBadge.title = "Hosted Web Studio — edits auto-save in your browser; download JSON to install.";
+    if (el.standaloneBannerText) {
+      el.standaloneBannerText.innerHTML =
+        '<strong>Web Mode:</strong> Your edits auto-save in this browser. Click <strong>Save</strong> or <strong>Bundle</strong> to download JSON and drop it into <code>%LOCALAPPDATA%\\ArcaneWilds</code>, or run <code>Launch-ArcaneWilds-Editor.bat</code> for 1-click Save.';
+    }
+  } else {
+    el.connectionBadge.textContent = "Standalone Mode";
+  }
   el.connectionBadge.className = "status-pill status-standalone";
   el.standaloneBanner.classList.remove("hidden");
+
+  await loadStaticDefaultsAndCatalog();
+  loadWebDraft();
+
   updateCountsAndStats();
   combosTab.render();
   spellsTab.render();
@@ -445,6 +579,8 @@ async function resetUserQuickCast() {
     } catch {
       // Ignore
     }
+  } else {
+    saveWebDraft();
   }
   updateCountsAndStats();
   quickCastTab.render();

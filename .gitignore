@@ -29,5 +29,8 @@ arcane-wilds/ue4ss/Mods/ArcaneWilds/exports/
 arcane-wilds/ue4ss/Mods/ArcaneWilds/detected_catalog.json
 *.bak
 
+# GitHub Pages staged site output
+_site/
+
 
 
