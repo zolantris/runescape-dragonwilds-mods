@@ -169,6 +169,49 @@
         "count": 1
       }
     },
+    "ArcaneDodgeForward": {
+      "enabled": true,
+      "displayName": "Arcane Dodge Forward",
+      "description": "Forward dodge surge using animation, burst VFX, and haptic SFX (no damage).",
+      "category": "Air",
+      "baseSpell": null,
+      "speed": 1.5,
+      "clamp": true,
+      "requiredMagicLevel": 0,
+      "scaleWithStaff": true,
+      "damageScaling": "full",
+      "runeCost": {
+        "type": "air",
+        "count": 1
+      },
+      "timelineDuration": "auto",
+      "overlapPolicy": "parallel",
+      "cues": [
+        {
+          "type": "anim",
+          "at": "@0.00",
+          "asset": "AM_PlayerM_Dodge_Surge_Fwd",
+          "rate": 5,
+          "slot": "FullBody"
+        },
+        {
+          "type": "sfx",
+          "at": "@0.00",
+          "asset": "/Game/Audio/SoundWaves/Haptics/AI/AW_HAP_BKT_DodgeBack.AW_HAP_BKT_DodgeBack",
+          "target": "player",
+          "volume": 1,
+          "pitch": 1
+        },
+        {
+          "type": "vfx",
+          "at": "@0.00",
+          "asset": "/Game/Art/VFX/Library/Spells/Surge/NS_Surge_Burst.NS_Surge_Burst",
+          "target": "player",
+          "scale": 1,
+          "duration": 0.8
+        }
+      ]
+    },
     "FireSurgeCombo": {
       "enabled": true,
       "displayName": "Fire Surge Combo",

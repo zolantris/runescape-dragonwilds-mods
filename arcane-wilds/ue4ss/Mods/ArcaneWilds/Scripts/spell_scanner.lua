@@ -864,6 +864,28 @@ function SpellScanner.ScanAndPatchSpells(cfg, modVersion, detectedPath, nameMapB
                     if modStripped ~= shortName:lower() and modStripped ~= "" and not discoveredLookup[modStripped] then
                         discoveredLookup[modStripped] = shortName
                     end
+                elseif shortName ~= "" and not spellRegistry[shortName:lower()] then
+                    -- Register unclassified DominionSpellData assets (e.g. standalone normal/utility abilities)
+                    -- so Quick-Cast hotkeys and direct asset references can resolve and trigger them.
+                    local montageObj, montageName, costItems = PatchSpellModules(sp, cfg, nil, 0, lower)
+                    local entry = {
+                        spellObj = sp,
+                        montageObj = montageObj,
+                        costItems = costItems,
+                        prevSpellObj = nil,
+                        categoryTag = "Spell",
+                        stepIndex = 0,
+                        shortName = shortName,
+                        fullName = full,
+                        montageName = montageName,
+                        isSmash = false,
+                        isSpecialSpell = false
+                    }
+                    spellRegistry[shortName:lower()] = entry
+                    discoveredLookup[shortName:lower()] = shortName
+                    if montageName and montageName ~= "" and not discoveredLookup[montageName:lower()] then
+                        discoveredLookup[montageName:lower()] = shortName
+                    end
                 end
             end
         end
@@ -891,12 +913,35 @@ function SpellScanner.ScanAndPatchSpells(cfg, modVersion, detectedPath, nameMapB
         end
     end
 
-    if cfg.UnlockUtilitySpells then
-        local utilSpells = FindAllOf("UtilitySpellData")
-        if utilSpells then
-            for _, usp in ipairs(utilSpells) do
-                if usp and usp:IsValid() then
-                    PatchSpellModules(usp, cfg, nil, 0, SpellScanner.SafeGetName(usp):lower())
+    local utilSpells = FindAllOf("UtilitySpellData")
+    if utilSpells then
+        for _, usp in ipairs(utilSpells) do
+            if usp and usp:IsValid() then
+                local uFull = SpellScanner.SafeGetName(usp)
+                local uShort = SpellScanner.ExtractShortObjectName(uFull)
+                local montageObj, montageName, costItems = nil, nil, nil
+                if cfg.UnlockUtilitySpells then
+                    montageObj, montageName, costItems = PatchSpellModules(usp, cfg, nil, 0, uFull:lower())
+                end
+                if uShort ~= "" and not spellRegistry[uShort:lower()] then
+                    spellRegistry[uShort:lower()] = {
+                        spellObj = usp,
+                        montageObj = montageObj,
+                        costItems = costItems,
+                        prevSpellObj = nil,
+                        categoryTag = "Utility",
+                        stepIndex = 0,
+                        shortName = uShort,
+                        fullName = uFull,
+                        montageName = montageName,
+                        isSmash = false,
+                        isSpecialSpell = false,
+                        isUtilitySpell = true
+                    }
+                    discoveredLookup[uShort:lower()] = uShort
+                    if montageName and montageName ~= "" and not discoveredLookup[montageName:lower()] then
+                        discoveredLookup[montageName:lower()] = uShort
+                    end
                 end
             end
         end

@@ -152,4 +152,115 @@ T.Suite("config_manager hot-reload + progression_scaling", function()
         local unlockedBypass = ProgressionScaling.CheckSpellUnlocked(config, nil, nil, entry)
         T.AssertTrue(unlockedBypass)
     end)
+
+    T.Test("ResolveQuickCastEntry resolves normal spells via aliases, qualified names, discovered lookup, and chains", function()
+        Mock.Reset()
+        local SpellScanner = require("spell_scanner")
+        SpellScanner.ClearSnapshots()
+
+        local airVortexObj = Mock.MakeUObject("DominionSpellData /Game/Spells/DA_Spell_Primary_Air_03.DA_Spell_Primary_Air_03")
+        local airBoltObj = Mock.MakeUObject("DominionSpellData /Game/Spells/DA_Spell_Primary_Air_01.DA_Spell_Primary_Air_01")
+        local airWandBoltObj = Mock.MakeUObject("DominionSpellData /Game/Spells/DA_Spell_Primary_Air_Wand_01.DA_Spell_Primary_Air_Wand_01")
+        local waterWaveObj = Mock.MakeUObject("DominionSpellData /Game/Spells/DA_Spell_Primary_Water_03.DA_Spell_Primary_Water_03")
+        local staleObj = Mock.MakeUObject("DominionSpellData /Game/Spells/DA_Spell_Stale.DA_Spell_Stale", { _valid = false })
+
+        local state = {
+            SpellRegistry = {
+                da_spell_primary_air_03 = { spellObj = airVortexObj, shortName = "DA_Spell_Primary_Air_03" },
+                da_spell_primary_air_01 = { spellObj = airBoltObj, shortName = "DA_Spell_Primary_Air_01" },
+                da_spell_primary_air_wand_01 = { spellObj = airWandBoltObj, shortName = "DA_Spell_Primary_Air_Wand_01" },
+                da_spell_primary_water_03 = { spellObj = waterWaveObj, shortName = "DA_Spell_Primary_Water_03" },
+                da_spell_stale = { spellObj = staleObj, shortName = "DA_Spell_Stale" },
+            },
+            GlobalNameMap = {
+                global_wave = "DA_Spell_Primary_Water_03",
+            },
+            NameMapByCat = {
+                air = { vortex = "DA_Spell_Primary_Air_03", bolt = "DA_Spell_Primary_Air_01" },
+                air_wand = { bolt = "DA_Spell_Primary_Air_Wand_01" },
+                water = { wave = "DA_Spell_Primary_Water_03" },
+            },
+            DiscoveredLookup = {
+                am_spell_primary_air_03 = "DA_Spell_Primary_Air_03",
+            },
+            SpellChains = {
+                air = { stepNames = { [0] = "DA_Spell_Primary_Air_01", [2] = "DA_Spell_Primary_Air_03" } },
+            },
+            CustomSpellDefs = {},
+            RuneItemDataCache = {},
+        }
+
+        -- 1. Direct normal spell asset
+        local e1 = ConfigManager.ResolveQuickCastEntry(state, "DA_Spell_Primary_Air_03")
+        T.AssertNotNil(e1)
+        T.AssertEq(e1.shortName, "DA_Spell_Primary_Air_03")
+
+        -- 2. Global alias
+        local e2 = ConfigManager.ResolveQuickCastEntry(state, "global_wave")
+        T.AssertNotNil(e2)
+        T.AssertEq(e2.shortName, "DA_Spell_Primary_Water_03")
+
+        -- 3. Category-qualified alias (e.g. Air.vortex, Water.wave)
+        local e3 = ConfigManager.ResolveQuickCastEntry(state, "Air.vortex")
+        T.AssertNotNil(e3)
+        T.AssertEq(e3.shortName, "DA_Spell_Primary_Air_03")
+
+        local e3b = ConfigManager.ResolveQuickCastEntry(state, "Air_Wand.bolt")
+        T.AssertNotNil(e3b)
+        T.AssertEq(e3b.shortName, "DA_Spell_Primary_Air_Wand_01")
+
+        -- 4. Unqualified alias (e.g. vortex, wave, bolt prefers base category over *_wand)
+        local e4 = ConfigManager.ResolveQuickCastEntry(state, "vortex")
+        T.AssertNotNil(e4)
+        T.AssertEq(e4.shortName, "DA_Spell_Primary_Air_03")
+
+        local e4b = ConfigManager.ResolveQuickCastEntry(state, "bolt")
+        T.AssertNotNil(e4b)
+        T.AssertEq(e4b.shortName, "DA_Spell_Primary_Air_01")
+
+        -- 5. DiscoveredLookup (montage name)
+        local e5 = ConfigManager.ResolveQuickCastEntry(state, "AM_Spell_Primary_Air_03")
+        T.AssertNotNil(e5)
+        T.AssertEq(e5.shortName, "DA_Spell_Primary_Air_03")
+
+        -- 6. Chain name fallback
+        local e6 = ConfigManager.ResolveQuickCastEntry(state, "Air")
+        T.AssertNotNil(e6)
+        T.AssertEq(e6.shortName, "DA_Spell_Primary_Air_01")
+
+        -- 7. Invalid / stale / empty inputs return nil
+        T.AssertNil(ConfigManager.ResolveQuickCastEntry(state, "DA_Spell_Stale"))
+        T.AssertNil(ConfigManager.ResolveQuickCastEntry(state, "NonExistentSpell"))
+        T.AssertNil(ConfigManager.ResolveQuickCastEntry(state, "   "))
+        T.AssertNil(ConfigManager.ResolveQuickCastEntry(nil, "vortex"))
+    end)
+
+    T.Test("ScanAndPatchSpells registers unclassified DominionSpellData and UtilitySpellData for Quick-Cast", function()
+        Mock.Reset()
+        local SpellScanner = require("spell_scanner")
+        SpellScanner.ClearSnapshots()
+
+        local standaloneSpell = Mock.MakeUObject(
+            "DominionSpellData /Game/Spells/DA_Spell_Standalone_Nova.DA_Spell_Standalone_Nova",
+            { SpellModules = {} }
+        )
+        local utilitySpell = Mock.MakeUObject(
+            "UtilitySpellData /Game/Spells/DA_Utility_Windstep.DA_Utility_Windstep",
+            { SpellModules = {} }
+        )
+        Mock.RegisterClassInstance("DominionSpellData", standaloneSpell)
+        Mock.RegisterClassInstance("UtilitySpellData", utilitySpell)
+
+        local cfg = { Enabled = true, UnlockUtilitySpells = false, MaxMoveSpeed = 600.0 }
+        local _, _, reg, lookup = SpellScanner.ScanAndPatchSpells(cfg, "test", nil, {}, {}, nil)
+
+        T.AssertNotNil(reg["da_spell_standalone_nova"], "Unclassified DominionSpellData should be registered")
+        T.AssertEq(reg["da_spell_standalone_nova"].categoryTag, "Spell")
+        T.AssertEq(lookup["da_spell_standalone_nova"], "DA_Spell_Standalone_Nova")
+
+        T.AssertNotNil(reg["da_utility_windstep"], "UtilitySpellData should be registered even when UnlockUtilitySpells is false")
+        T.AssertEq(reg["da_utility_windstep"].categoryTag, "Utility")
+        T.AssertTrue(reg["da_utility_windstep"].isUtilitySpell)
+        T.AssertEq(lookup["da_utility_windstep"], "DA_Utility_Windstep")
+    end)
 end)

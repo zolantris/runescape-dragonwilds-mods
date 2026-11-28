@@ -385,29 +385,7 @@ local function SyncQuickCastInputSuppression(pc)
 end
 
 local function ResolveQuickCastEntry(spellName)
-    local clean = tostring(spellName or ""):gsub("^%s*(.-)%s*$", "%1")
-    if clean == "" then return nil end
-    local low = clean:lower()
-    if State.SpellRegistry[low] then
-        return State.SpellRegistry[low]
-    end
-    if State.GlobalNameMap and State.GlobalNameMap[low] then
-        local mapped = State.GlobalNameMap[low]:lower()
-        if State.SpellRegistry[mapped] then
-            return State.SpellRegistry[mapped]
-        end
-    end
-    if State.CustomSpellDefs and State.CustomSpellDefs[low] then
-        local rebuilt = CustomSpells.BuildCustomRegistryEntries(
-            { [low] = State.CustomSpellDefs[low] },
-            State.SpellRegistry, State.SpellChains, State.RuneItemDataCache,
-            SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName)
-        if rebuilt[low] then
-            State.SpellRegistry[low] = rebuilt[low]
-            return rebuilt[low]
-        end
-    end
-    return nil
+    return ConfigManager.ResolveQuickCastEntry(State, spellName)
 end
 
 local function PollQuickCastHotkeys(now, pc, pawn, combatMagic)

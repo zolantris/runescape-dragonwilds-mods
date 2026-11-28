@@ -344,6 +344,100 @@ function ConfigManager.ResolveStepEntry(state, stage, stepDescriptor)
     return nil
 end
 
+local function IsEntryUsable(entry)
+    if not entry then return false end
+    if entry.suppressBaseSpell then return true end
+    return entry.spellObj ~= nil and entry.spellObj:IsValid()
+end
+
+function ConfigManager.ResolveQuickCastEntry(state, spellName)
+    if type(state) ~= "table" then return nil end
+    local clean = ConfigManager.Trim(tostring(spellName or ""))
+    if clean == "" then return nil end
+    local low = clean:lower()
+    local reg = state.SpellRegistry or {}
+
+    local function lookupAsset(assetName)
+        if type(assetName) ~= "string" or assetName == "" then return nil end
+        local e = reg[assetName:lower()]
+        if IsEntryUsable(e) then return e end
+        return nil
+    end
+
+    -- 1. Direct exact match in SpellRegistry (custom spells, DA_Spell_*, UtilitySpellData, etc.)
+    local direct = lookupAsset(low)
+    if direct then return direct end
+
+    -- 2. Global friendly alias (*.name in spell_names.txt)
+    if state.GlobalNameMap and state.GlobalNameMap[low] then
+        local mapped = lookupAsset(state.GlobalNameMap[low])
+        if mapped then return mapped end
+    end
+
+    -- 3. Category-qualified friendly alias (e.g. "Air.vortex", "Water.wave", "AncientMagicks.ice_barrage")
+    local catPart, aliasPart = low:match("^([^%.]+)%.(.+)$")
+    if catPart and aliasPart and state.NameMapByCat and state.NameMapByCat[catPart] then
+        local mapped = lookupAsset(state.NameMapByCat[catPart][aliasPart])
+        if mapped then return mapped end
+    end
+
+    -- 4. DiscoveredLookup (montage names, stripped modded names like "icebarrage")
+    if state.DiscoveredLookup and state.DiscoveredLookup[low] then
+        local mapped = lookupAsset(state.DiscoveredLookup[low])
+        if mapped then return mapped end
+    end
+
+    -- 5. Unqualified friendly alias across NameMapByCat (e.g. "vortex", "wave", "burst", "tsunami")
+    -- Prefer base categories over *_wand variants when an alias exists in multiple categories.
+    if state.NameMapByCat then
+        local cats = {}
+        for catKey in pairs(state.NameMapByCat) do
+            table.insert(cats, catKey)
+        end
+        table.sort(cats, function(a, b)
+            local aWand = a:find("_wand", 1, true) ~= nil
+            local bWand = b:find("_wand", 1, true) ~= nil
+            if aWand ~= bWand then return not aWand end
+            return a < b
+        end)
+        for _, catKey in ipairs(cats) do
+            local catMap = state.NameMapByCat[catKey]
+            if type(catMap) == "table" and catMap[low] then
+                local mapped = lookupAsset(catMap[low])
+                if mapped then return mapped end
+            end
+        end
+    end
+
+    -- 6. Lazy-rebuild custom spell if not yet registered
+    if state.CustomSpellDefs and state.CustomSpellDefs[low] then
+        local rebuilt = CustomSpells.BuildCustomRegistryEntries(
+            { [low] = state.CustomSpellDefs[low] },
+            reg, state.SpellChains, state.RuneItemDataCache,
+            SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName)
+        if rebuilt[low] then
+            reg[low] = rebuilt[low]
+            return rebuilt[low]
+        end
+    end
+
+    -- 7. Fallback to chain name (e.g. "Air", "Fire") -> first step in chain
+    if state.SpellChains and state.SpellChains[low] then
+        local chain = state.SpellChains[low]
+        if chain.stepNames then
+            for idx = 0, 3 do
+                local sName = chain.stepNames[idx]
+                if sName then
+                    local mapped = lookupAsset(sName)
+                    if mapped then return mapped end
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
 function ConfigManager.DescribeStepDescriptor(state, stage, stepDescriptor)
     if not stepDescriptor then return "<nil>" end
     local tok = tostring(stepDescriptor.token or "?")
