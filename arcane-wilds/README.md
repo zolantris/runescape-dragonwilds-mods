@@ -166,6 +166,11 @@ See [`scripts/README.md`](../scripts/README.md) and [`unreal-engine/README.md`](
 _Changes since [ArcaneWilds-v1.0.0](https://github.com/zolantris/runescape-dragonwilds-mods/releases/tag/ArcaneWilds-v1.0.0)_
 
 
+- **2026-11-28** - Chore/builtin spells working for quickcast (#11) ([853a9be](https://github.com/zolantris/runescape-dragonwilds-mods/commit/853a9bea07de0599f4b1d9c188eabbc3bea45b86))
+- **2026-11-27** - Fix/ensure abilities work and studio works (#10) ([a65eef3](https://github.com/zolantris/runescape-dragonwilds-mods/commit/a65eef358a066253704a3737ccc0080c209d573a))
+- **2026-11-27** - add workflow to create release (#7) ([997830e](https://github.com/zolantris/runescape-dragonwilds-mods/commit/997830ea255d1923aec605b4121697ab7ef49490))
+- **2026-11-27** - use game local folder over top level arcanewilds folder if it exists (#8) ([9ed1efb](https://github.com/zolantris/runescape-dragonwilds-mods/commit/9ed1efb2ea58a2e00357d83f4a757378f6fdfc35))
+- **2026-11-27** - Chore/bbcode formatter and readme updates (#6) ([b22dba2](https://github.com/zolantris/runescape-dragonwilds-mods/commit/b22dba24ce62fff4820893ae6284adb196855cf5))
 - **2026-11-27** - skip if lua or json was not modified for lua and json tests (#5) ([95c5469](https://github.com/zolantris/runescape-dragonwilds-mods/commit/95c5469fca7251130e73fda94e1cccaa9fe66961))
 - **2026-11-27** - use latest github actions and fix deploy (#4) ([24db8e3](https://github.com/zolantris/runescape-dragonwilds-mods/commit/24db8e350e1e2855d0db407c5a62e96c1d652b95))
 - **2026-11-27** - Feat/arcane wilds gui (#3) ([4f26f92](https://github.com/zolantris/runescape-dragonwilds-mods/commit/4f26f925b03681a0693aa1f165a1c5af7a282471))
