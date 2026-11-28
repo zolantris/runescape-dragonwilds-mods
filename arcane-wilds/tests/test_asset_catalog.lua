@@ -78,6 +78,23 @@ T.Suite("AssetCatalog (Detected Spells, VFX, SFX, Montages)", function()
         T.AssertEq(catalog.montages[1].shortName, "AM_Spell_Air_01")
     end)
 
+    T.Test("BuildCatalog handles nil/missing shortName or path fields without throwing lower() error", function()
+        Mock.Reset()
+        local catalog = AssetCatalog.BuildCatalog({
+            modVersion = "1.1.0",
+            baseSpellRegistry = {
+                s1 = { shortName = nil, fullName = "/Game/Spells/S1.S1", categoryTag = nil, stepIndex = nil },
+                s2 = { shortName = "DA_Spell_2", fullName = "/Game/Spells/S2.S2", categoryTag = "Air", stepIndex = 0 },
+            },
+            vfxPathLookup = {
+                alias_a = "/Game/VFX/NS_A.NS_A",
+                alias_b = "/Game/VFX/NS_B.NS_B",
+            },
+        })
+        T.AssertEq(#catalog.spells, 1)
+        T.AssertEq(#catalog.vfx, 2)
+    end)
+
     T.Test("ExportCatalogFile persists and merges across scans and overlays alias files", function()
         Mock.Reset()
         local dir, sep = MakeTempDir()

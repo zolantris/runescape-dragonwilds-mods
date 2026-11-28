@@ -25,9 +25,9 @@
 * **Hold-to-Auto-Attack (`EnableAutoAttackHold=true`)**: Hold Left-Click (`LMB`) or Right Trigger (`RT`) to chain casts continuously when idle—both inside Block/Modifier combos and on standard attacks (`AutoAttackAllCombos=true`).
 
 ### Quick-Cast Hotkeys & EnhancedInput Suppression
-* **Direct Spell & Combo Hotkeys (`quick_cast.txt` & Mod Menu)**:
+* **Direct Spell & Combo Hotkeys (`quick_cast.json` & Mod Menu)**:
   * Cast any custom spell, native `DA_Spell_*` asset, or inline combo chain instantly using keyboard and controller bindings (with `Block`, `Shift`, `Alt`, `Ctrl`, or `None` modifiers).
-  * Ships with 4 default bindings (editable in `quick_cast.txt` for unlimited slots, or via Slots #1–#4 in Mod Menu / `config.txt`):
+  * Ships with 4 default bindings (editable in `quick_cast.json` for unlimited slots, or via Slots #1–#4 in Mod Menu / `config.txt`):
     * `Block + 1` / `GP_X` -> **Saradomin Godsword**
     * `Block + 2` / `GP_Y` -> **Flames of Zamorak**
     * `Block + 3` / `GP_B` -> **Storm of Armadyl**
@@ -114,7 +114,7 @@ Most runtime settings can be edited live in-game via **Mod Menu** (`Esc > MODS >
 | `modmenu.json` | Mod Menu UI schema exposing runtime settings under `Esc > MODS`. |
 | `combo_rules.json` | Active weighted combo chains (validated by `schemas/combo_rules.schema.json`; templates in `combo_rules_examples.json`). |
 | `custom_spells.json` | Custom spell definitions, requirements, scaling, and cue timelines (validated by `schemas/custom_spells.schema.json`). |
-| `quick_cast.txt` | Unlimited Quick-Cast spell & inline combo hotkey bindings. |
+| `quick_cast.json` | Unlimited Quick-Cast spell & inline combo hotkey bindings. |
 | `spell_names.txt` | Friendly name-to-asset aliases (e.g., `Air.slam = DA_Spell_Primary_Air_04`, Ancient Magicks, Conjurer). |
 | `detected_spells.txt` / `detected_vfx.txt` | Auto-exported catalogs of loaded `DominionSpellData` assets, montages, and Niagara VFX paths (plus optional user-created `vfx_names.txt` aliases). |
 

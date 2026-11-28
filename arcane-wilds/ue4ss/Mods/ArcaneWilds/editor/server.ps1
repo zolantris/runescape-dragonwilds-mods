@@ -351,6 +351,27 @@ function Build-FallbackCatalog {
     } | ConvertTo-Json -Depth 10
 }
 
+# Single-instance check: if an Arcane Wilds editor server is already running on $Port,
+# just open the browser to the existing URL and exit instead of spawning a duplicate server.
+$existingUrl = "http://127.0.0.1:$Port/"
+try {
+    $probeReq = [System.Net.HttpWebRequest]::Create("${existingUrl}api/status")
+    $probeReq.Method = "GET"
+    $probeReq.Timeout = 500
+    $probeReq.ReadWriteTimeout = 500
+    $probeRes = $probeReq.GetResponse()
+    $probeOk = ($probeRes.StatusCode -eq [System.Net.HttpStatusCode]::OK)
+    $probeRes.Close()
+    if ($probeOk) {
+        if (-not $NoBrowser) {
+            Start-Process $existingUrl | Out-Null
+        }
+        exit 0
+    }
+} catch {
+    # Not running on $Port yet; proceed to start listener
+}
+
 # Start HttpListener on the first free port starting at $Port
 $listener = $null
 $boundPort = $Port
@@ -417,7 +438,7 @@ try {
                     files          = [ordered]@{
                         default_spells   = Get-FileMtimeIso (Join-Path $ModDir "custom_spells.json")
                         default_combos   = Get-FileMtimeIso (Join-Path $ModDir "combo_rules.json")
-                        default_qc       = Get-FileMtimeIso (Join-Path $ModDir "quick_cast.txt")
+                        default_qc       = $(if (Test-Path -LiteralPath (Join-Path $ModDir "quick_cast.json") -PathType Leaf) { Get-FileMtimeIso (Join-Path $ModDir "quick_cast.json") } else { Get-FileMtimeIso (Join-Path $ModDir "quick_cast.txt") })
                         detected_catalog = Get-FileMtimeIso (Join-Path $ModDir "detected_catalog.json")
                         user_spells      = Get-FileMtimeIso (Join-Path $UserDir "user_spells.json")
                         user_combos      = Get-FileMtimeIso (Join-Path $UserDir "user_combos.json")
@@ -431,13 +452,36 @@ try {
             if ($path -eq "/api/defaults" -and $method -eq "GET") {
                 $defSpPath = Join-Path $ModDir "custom_spells.json"
                 $defCbPath = Join-Path $ModDir "combo_rules.json"
+                $defQcJsonPath = Join-Path $ModDir "quick_cast.json"
                 $defQcPath = Join-Path $ModDir "quick_cast.txt"
 
                 $defSpRaw = if (Test-Path -LiteralPath $defSpPath -PathType Leaf) { [System.IO.File]::ReadAllText($defSpPath, [System.Text.Encoding]::UTF8) } else { '{"schemaVersion":1,"spells":{}}' }
                 $defCbRaw = if (Test-Path -LiteralPath $defCbPath -PathType Leaf) { [System.IO.File]::ReadAllText($defCbPath, [System.Text.Encoding]::UTF8) } else { '{"schemaVersion":1,"rules":[]}' }
 
                 $qcBindings = @()
-                if (Test-Path -LiteralPath $defQcPath -PathType Leaf) {
+                if (Test-Path -LiteralPath $defQcJsonPath -PathType Leaf) {
+                    try {
+                        $qcDoc = [System.IO.File]::ReadAllText($defQcJsonPath, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
+                        if ($qcDoc -and $qcDoc.bindings) {
+                            foreach ($item in $qcDoc.bindings) {
+                                $mod = if ($item.modifier) { ([string]$item.modifier).Trim().ToUpperInvariant() } else { "BLOCK" }
+                                if ($mod -in @("RMB", "MODIFIER", "MOD")) { $mod = "BLOCK" }
+                                elseif ($mod -in @("OFF", "FALSE", "")) { $mod = "NONE" }
+                                $keys = @($item.keys | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -ne "" })
+                                $target = if ($item.target) { ([string]$item.target).Trim() } else { "" }
+                                $enabled = if ($null -ne $item.enabled) { [bool]$item.enabled } else { $true }
+                                $ctrlMod = if ($item.controllerModifier) { ([string]$item.controllerModifier).Trim().ToUpperInvariant() } else { "" }
+                                if ($keys.Count -gt 0 -and $target -ne "") {
+                                    $entry = [ordered]@{ enabled = $enabled; modifier = $mod; keys = $keys; target = $target }
+                                    if ($ctrlMod -ne "") { $entry.controllerModifier = $ctrlMod }
+                                    $qcBindings += $entry
+                                }
+                            }
+                        }
+                    } catch {
+                        # Fall back to empty if malformed
+                    }
+                } elseif (Test-Path -LiteralPath $defQcPath -PathType Leaf) {
                     foreach ($line in (Get-Content -LiteralPath $defQcPath -Encoding UTF8)) {
                         $clean = $line.Trim()
                         if ($clean -eq "" -or $clean.StartsWith("#") -or $clean.StartsWith(";")) { continue }

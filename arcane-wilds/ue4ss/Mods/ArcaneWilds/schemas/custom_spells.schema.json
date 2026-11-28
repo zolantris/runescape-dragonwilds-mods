@@ -31,7 +31,7 @@
     },
     "spells": {
       "type": "object",
-      "description": "Map of internal spell IDs (referenced in combo_rules.json and quick_cast.txt) to custom spell definitions.",
+      "description": "Map of internal spell IDs (referenced in combo_rules.json and quick_cast.json) to custom spell definitions.",
       "minProperties": 0,
       "additionalProperties": {
         "$ref": "#/definitions/CustomSpell"
