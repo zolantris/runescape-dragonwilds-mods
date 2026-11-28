@@ -256,13 +256,14 @@ T.Suite("Persistent User Layer vs Immutable Mod Defaults", function()
                 "schemaVersion": 1,
                 "overrideDefaults": true,
                 "bindings": [
-                    { "enabled": true, "modifier": "SHIFT", "keys": ["F", "GP_Y"], "target": "MyCustomSpell" },
+                    { "enabled": true, "modifier": "SHIFT", "controllerModifier": "GP_LB", "keys": ["F", "GP_Y"], "target": "MyCustomSpell" },
                     { "enabled": false, "modifier": "BLOCK", "keys": ["2"], "target": "DisabledSlot" }
                 ]
             }]])
             ConfigManager.LoadQuickCastFile(paths, cfg, st, function() end, false, false)
             T.AssertEq(#st.QuickCastBindings, 1)
             T.AssertEq(st.QuickCastBindings[1].modifier, "SHIFT")
+            T.AssertEq(st.QuickCastBindings[1].controllerModifier, "GP_LB")
             T.AssertEq(st.QuickCastBindings[1].target, "MyCustomSpell")
             T.AssertEq(st.QuickCastBindings[1].keysRaw, "F, GP_Y")
 

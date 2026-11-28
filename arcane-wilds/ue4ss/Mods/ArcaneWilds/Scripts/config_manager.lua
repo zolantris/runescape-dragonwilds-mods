@@ -176,7 +176,11 @@ local DEFAULT_QUICK_CAST_JSON_CONTENT = table.concat({
     '    { "enabled": true, "modifier": "BLOCK", "keys": ["1", "GP_X"], "target": "AirBlast" },',
     '    { "enabled": true, "modifier": "BLOCK", "keys": ["2", "GP_Y"], "target": "FlamesOfZamorak" },',
     '    { "enabled": true, "modifier": "BLOCK", "keys": ["3", "GP_B"], "target": "StormOfArmadyl" },',
-    '    { "enabled": true, "modifier": "BLOCK", "keys": ["4", "GP_A"], "target": "SaradominStrike" }',
+    '    { "enabled": true, "modifier": "BLOCK", "keys": ["4", "GP_A"], "target": "SaradominStrike" },',
+    '    { "enabled": true, "modifier": "BLOCK", "keys": ["5", "GP_UP"], "target": "FireSurgeCombo" },',
+    '    { "enabled": true, "modifier": "BLOCK", "keys": ["6", "GP_RIGHT"], "target": "TidalSurgeCombo" },',
+    '    { "enabled": true, "modifier": "BLOCK", "keys": ["7", "GP_DOWN"], "target": "SaradominGodsword" },',
+    '    { "enabled": true, "modifier": "BLOCK", "keys": ["8", "GP_LEFT"], "target": "SaradominTempest" }',
     '  ]',
     '}'
 }, "\n") .. "\n"
@@ -908,14 +912,22 @@ local function ParseUserQuickCastJson(rawJson, defaultRequireMod)
                         or (defaultRequireMod and "BLOCK" or "NONE")
                     if mod == "RMB" or mod == "MODIFIER" or mod == "MOD" then mod = "BLOCK"
                     elseif mod == "OFF" or mod == "FALSE" or mod == "" then mod = "NONE" end
+                    local ctrlMod = nil
+                    if item.controllerModifier ~= nil then
+                        local cm = ConfigManager.Trim(tostring(item.controllerModifier)):upper()
+                        if cm == "RMB" or cm == "MODIFIER" or cm == "MOD" then cm = "BLOCK"
+                        elseif cm == "OFF" or cm == "FALSE" then cm = "NONE" end
+                        if cm ~= "" then ctrlMod = cm end
+                    end
                     local keysRaw = table.concat(rawKeys, ", ")
                     table.insert(bindings, {
                         modifier = mod,
+                        controllerModifier = ctrlMod,
                         keysRaw = keysRaw,
                         rawKeys = rawKeys,
                         target = target,
                         isCombo = (target:find("@", 1, true) ~= nil) or (target:find("->", 1, true) ~= nil),
-                        raw = mod .. " + " .. keysRaw .. " = " .. target,
+                        raw = mod .. (ctrlMod and ("/" .. ctrlMod) or "") .. " + " .. keysRaw .. " = " .. target,
                     })
                 end
             end

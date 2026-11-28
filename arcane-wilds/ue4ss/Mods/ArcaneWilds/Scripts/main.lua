@@ -444,6 +444,9 @@ local function PollQuickCastHotkeys(now, pc, pawn, combatMagic)
             State._QuickCastPrevDown[idx] = anyDown
 
             local effMod = binding.modifier
+            if triggeredKey and triggeredKey:sub(1, 8) == "Gamepad_" and binding.controllerModifier and binding.controllerModifier ~= "" then
+                effMod = binding.controllerModifier
+            end
             if Config.QuickCastRequireModifier == false and (effMod == "BLOCK" or effMod == "RMB" or effMod == "MODIFIER") then
                 effMod = "NONE"
             end
@@ -588,11 +591,13 @@ local function LaunchWebEditor()
     State.LastEditorLaunchTime = now
     local serverPs1 = MOD_DIR .. "editor\\server.ps1"
     local cleanModDir = MOD_DIR:gsub("[\\/]+$", "")
-    -- Launch hidden PowerShell without opening a persistent console window; server.ps1 is single-instance
-    -- and reuses an already-running server on port 47821 if present.
+    -- Detach a completely hidden PowerShell process via Start-Process so os.execute() returns
+    -- immediately without inheriting stdout/stderr handles or leaving a console window open.
+    local psSafeScript = serverPs1:gsub("'", "''")
+    local psSafeModDir = cleanModDir:gsub("'", "''")
     local cmd = string.format(
-        'start "" /b powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%s" -ModDir "%s"',
-        serverPs1, cleanModDir
+        'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process -WindowStyle Hidden -FilePath \'powershell.exe\' -ArgumentList \'-NoProfile\', \'-ExecutionPolicy\', \'Bypass\', \'-WindowStyle\', \'Hidden\', \'-File\', \'%s\', \'-ModDir\', \'%s\'"',
+        psSafeScript, psSafeModDir
     )
     Log("Launching Arcane Wilds Spell & Combo Studio (Web GUI)...")
     local function doExec()

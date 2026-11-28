@@ -25,6 +25,30 @@
       "modifier": "BLOCK",
       "keys": ["4", "GP_A"],
       "target": "SaradominStrike"
+    },
+    {
+      "enabled": true,
+      "modifier": "BLOCK",
+      "keys": ["5", "GP_UP"],
+      "target": "FireSurgeCombo"
+    },
+    {
+      "enabled": true,
+      "modifier": "BLOCK",
+      "keys": ["6", "GP_RIGHT"],
+      "target": "TidalSurgeCombo"
+    },
+    {
+      "enabled": true,
+      "modifier": "BLOCK",
+      "keys": ["7", "GP_DOWN"],
+      "target": "SaradominGodsword"
+    },
+    {
+      "enabled": true,
+      "modifier": "BLOCK",
+      "keys": ["8", "GP_LEFT"],
+      "target": "SaradominTempest"
     }
   ]
 }

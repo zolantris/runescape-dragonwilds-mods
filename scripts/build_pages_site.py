@@ -72,13 +72,17 @@ def parse_quick_cast(path: Path) -> list[dict]:
                 keys = [str(k).strip() for k in item.get("keys", []) if str(k).strip()]
                 target = str(item.get("target", "")).strip()
                 enabled = bool(item.get("enabled", True))
+                ctrl_mod = str(item.get("controllerModifier", "")).strip().upper()
                 if keys and target:
-                    bindings.append({
+                    entry = {
                         "enabled": enabled,
                         "modifier": mod,
                         "keys": keys,
                         "target": target,
-                    })
+                    }
+                    if ctrl_mod:
+                        entry["controllerModifier"] = ctrl_mod
+                    bindings.append(entry)
         except Exception:
             pass
         return bindings

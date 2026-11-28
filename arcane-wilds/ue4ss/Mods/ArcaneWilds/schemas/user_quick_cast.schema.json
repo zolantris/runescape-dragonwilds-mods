@@ -30,6 +30,12 @@
             "enum": ["BLOCK", "SHIFT", "ALT", "CTRL", "NONE"],
             "default": "BLOCK"
           },
+          "controllerModifier": {
+            "type": "string",
+            "enum": ["", "BLOCK", "GP_LT", "GP_LB", "GP_RB", "GP_RT", "NONE"],
+            "default": "",
+            "description": "Optional controller-only modifier override for gamepad keys in this binding. When empty or omitted, gamepad keys inherit modifier."
+          },
           "keys": {
             "type": "array",
             "minItems": 1,

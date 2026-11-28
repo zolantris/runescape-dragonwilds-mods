@@ -3,6 +3,15 @@
 import { createCombobox } from "./combobox.js";
 
 const MODIFIERS = ["BLOCK", "SHIFT", "ALT", "CTRL", "NONE"];
+const CTRL_MODIFIERS = [
+  { value: "", label: "Controller: Same" },
+  { value: "BLOCK", label: "Controller: BLOCK" },
+  { value: "GP_LT", label: "Controller: GP_LT" },
+  { value: "GP_LB", label: "Controller: GP_LB" },
+  { value: "GP_RB", label: "Controller: GP_RB" },
+  { value: "GP_RT", label: "Controller: GP_RT" },
+  { value: "NONE", label: "Controller: NONE" },
+];
 
 export class QuickCastTab {
   constructor({ containerEl, modeBadgeEl, catalogStore, getState, onDirty }) {
@@ -84,6 +93,27 @@ export class QuickCastTab {
         this.render();
       });
 
+      const ctrlModSel = document.createElement("select");
+      ctrlModSel.className = "select";
+      ctrlModSel.title = "Optional controller-only modifier override";
+      CTRL_MODIFIERS.forEach((cm) => {
+        const opt = document.createElement("option");
+        opt.value = cm.value;
+        opt.textContent = cm.label;
+        if (cm.value === (b.controllerModifier || "")) opt.selected = true;
+        ctrlModSel.appendChild(opt);
+      });
+      ctrlModSel.addEventListener("change", () => {
+        ensureUserCopy();
+        if (ctrlModSel.value) {
+          qc.bindings[idx].controllerModifier = ctrlModSel.value;
+        } else {
+          delete qc.bindings[idx].controllerModifier;
+        }
+        this.onDirty();
+        this.render();
+      });
+
       const keysInp = document.createElement("input");
       keysInp.type = "text";
       keysInp.className = "input";
@@ -117,7 +147,7 @@ export class QuickCastTab {
         this.render();
       });
 
-      row.append(chk, modSel, keysInp, targetCombo, delBtn);
+      row.append(chk, modSel, ctrlModSel, keysInp, targetCombo, delBtn);
       this.containerEl.appendChild(row);
     });
   }

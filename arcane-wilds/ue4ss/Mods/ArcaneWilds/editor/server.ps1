@@ -470,8 +470,11 @@ try {
                                 $keys = @($item.keys | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -ne "" })
                                 $target = if ($item.target) { ([string]$item.target).Trim() } else { "" }
                                 $enabled = if ($null -ne $item.enabled) { [bool]$item.enabled } else { $true }
+                                $ctrlMod = if ($item.controllerModifier) { ([string]$item.controllerModifier).Trim().ToUpperInvariant() } else { "" }
                                 if ($keys.Count -gt 0 -and $target -ne "") {
-                                    $qcBindings += [ordered]@{ enabled = $enabled; modifier = $mod; keys = $keys; target = $target }
+                                    $entry = [ordered]@{ enabled = $enabled; modifier = $mod; keys = $keys; target = $target }
+                                    if ($ctrlMod -ne "") { $entry.controllerModifier = $ctrlMod }
+                                    $qcBindings += $entry
                                 }
                             }
                         }
