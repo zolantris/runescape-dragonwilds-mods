@@ -1,6 +1,7 @@
 param(
     [string]$ModDir = "",
     [string]$UserDir = "",
+    [string]$CatalogPath = "",
     [int]$Port = 47821,
     [switch]$NoBrowser
 )
@@ -528,7 +529,11 @@ try {
             }
 
             if ($path -eq "/api/catalog" -and $method -eq "GET") {
-                $catPath = Join-Path $ModDir "detected_catalog.json"
+                $catPath = if (-not [string]::IsNullOrWhiteSpace($CatalogPath) -and (Test-Path -LiteralPath $CatalogPath -PathType Leaf)) {
+                    $CatalogPath
+                } else {
+                    Join-Path $ModDir "detected_catalog.json"
+                }
                 if (Test-Path -LiteralPath $catPath -PathType Leaf) {
                     $raw = Get-Content -LiteralPath $catPath -Raw -Encoding UTF8
                     Write-JsonResponse $res 200 $raw
