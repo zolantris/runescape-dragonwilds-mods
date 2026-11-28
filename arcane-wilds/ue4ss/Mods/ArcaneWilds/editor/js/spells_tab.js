@@ -45,11 +45,22 @@ export class SpellsTab {
     this.selectedLayer = "user"; // "user" | "default"
     this.viewMode = "gui"; // "gui" | "json"
     this.filterText = "";
+    this.spellModeOverrides = new Map(); // id -> "single" | "timeline"
 
     this.searchInputEl.addEventListener("input", () => {
       this.filterText = this.searchInputEl.value.trim().toLowerCase();
       this.renderList();
     });
+  }
+
+  getSpellMode(id, def) {
+    if (this.spellModeOverrides.has(id)) {
+      return this.spellModeOverrides.get(id);
+    }
+    if (def && typeof def.baseSpell === "string" && def.baseSpell.trim() !== "") {
+      return "single";
+    }
+    return "timeline";
   }
 
   hasBuiltInId(id) {
@@ -194,8 +205,10 @@ export class SpellsTab {
       nameEl.textContent = def?.displayName || id;
       const subEl = document.createElement("div");
       subEl.className = "spell-item-sub";
+      const mode = this.getSpellMode(id, def);
       const cueCount = Array.isArray(def?.cues) ? def.cues.length : 0;
-      subEl.textContent = `${id} · ${def?.category || "Custom"} · ${cueCount} cue(s)`;
+      const modeLabel = mode === "single" ? "Single Spell" : `Combo · ${cueCount} cue(s)`;
+      subEl.textContent = `${id} · ${def?.category || "Custom"} · ${modeLabel}`;
       left.append(nameEl, subEl);
 
       const chk = document.createElement("input");
@@ -373,6 +386,7 @@ export class SpellsTab {
       }));
       topBtns.appendChild(makeBtn("Delete Spell", "btn-danger btn-sm", () => {
         delete userSpells[id];
+        this.spellModeOverrides.delete(id);
         this.selectedId = Object.keys(userSpells)[0] || null;
         this.onDirty();
         this.render();
@@ -416,8 +430,66 @@ export class SpellsTab {
       formHost.className = "readonly-fieldset";
     }
 
+    const spellMode = this.getSpellMode(id, def);
+    const isSingle = spellMode === "single";
+
     // Section 1: Core Properties
     const coreCard = makeSectionCard("Core Properties");
+
+    // Spell Type Selector (Single Spell vs Combo / Multi-Step Timeline)
+    const modeRow = document.createElement("div");
+    modeRow.className = "spell-type-row";
+
+    const modeLabel = document.createElement("div");
+    modeLabel.className = "spell-type-label";
+    modeLabel.innerHTML = `<label>Spell Type</label>`;
+
+    const modeToggle = document.createElement("div");
+    modeToggle.className = "view-mode-toggle spell-type-toggle";
+    modeToggle.setAttribute("role", "group");
+    modeToggle.setAttribute("aria-label", "Spell type");
+
+    const singleBtn = document.createElement("button");
+    singleBtn.type = "button";
+    singleBtn.className = `view-mode-btn${isSingle ? " active" : ""}`;
+    singleBtn.textContent = "Single Spell (Base Spell)";
+    singleBtn.disabled = readOnly;
+    singleBtn.addEventListener("click", () => {
+      if (readOnly || isSingle) return;
+      this.spellModeOverrides.set(id, "single");
+      if (Array.isArray(def.cues) && def.cues.length > 0) {
+        def.cues = [];
+        this.onWarn("Timeline cues were cleared because Single Spell mode casts a single Base Spell.");
+      }
+      this.onDirty();
+      this.render();
+    });
+
+    const timelineBtn = document.createElement("button");
+    timelineBtn.type = "button";
+    timelineBtn.className = `view-mode-btn${!isSingle ? " active" : ""}`;
+    timelineBtn.textContent = "Combo / Multi-Step Timeline";
+    timelineBtn.disabled = readOnly;
+    timelineBtn.addEventListener("click", () => {
+      if (readOnly || !isSingle) return;
+      this.spellModeOverrides.set(id, "timeline");
+      def.baseSpell = null;
+      if (!Array.isArray(def.cues)) def.cues = [];
+      this.onDirty();
+      this.render();
+    });
+
+    modeToggle.append(singleBtn, timelineBtn);
+
+    const modeHint = document.createElement("div");
+    modeHint.className = "spell-type-hint";
+    modeHint.textContent = isSingle
+      ? "Casts one in-game Base Spell with custom speed, rune cost, and scaling. Timeline cues are disabled."
+      : "Chains multiple spells, VFX, SFX, hits, and animations on a custom Spell Combo Timeline (no single Base Spell).";
+
+    modeRow.append(modeLabel, modeToggle, modeHint);
+    coreCard.appendChild(modeRow);
+
     const coreGrid = document.createElement("div");
     coreGrid.className = "grid-3";
 
@@ -437,6 +509,10 @@ export class SpellsTab {
       }
       spells[nextId] = def;
       delete spells[id];
+      if (this.spellModeOverrides.has(id)) {
+        this.spellModeOverrides.set(nextId, this.spellModeOverrides.get(id));
+        this.spellModeOverrides.delete(id);
+      }
       this.selectedId = nextId;
       this.onDirty();
       this.render();
@@ -464,19 +540,21 @@ export class SpellsTab {
     }));
     coreGrid.appendChild(catField);
 
-    const baseSpellField = document.createElement("div");
-    baseSpellField.className = "field";
-    baseSpellField.innerHTML = `<label>Base Spell (Detected)</label>`;
-    baseSpellField.appendChild(createCombobox({
-      value: def.baseSpell ?? "",
-      placeholder: "(None — Pure Custom / Timeline)",
-      getOptions: () => this.catalogStore.getDetectedSpellOptions(true),
-      onChange: (v) => {
-        def.baseSpell = v.trim() === "" ? null : v.trim();
-        this.onDirty();
-      },
-    }));
-    coreGrid.appendChild(baseSpellField);
+    if (isSingle) {
+      const baseSpellField = document.createElement("div");
+      baseSpellField.className = "field";
+      baseSpellField.innerHTML = `<label>Base Spell (Detected)</label>`;
+      baseSpellField.appendChild(createCombobox({
+        value: def.baseSpell ?? "",
+        placeholder: "Pick an in-game base spell…",
+        getOptions: () => this.catalogStore.getDetectedSpellOptions(false),
+        onChange: (v) => {
+          def.baseSpell = v.trim() === "" ? null : v.trim();
+          this.onDirty();
+        },
+      }));
+      coreGrid.appendChild(baseSpellField);
+    }
 
     coreGrid.appendChild(makeNumberField("Cast Speed Multiplier", def.speed ?? 1.0, 0.1, 0.1, (v) => {
       def.speed = v;
@@ -573,51 +651,59 @@ export class SpellsTab {
     progCard.appendChild(progGrid);
     formHost.appendChild(progCard);
 
-    // Section 3: Timeline Cues Builder
-    const cuesCard = makeSectionCard("Timeline Cues (VFX, SFX, Spells, Hits, Animations)");
-    const cuesHeader = cuesCard.querySelector("h3");
-    if (!readOnly) {
-      const addCueWrap = document.createElement("div");
-      addCueWrap.className = "combo-row-actions";
+    // Section 3: Spell Combo Timeline (only shown for Combo / Multi-Step Timeline spells)
+    if (!isSingle) {
+      const cuesCard = makeSectionCard("Spell Combo Timeline (Multi-Step Cues)");
+      const cuesHeader = cuesCard.querySelector("h3");
+      if (!readOnly) {
+        const addCueWrap = document.createElement("div");
+        addCueWrap.className = "combo-row-actions";
 
-      const cueTypeSelect = document.createElement("select");
-      cueTypeSelect.className = "select";
-      cueTypeSelect.style.width = "140px";
-      CUE_TYPES.forEach((t) => {
-        const opt = document.createElement("option");
-        opt.value = t;
-        opt.textContent = t;
-        cueTypeSelect.appendChild(opt);
-      });
+        const cueTypeSelect = document.createElement("select");
+        cueTypeSelect.className = "select";
+        cueTypeSelect.style.width = "140px";
+        CUE_TYPES.forEach((t) => {
+          const opt = document.createElement("option");
+          opt.value = t;
+          opt.textContent = t;
+          cueTypeSelect.appendChild(opt);
+        });
 
-      addCueWrap.append(cueTypeSelect, makeBtn("+ Add Cue", "btn-primary btn-xs", () => {
-        if (!Array.isArray(def.cues)) def.cues = [];
-        def.cues.push(createDefaultCue(cueTypeSelect.value));
-        this.onDirty();
-        this.render();
-      }));
-      cuesHeader.appendChild(addCueWrap);
+        addCueWrap.append(cueTypeSelect, makeBtn("+ Add Cue", "btn-primary btn-xs", () => {
+          if (!Array.isArray(def.cues)) def.cues = [];
+          def.cues.push(createDefaultCue(cueTypeSelect.value));
+          this.onDirty();
+          this.render();
+        }));
+        cuesHeader.appendChild(addCueWrap);
+      }
+
+      const timelineHint = document.createElement("div");
+      timelineHint.className = "combo-row-meta";
+      timelineHint.style.marginBottom = "10px";
+      timelineHint.textContent = "Orchestrate multi-step spells by adding timed cues (spell, vfx, sfx, hit, chainstrike, anim…).";
+      cuesCard.appendChild(timelineHint);
+
+      const cuesList = document.createElement("div");
+      cuesList.className = "cues-list";
+      const cues = Array.isArray(def.cues) ? def.cues : [];
+
+      if (cues.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "combo-row-meta";
+        empty.textContent = readOnly
+          ? "This built-in spell has no timeline cues."
+          : "No timeline cues yet. Pick a cue type (spell, vfx, sfx, hit, anim, chainstrike…) and click + Add Cue.";
+        cuesList.appendChild(empty);
+      } else {
+        cues.forEach((cue, cIdx) => {
+          cuesList.appendChild(this.renderCueCard(def, cue, cIdx, { readOnly }));
+        });
+      }
+
+      cuesCard.appendChild(cuesList);
+      formHost.appendChild(cuesCard);
     }
-
-    const cuesList = document.createElement("div");
-    cuesList.className = "cues-list";
-    const cues = Array.isArray(def.cues) ? def.cues : [];
-
-    if (cues.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "combo-row-meta";
-      empty.textContent = readOnly
-        ? "This built-in spell has no timeline cues."
-        : "No timeline cues yet. Pick a cue type (vfx, sfx, spell, hit, anim, chainstrike…) and click + Add Cue.";
-      cuesList.appendChild(empty);
-    } else {
-      cues.forEach((cue, cIdx) => {
-        cuesList.appendChild(this.renderCueCard(def, cue, cIdx, { readOnly }));
-      });
-    }
-
-    cuesCard.appendChild(cuesList);
-    formHost.appendChild(cuesCard);
     this.editorEl.appendChild(formHost);
   }
 
