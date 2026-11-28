@@ -113,10 +113,10 @@ try {
 
     if (-not $SkipBuild) {
         if ($DryRun) {
-            Write-Host "[DRY-RUN] Would run build-mod.ps1 -ModFolder '$ModFolder' -Version '$Version' -Channel '$Channel'" -ForegroundColor DarkCyan
+            Write-Host "[DRY-RUN] Would run build-mod.ps1 -ModFolder '$ModFolder' -Version '$Version' -Channel '$Channel' -Prod" -ForegroundColor DarkCyan
         } else {
             $buildScript = Join-Path $PSScriptRoot "build-mod.ps1"
-            & $buildScript -ModFolder $ModFolder -Version $Version -Channel $Channel
+            & $buildScript -ModFolder $ModFolder -Version $Version -Channel $Channel -Prod
         }
     }
 

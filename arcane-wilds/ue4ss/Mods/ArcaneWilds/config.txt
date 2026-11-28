@@ -1,6 +1,6 @@
 Enabled=true
-DebugMode=true
-AllowDebugCommands=true
+DebugMode=false
+AllowDebugCommands=false
 DebugHotkey=BackSlash
 RequireModifierKey=true
 ModifierKey=RMB

@@ -1,0 +1,3 @@
+# Local development overrides merged into config.txt on dev builds (omitted when building with -Prod or publishing a release)
+DebugMode=true
+AllowDebugCommands=true
