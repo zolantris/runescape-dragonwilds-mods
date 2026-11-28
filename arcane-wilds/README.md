@@ -79,6 +79,28 @@ Define complete custom spells in `custom_spells.json` (JSONC comments and traili
 
 ---
 
+## Arcane Wilds Studio (Visual Config Editor)
+
+Use **Arcane Wilds Studio** to visually build and edit **Spell Combos**, **Custom Spells**, and **Quick-Cast Hotkeys** without hand-editing JSON.
+
+* **Web Studio (GitHub Pages — no install required):** [https://zolantris.github.io/runescape-dragonwilds-mods/](https://zolantris.github.io/runescape-dragonwilds-mods/)
+  * Edit configs in your browser, then click **Export & Reveal** (or **Bundle**) and drop the exported `user_*.json` files into `%LOCALAPPDATA%\ArcaneWilds\`.
+  * Also publishes [`llms.txt`](https://zolantris.github.io/runescape-dragonwilds-mods/llms.txt), JSON schemas, and the asset catalog so you can generate spells/combos with an AI assistant and paste them via **Import JSON**.
+* **Local Mode (1-click Save & live hot-reload):** Double-click `Launch-ArcaneWilds-Editor.bat` inside `ue4ss/Mods/ArcaneWilds/` (or run `.\mod.ps1 editor arcane-wilds`) to save directly to `%LOCALAPPDATA%\ArcaneWilds\` and hot-reload changes in-game immediately.
+
+> **Full step-by-step tutorial:** See [`docs/studio-guide.md`](./docs/studio-guide.md).
+
+### Combos Editor
+![Arcane Wilds Studio — Combos](https://raw.githubusercontent.com/zolantris/runescape-dragonwilds-mods/main/arcane-wilds/docs/arcane-wilds-config-combos.png)
+
+### Custom Spells Editor
+![Arcane Wilds Studio — Custom Spells](https://raw.githubusercontent.com/zolantris/runescape-dragonwilds-mods/main/arcane-wilds/docs/arcane-wilds-config-spells.png)
+
+### Quick-Cast Hotkeys Editor
+![Arcane Wilds Studio — Quick-Cast Hotkeys](https://raw.githubusercontent.com/zolantris/runescape-dragonwilds-mods/main/arcane-wilds/docs/arcane-wilds-config-hotkeys.png)
+
+---
+
 ## Configuration, Mod Menu & Hot-Reload
 
 Most runtime settings can be edited live in-game via **Mod Menu** (`Esc > MODS > Arcane Wilds`) or directly in `ue4ss/Mods/ArcaneWilds/`. Saving any editable file (`Ctrl+S`) **hot-reloads automatically in-game**—and if a JSON syntax error is saved, Arcane Wilds keeps the previous valid rules/spells active and logs the error.

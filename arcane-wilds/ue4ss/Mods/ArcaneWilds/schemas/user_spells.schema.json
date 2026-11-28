@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://arcanewilds.local/schemas/user_spells.schema.json",
+  "title": "Arcane Wilds Persistent User Spells",
+  "description": "Player-owned custom spells and disabled built-in default spell IDs stored in %LOCALAPPDATA%\\ArcaneWilds\\user_spells.json so mod updates never overwrite user customizations.",
+  "type": "object",
+  "required": ["schemaVersion", "spells"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "type": "integer", "minimum": 1 },
+    "format": { "type": "string", "const": "arcane-wilds.user_spells" },
+    "modVersion": { "type": "string" },
+    "exportedAt": { "type": "string" },
+    "disabledDefaults": {
+      "type": "array",
+      "description": "List of built-in mod default spell IDs disabled by the player.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "enabledDefaults": {
+      "type": "array",
+      "description": "List of shipped-disabled built-in mod default spell IDs explicitly enabled by the player.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "spells": {
+      "type": "object",
+      "description": "Map of player-created custom spell IDs (cannot overwrite built-in default spell IDs).",
+      "additionalProperties": {
+        "$ref": "./custom_spells.schema.json#/definitions/CustomSpell"
+      }
+    }
+  }
+}

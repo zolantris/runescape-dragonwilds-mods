@@ -1,5 +1,6 @@
 {
   "$schema": "./schemas/combo_rules.schema.json",
+  "schemaVersion": 1,
   "rules": [
     {
       "name": "Air Staff Full Chain",
@@ -137,6 +138,56 @@
       "stages": [
         { "category": "Air", "spells": ["bolt", "gust", "vortex"], "speed": 2.2 },
         { "spell": "StormOfArmadyl", "speed": 2.0 }
+      ]
+    },
+    {
+      "name": "Air Opener -> Air Blast",
+      "description": "Singular Air custom spell finisher",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "Air", "spells": ["bolt", "gust"], "speed": 2.2 },
+        { "spell": "AirBlast", "speed": 1.6 }
+      ]
+    },
+    {
+      "name": "Fire Opener -> Fire Blast",
+      "description": "Singular Fire custom spell finisher",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "Fire", "spells": ["bolt_1", "bolt_2"], "speed": 2.2 },
+        { "spell": "FireBlast", "speed": 1.6 }
+      ]
+    },
+    {
+      "name": "Fire Opener -> Fire Surge Combo",
+      "description": "Chains into the multi-spell FireSurgeCombo custom spell",
+      "enabled": true,
+      "weight": 4,
+      "stages": [
+        { "category": "Fire", "spells": ["bolt_1"], "speed": 2.2 },
+        { "spell": "FireSurgeCombo", "speed": 1.6 }
+      ]
+    },
+    {
+      "name": "Water Opener -> Water Wave",
+      "description": "Singular Water custom spell finisher",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        { "category": "Water", "spells": ["bolt", "waterfall"], "speed": 2.2 },
+        { "spell": "WaterWave", "speed": 1.6 }
+      ]
+    },
+    {
+      "name": "Water Opener -> Tidal Surge Combo",
+      "description": "Chains into the multi-spell TidalSurgeCombo custom spell",
+      "enabled": true,
+      "weight": 4,
+      "stages": [
+        { "category": "Water", "spells": ["bolt"], "speed": 2.2 },
+        { "spell": "TidalSurgeCombo", "speed": 1.6 }
       ]
     },
     {

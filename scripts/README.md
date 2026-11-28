@@ -33,6 +33,10 @@ Run everything from the repo root through the unified **[`mod.ps1`](../mod.ps1)*
 .\mod.ps1 release arcane-wilds --dry-run
 .\mod.ps1 release arcane-wilds
 
+# Preview or publish a Nexus Mods release (requires <mod>/nexus.json and $env:NEXUSMODS_API_KEY)
+.\mod.ps1 nexus arcane-wilds --dry-run
+.\mod.ps1 nexus arcane-wilds
+
 # Back up saves / show all commands
 .\mod.ps1 backup
 .\mod.ps1 help
@@ -52,6 +56,7 @@ Run everything from the repo root through the unified **[`mod.ps1`](../mod.ps1)*
 | **`sync-ue-damage-stubs.ps1`** | Extracts only the minimal `/Script/Dominion` damage & floaties UHT headers from gitignored `UHTHeaderDump/` into `unreal-engine/RSDragonwilds/Source/Dominion/` (invoked automatically by `build-mod.ps1` when needed). | `-HeaderDumpDir`, `-TargetModuleDir` |
 | **`update-changelog.ps1`** | Updates the `# Title` version header and injects folder-scoped Git commits into the `<!-- CHANGELOG:START -->` ... `<!-- CHANGELOG:END -->` block of `<ModFolder>/README.md`. | `-ModFolder` *(required)*, `-Version`, `-MaxCommits` *(default: `50`)* |
 | **`publish-release.ps1`** | Updates `<ModFolder>/README.md` changelog via `update-changelog.ps1`, builds the release archive, commits & pushes updated release metadata (`README.md` / `version.json`), creates an annotated Git tag (`<ModName>-v<Version>`), pushes the tag, and publishes a GitHub Release with the `.zip` asset and extracted changelog notes via `gh`. Bails out if the tag/release already exists unless `--force-update` is passed. | `-ModFolder` *(required)*, `-Version`, `-Channel`, `--force-update` (`-ForceUpdate`), `--dry-run` (`-DryRun`), `-SkipBuild` |
+| **`publish-nexus.ps1`** | Reads `<ModFolder>/nexus.json` and `<ModFolder>/version.json`, optionally builds the archive, extracts the version's changelog from `<ModFolder>/README.md`, and uploads a new file version to Nexus Mods via the v3 Upload API using `$env:NEXUSMODS_API_KEY`. | `-ModFolder` *(required)*, `-Version`, `-Channel`, `-Category`, `-ArchivePath`, `-NotesFile`, `-ApiKey`, `--dry-run` (`-DryRun`), `-SkipBuild`, `-NoArchiveOld`, `-NoUpdateModVersion` |
 | **`auto-backup-saves.ps1`** | Local utility script for backing up *RuneScape: Dragonwilds* character and world save files. | *(Run directly via PowerShell)* |
 
 ---

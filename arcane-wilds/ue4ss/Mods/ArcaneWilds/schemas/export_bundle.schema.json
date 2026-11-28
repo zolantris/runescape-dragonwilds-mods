@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://arcanewilds.local/schemas/export_bundle.schema.json",
+  "title": "Arcane Wilds Combined Export Bundle",
+  "description": "Combined export containing both custom spells and combo rules with schema versioning metadata.",
+  "type": "object",
+  "required": ["schemaVersion", "format"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "format": {
+      "type": "string",
+      "const": "arcane-wilds.bundle"
+    },
+    "modVersion": {
+      "type": "string"
+    },
+    "exportedAt": {
+      "type": "string"
+    },
+    "disabledDefaults": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "enabledDefaults": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "spells": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "./custom_spells.schema.json#/definitions/CustomSpell"
+      }
+    },
+    "disableAllDefaults": {
+      "type": "boolean"
+    },
+    "disabledDefaultIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "enabledDefaultIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "$ref": "./combo_rules.schema.json#/definitions/ComboRule"
+      }
+    },
+    "quickCast": {
+      "$ref": "./user_quick_cast.schema.json"
+    }
+  }
+}

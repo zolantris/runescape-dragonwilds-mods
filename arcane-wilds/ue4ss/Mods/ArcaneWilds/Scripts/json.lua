@@ -374,7 +374,21 @@ local function EscapeString(s)
     return '"' .. out .. '"'
 end
 
+local EMPTY_ARRAY_MT = { __arcane_json_array = true }
+
+-- Create an explicit empty JSON array ([]) so Json.Encode does not emit {} for empty lists.
+function Json.EmptyArray()
+    return setmetatable({}, EMPTY_ARRAY_MT)
+end
+
+-- Mark an existing table as a JSON array (preserves [] when empty).
+function Json.AsArray(tbl)
+    tbl = tbl or {}
+    return setmetatable(tbl, EMPTY_ARRAY_MT)
+end
+
 local function IsArrayTable(tbl)
+    local mt = getmetatable(tbl)
     local maxIdx = 0
     local count = 0
     for k, _ in pairs(tbl) do
@@ -384,7 +398,12 @@ local function IsArrayTable(tbl)
         if k > maxIdx then maxIdx = k end
         count = count + 1
     end
-    if count == 0 then return false, 0 end
+    if count == 0 then
+        if mt == EMPTY_ARRAY_MT then
+            return true, 0
+        end
+        return false, 0
+    end
     if maxIdx ~= count then return false, 0 end
     return true, count
 end
@@ -416,14 +435,18 @@ local function EncodeValue(val, indent, level, seen)
         local sep = indent and (",\n" .. pad) or ","
         local out
         if isArr then
-            local items = {}
-            for i = 1, arrLen do
-                items[i] = EncodeValue(val[i], indent, level + 1, seen)
-            end
-            if indent then
-                out = "[\n" .. pad .. table.concat(items, sep) .. "\n" .. closePad .. "]"
+            if arrLen == 0 then
+                out = "[]"
             else
-                out = "[" .. table.concat(items, ",") .. "]"
+                local items = {}
+                for i = 1, arrLen do
+                    items[i] = EncodeValue(val[i], indent, level + 1, seen)
+                end
+                if indent then
+                    out = "[\n" .. pad .. table.concat(items, sep) .. "\n" .. closePad .. "]"
+                else
+                    out = "[" .. table.concat(items, ",") .. "]"
+                end
             end
         else
             local keys = {}

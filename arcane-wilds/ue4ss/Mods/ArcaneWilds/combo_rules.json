@@ -1,7 +1,9 @@
 {
   "$schema": "./schemas/combo_rules.schema.json",
+  "schemaVersion": 1,
   "rules": [
     {
+      "id": "default.air_full_chain",
       "name": "Air Full Chain",
       "enabled": false,
       "weight": 5,
@@ -19,6 +21,7 @@
       ]
     },
     {
+      "id": "default.water_full_chain",
       "name": "Water Full Chain",
       "enabled": false,
       "weight": 5,
@@ -36,6 +39,7 @@
       ]
     },
     {
+      "id": "default.fire_to_air",
       "name": "Fire Opener -> Air Finisher",
       "enabled": true,
       "weight": 5,
@@ -59,6 +63,7 @@
       ]
     },
     {
+      "id": "default.earth_to_flames",
       "name": "Earth Opener -> Flames of Zamorak",
       "enabled": false,
       "weight": 5,
@@ -79,6 +84,7 @@
       ],
     },
     {
+      "id": "default.storm_of_armadyl",
       "name": "StormOfArmadyl",
       "enabled": false,
       "weight": 5,
@@ -89,6 +95,99 @@
             "StormOfArmadyl"
           ],
           "speed": 1.0
+        }
+      ]
+    },
+    {
+      "name": "Air Opener -> Air Blast",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        {
+          "category": "Air",
+          "spells": [
+            "bolt",
+            "gust"
+          ],
+          "speed": 2.2
+        },
+        {
+          "spell": "AirBlast",
+          "speed": 1.6
+        }
+      ]
+    },
+    {
+      "name": "Fire Opener -> Fire Blast",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        {
+          "category": "Fire",
+          "spells": [
+            "bolt_1",
+            "bolt_2"
+          ],
+          "speed": 2.2
+        },
+        {
+          "spell": "FireBlast",
+          "speed": 1.6
+        }
+      ]
+    },
+    {
+      "name": "Fire Opener -> Fire Surge Combo",
+      "enabled": true,
+      "weight": 4,
+      "stages": [
+        {
+          "category": "Fire",
+          "spells": [
+            "bolt_1"
+          ],
+          "speed": 2.2
+        },
+        {
+          "spell": "FireSurgeCombo",
+          "speed": 1.6
+        }
+      ]
+    },
+    {
+      "name": "Water Opener -> Water Wave",
+      "enabled": true,
+      "weight": 5,
+      "stages": [
+        {
+          "category": "Water",
+          "spells": [
+            "bolt",
+            "waterfall"
+          ],
+          "speed": 2.2
+        },
+        {
+          "spell": "WaterWave",
+          "speed": 1.6
+        }
+      ]
+    },
+    {
+      "name": "Water Opener -> Tidal Surge Combo",
+      "enabled": true,
+      "weight": 4,
+      "stages": [
+        {
+          "category": "Water",
+          "spells": [
+            "bolt"
+          ],
+          "speed": 2.2
+        },
+        {
+          "spell": "TidalSurgeCombo",
+          "speed": 1.6
         }
       ]
     }

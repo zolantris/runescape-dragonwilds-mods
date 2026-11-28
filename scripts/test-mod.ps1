@@ -127,9 +127,15 @@ foreach ($jf in $jsonFiles) {
             if (-not $obj.PSObject.Properties.Match("spells").Count) {
                 throw "missing top-level 'spells' object"
             }
+            if (-not $obj.PSObject.Properties.Match("schemaVersion").Count -or ([int]$obj.schemaVersion -lt 1)) {
+                throw "missing integer 'schemaVersion' >= 1"
+            }
         } elseif ($jf.Name -ieq "combo_rules.json" -or $jf.Name -ieq "combo_rules_examples.json") {
             if (-not $obj.PSObject.Properties.Match("rules").Count) {
                 throw "missing top-level 'rules' array"
+            }
+            if (-not $obj.PSObject.Properties.Match("schemaVersion").Count -or ([int]$obj.schemaVersion -lt 1)) {
+                throw "missing integer 'schemaVersion' >= 1"
             }
         }
         $tag = if ($isJsonc) { "JSONC OK" } else { "JSON OK " }

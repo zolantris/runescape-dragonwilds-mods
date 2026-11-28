@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://arcanewilds.local/schemas/user_quick_cast.schema.json",
+  "title": "Arcane Wilds Persistent User Quick-Cast Bindings",
+  "description": "Player-owned quick-cast hotkey bindings stored in %LOCALAPPDATA%\\ArcaneWilds\\user_quick_cast.json.",
+  "type": "object",
+  "required": ["schemaVersion", "bindings"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "type": "integer", "minimum": 1 },
+    "format": { "type": "string", "const": "arcane-wilds.user_quick_cast" },
+    "modVersion": { "type": "string" },
+    "exportedAt": { "type": "string" },
+    "overrideDefaults": {
+      "type": "boolean",
+      "default": true,
+      "description": "When true, replaces the mod's default quick_cast.txt bindings with the bindings listed here."
+    },
+    "bindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["keys", "target"],
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": true },
+          "modifier": {
+            "type": "string",
+            "enum": ["BLOCK", "SHIFT", "ALT", "CTRL", "NONE"],
+            "default": "BLOCK"
+          },
+          "keys": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "target": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Spell ID, detected spell name, or inline combo chain."
+          }
+        }
+      }
+    }
+  }
+}

@@ -1521,6 +1521,15 @@ local function ExecuteCueOnGameThread(tlInst, cue, cueState, config, state, pawn
     local scaleSpeed = (tlInst.timeline.scaleWithSpeed ~= false) and (p.scaleWithSpeed ~= false)
 
     if cType == "anim" then
+        local assetLowCheck = tostring(cue.asset or ""):lower()
+        local regMatch = state and state.SpellRegistry and state.SpellRegistry[assetLowCheck] or nil
+        if assetLowCheck:find("^da_spell_") ~= nil or (regMatch and not regMatch.suppressBaseSpell and not regMatch.isCustomSpell) then
+            LogMismatchOnce(tlInst.spellName .. ":" .. tostring(cue.index) .. ":spelldata_in_anim:" .. tostring(cue.asset),
+                string.format("CustomSpell [%s] Cue #%d (anim): '%s' is a DominionSpellData asset, not an AnimMontage! Use \"baseSpell\": \"%s\" or a cue with \"type\": \"spell\" instead; skipping safely.",
+                    tlInst.spellName, cue.index, tostring(cue.asset), tostring(cue.asset)))
+            cueState.expectedDur = 0.0
+            return
+        end
         local animObj, isMontage = ResolveAnimAsset(cue.asset, customSpells, safeGetNameFn)
         if not IsValidUObject(animObj) then
             LogMismatchOnce(tlInst.spellName .. ":" .. tostring(cue.index) .. ":missing:" .. tostring(cue.asset),

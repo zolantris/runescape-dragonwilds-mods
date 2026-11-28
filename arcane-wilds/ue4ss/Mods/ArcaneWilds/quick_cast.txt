@@ -18,7 +18,7 @@
 # Any keys bound under "Block + ..." are automatically suppressed in EnhancedInput
 # while holding Block so Hotbar 1-4 and controller X/Y/B/A game actions do not fire.
 
-Block + 1, GP_X = SaradominGodsword
+Block + 1, GP_X = AirBlast
 Block + 2, GP_Y = FlamesOfZamorak
 Block + 3, GP_B = StormOfArmadyl
 Block + 4, GP_A = SaradominStrike

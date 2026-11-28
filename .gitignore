@@ -24,4 +24,13 @@ coverage_summary.md
 luacov.stats.out
 luacov.report.out
 
+# Arcane Wilds runtime editor artifacts & backups
+arcane-wilds/ue4ss/Mods/ArcaneWilds/exports/
+arcane-wilds/ue4ss/Mods/ArcaneWilds/detected_catalog.json
+*.bak
+
+# GitHub Pages staged site output
+_site/
+
+
 

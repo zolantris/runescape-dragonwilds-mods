@@ -25,7 +25,9 @@ local Paths = {
     QUICK_CAST_PATH         = MOD_DIR .. "quick_cast.txt",
     DETECTED_PATH           = MOD_DIR .. "detected_spells.txt",
     DETECTED_VFX_PATH       = MOD_DIR .. "detected_vfx.txt",
-    VFX_NAMES_PATH          = MOD_DIR .. "vfx_names.txt"
+    DETECTED_CATALOG_PATH   = MOD_DIR .. "detected_catalog.json",
+    VFX_NAMES_PATH          = MOD_DIR .. "vfx_names.txt",
+    SFX_NAMES_PATH          = MOD_DIR .. "sfx_names.txt"
 }
 
 local SpellScanner   = require("spell_scanner")
@@ -36,6 +38,13 @@ local EquipmentRunes = require("equipment_runes")
 local CombatEngine   = require("combat_engine")
 local ProgressionScaling = require("progression_scaling")
 local InputBlocker   = require("input_blocker")
+local AssetCatalog   = require("asset_catalog")
+
+local UserPaths = ConfigManager.BuildUserPaths(ConfigManager.ResolveUserDir())
+Paths.USER_DIR             = UserPaths.USER_DIR
+Paths.USER_SPELLS_PATH     = UserPaths.USER_SPELLS_PATH
+Paths.USER_COMBOS_PATH     = UserPaths.USER_COMBOS_PATH
+Paths.USER_QUICK_CAST_PATH = UserPaths.USER_QUICK_CAST_PATH
 
 local Config = ConfigManager.CreateDefaultConfig()
 
@@ -70,6 +79,8 @@ local State = {
     LastQuickCastStatusWritten = "",
     LastDetectedSummaryWritten = "",
     BoundDebugKey = nil,
+    BoundEditorKey = nil,
+    LastEditorLaunchTime = 0,
     SpellChains = {},
     AllChainsList = {},
     SpellRegistry = {},
@@ -104,6 +115,18 @@ local function RefreshVfxCatalog(forceLog)
     -- Overlay optional user-defined friendly aliases from vfx_names.txt on top
     TimelineRunner.LoadVfxCatalogFile(Paths.VFX_NAMES_PATH, lookup)
     State.VfxPathLookup = lookup
+
+    -- Export unified detected_catalog.json (Spells, VFX, SFX, Montages) for the Web GUI
+    AssetCatalog.ExportCatalogFile(Paths.DETECTED_CATALOG_PATH, {
+        modVersion = MOD_VERSION,
+        baseSpellRegistry = State.BaseSpellRegistry,
+        orderedChains = State.AllChainsList,
+        nameMapByCat = State.NameMapByCat,
+        globalNameMap = State.GlobalNameMap,
+        vfxPathLookup = State.VfxPathLookup,
+        vfxNamesPath = Paths.VFX_NAMES_PATH,
+        sfxNamesPath = Paths.SFX_NAMES_PATH,
+    }, forceLog and Log or DebugLog)
 end
 
 local function RefreshSpells()
@@ -549,6 +572,37 @@ local function BindDebugHotkey()
     Log("Debug dump hotkey bound to: SHIFT + " .. tostring(normalized) .. " (set DebugHotkey=LISTEN in config.txt to rebind interactively)")
 end
 
+local function LaunchWebEditor()
+    local now = os.clock()
+    if (now - (State.LastEditorLaunchTime or 0)) < 3.0 then
+        return
+    end
+    State.LastEditorLaunchTime = now
+    local launcherBat = MOD_DIR .. "Launch-ArcaneWilds-Editor.bat"
+    local cmd = string.format('start "" /min cmd /c ""%s""', launcherBat)
+    Log("Launching Arcane Wilds Spell & Combo Studio (Web GUI)...")
+    pcall(function()
+        os.execute(cmd)
+    end)
+end
+
+local function BindWebEditorHotkey()
+    local rawTrim = tostring(Config.WebEditorHotkey or "F9"):gsub("^%s*(.-)%s*$", "%1")
+    local normalized = NormalizeKeyName(rawTrim)
+    if State.BoundEditorKey == normalized then return end
+    State.BoundEditorKey = normalized
+
+    local keyEnum = Key[normalized] or Key[rawTrim:upper()] or Key.F9
+    pcall(function()
+        RegisterKeyBind(keyEnum, { ModifierKey.SHIFT }, function()
+            if Config.EnableWebEditorHotkey ~= false then
+                ExecuteInGameThread(function() LaunchWebEditor() end)
+            end
+        end)
+    end)
+    Log("Web Editor hotkey bound to: SHIFT + " .. tostring(normalized))
+end
+
 local function TickAnchorReturn(now, pc, pawn, combatMagic)
     local anchor = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, State, DebugLog)
     local wantsComboContinue = State.ModifierHeld and ((Config.TriggerComboOnModifierHold == true) or CombatEngine.IsPrimaryAttackDown(pc))
@@ -814,6 +868,12 @@ local function RunMainGameThreadTick()
         ConfigManager.LoadConfigFile(Paths, Config, State, Log, false)
         State.Enabled = Config.Enabled
         BindDebugHotkey()
+        BindWebEditorHotkey()
+        if Config.LaunchWebEditorNow == true then
+            Config.LaunchWebEditorNow = false
+            ConfigManager.SaveConfigFile(Paths, Config)
+            LaunchWebEditor()
+        end
     end
     State.Enabled = Config.Enabled
 
@@ -987,4 +1047,5 @@ TimelineRunner.LoadVfxCatalogFile(Paths.DETECTED_VFX_PATH, State.VfxPathLookup)
 TimelineRunner.LoadVfxCatalogFile(Paths.VFX_NAMES_PATH, State.VfxPathLookup)
 EquipmentRunes.InstallEquipmentSwapHooks(State, nil, Log, DebugLog)
 BindDebugHotkey()
+BindWebEditorHotkey()
 Log("v" .. MOD_VERSION .. " initialized cleanly (modular architecture).")

@@ -143,11 +143,17 @@ Commands:
                        Options: -GameDir <path>, -WhatIf
   release      <mod>   Build & publish a tagged GitHub Release via gh CLI (aliases: r, publish)
                        Options: --dry-run (-DryRun), --force-update (-ForceUpdate), -SkipBuild, -Version, -Channel
+  nexus        <mod>   Build & publish a mod archive to Nexus Mods via Upload API v3 (aliases: publish-nexus, nm)
+                       Options: --dry-run (-DryRun), -SkipBuild, -Version, -Channel, -Category, -ArchivePath,
+                                -NoArchiveOld, -NoUpdateModVersion, -NotesFile, -ApiKey
   changelog    <mod>   Update folder-scoped Git changelog in <mod>/README.md
                        Options: -Version <ver>, -MaxCommits <n>
   test         <mod>   Validate JSON configs and run offline Lua unit/regression tests + coverage (alias: t)
                        Options: -LuaExe <path>, -NoCoverage, -CoverageDetails, -MinCoverage <pct>,
                                 -LcovPath <path>, -CoverageMarkdownPath <path>
+  editor       <mod>   Launch the standalone Web/HTML Spell & Combo Editor GUI (aliases: gui, editor-dev)
+                       Options: -Sandbox, -CleanSandbox, -SeedMockCatalog, -SmokeTest,
+                                -Deployed, -GameDir <path>, -UserDir <path>, -Port <n>, -NoBrowser
   backup               Back up local RuneScape: Dragonwilds saves
   list                 List mods in this repo, versions, pak status, and local deploy status (aliases: ls, status)
                        Options: -GameDir <path>
@@ -162,6 +168,9 @@ Examples:
   .\mod.ps1 wipe arcane-wilds
   .\mod.ps1 wipe arcane-wilds -WhatIf
   .\mod.ps1 release arcane-wilds --dry-run
+  .\mod.ps1 nexus arcane-wilds --dry-run
+  .\mod.ps1 editor arcane-wilds -Sandbox -SeedMockCatalog
+  .\mod.ps1 editor arcane-wilds -SmokeTest
   .\mod.ps1 list
 
 Game Directory:
@@ -173,7 +182,7 @@ Game Directory:
 $cmd = if ($Command) { $Command.ToLowerInvariant() } else { "help" }
 
 switch ($cmd) {
-    { $_ -in @("help", "-h", "--help", "-?") } {
+    { $_ -in @("help", "-help", "--help", "-h", "-?") } {
         Show-Help
         return
     }
@@ -345,6 +354,27 @@ switch ($cmd) {
         return
     }
 
+    { $_ -in @("nexus", "publish-nexus", "nm") } {
+        $parsed = Parse-CliArgs -RawArgs $RemainingArgs `
+            -SwitchNames @("DryRun", "SkipBuild", "NoArchiveOld", "NoUpdateModVersion", "Verbose", "Debug") `
+            -PassThroughFlags @("--dry-run", "-dry-run", "--skip-build", "--no-archive-old", "--no-update-mod-version")
+        $params = $parsed.Named
+        if (-not $params.ContainsKey("ModFolder")) {
+            if ($parsed.Positional.Count -lt 1) {
+                throw "Missing mod name. Example: .\mod.ps1 nexus <mod> --dry-run"
+            }
+            $params["ModFolder"] = [string]$parsed.Positional[0]
+        }
+        $params["ModFolder"] = Resolve-ModFolderName $params["ModFolder"]
+        $extra = $parsed.PassThrough
+        if ($extra.Count -gt 0) {
+            & (Join-Path $scriptsDir "publish-nexus.ps1") @params @extra
+        } else {
+            & (Join-Path $scriptsDir "publish-nexus.ps1") @params
+        }
+        return
+    }
+
     "changelog" {
         $parsed = Parse-CliArgs -RawArgs $RemainingArgs -SwitchNames @("Verbose", "Debug")
         $params = $parsed.Named
@@ -374,13 +404,32 @@ switch ($cmd) {
         return
     }
 
+    { $_ -in @("editor", "gui", "editor-dev") } {
+        $parsed = Parse-CliArgs -RawArgs $RemainingArgs -SwitchNames @(
+            "Deployed", "Sandbox", "CleanSandbox", "SeedMockCatalog", "SmokeTest", "NoBrowser", "Verbose", "Debug"
+        )
+        $params = $parsed.Named
+        if (-not $params.ContainsKey("ModFolder")) {
+            if ($parsed.Positional.Count -ge 1) {
+                $params["ModFolder"] = [string]$parsed.Positional[0]
+            } else {
+                $params["ModFolder"] = "arcane-wilds"
+            }
+        }
+        $params["ModFolder"] = Resolve-ModFolderName $params["ModFolder"]
+        & (Join-Path $scriptsDir "dev-editor.ps1") @params
+        return
+    }
+
     "backup" {
         & (Join-Path $scriptsDir "auto-backup-saves.ps1")
         return
     }
 
     default {
-        Write-Error "Unknown command '$Command'. Run '.\mod.ps1 help' to see available commands."
+        Write-Host "Unknown command '$Command'." -ForegroundColor Red
+        Write-Host ""
+        Show-Help
         exit 1
     }
 }

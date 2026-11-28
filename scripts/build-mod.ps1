@@ -205,8 +205,8 @@ if ($hasPak) {
     $archiveInputPath = Join-Path $stageRoot "ue4ss"
 }
 
-# Strip local snapshots, logs, and runtime layout overrides from release archive
-Get-ChildItem -Path $stageRoot -Recurse -Include "snapshots","*.log","panel_layouts.lua" |
+# Strip local snapshots, logs, runtime layout overrides, exports, backups, and detected catalogs from release archive
+Get-ChildItem -Path $stageRoot -Recurse -Include "snapshots","exports","*.log","*.bak","panel_layouts.lua","detected_catalog.json" |
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
 # Sync version into staged modmenu.json (updates top-level version and/or nested mod.version if present)

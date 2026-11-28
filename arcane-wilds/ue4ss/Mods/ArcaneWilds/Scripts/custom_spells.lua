@@ -5,6 +5,7 @@
 local TimelineParser = require("timeline_parser")
 local ProgressionScaling = require("progression_scaling")
 local Json = require("json")
+local SchemaMigrator = require("schema_migrator")
 
 local CustomSpells = {}
 local ObjectLookupCache = {}
@@ -208,12 +209,14 @@ local function CreateDefaultSpellDef(nameTrimmed)
     }
 end
 
-local function NormalizeJsonSpellDef(nameStr, raw)
+local function NormalizeJsonSpellDef(nameStr, raw, includeDisabled)
     local nameTrimmed = Trim(tostring(nameStr or ""))
     if nameTrimmed == "" or type(raw) ~= "table" then return nil end
-    if raw.enabled == false then return nil end
+    local defaultEnabled = (raw.enabled ~= false)
+    if not defaultEnabled and not includeDisabled then return nil end
 
     local def = CreateDefaultSpellDef(nameTrimmed)
+    def.defaultEnabled = defaultEnabled
 
     if raw.displayName ~= nil and Trim(tostring(raw.displayName)) ~= "" then
         def.displayName = Trim(tostring(raw.displayName))
@@ -363,10 +366,11 @@ end
 
 -- Parse custom_spells.json (or JSONC) into normalized CustomSpell definitions.
 -- Returns (defs, nil) on success, or (nil, errMsg) on syntax/schema error.
-function CustomSpells.ParseJsonDefinitions(rawJson)
+function CustomSpells.ParseJsonDefinitions(rawJson, opts)
     if not rawJson or Trim(rawJson) == "" then
         return {}, nil
     end
+    local includeDisabled = (type(opts) == "table" and opts.includeDisabled == true)
     local doc, err = Json.Decode(rawJson)
     if err then
         return nil, err
@@ -375,20 +379,26 @@ function CustomSpells.ParseJsonDefinitions(rawJson)
         return nil, "root JSON value must be an object with a 'spells' map"
     end
 
+    local migratedDoc, migErr = SchemaMigrator.Migrate("custom_spells", doc)
+    if migErr then
+        return nil, migErr
+    end
+    doc = migratedDoc
+
     local defs = {}
     local spellsMap = doc.spells
     if type(spellsMap) == "table" then
         if spellsMap[1] ~= nil then
             for _, item in ipairs(spellsMap) do
                 if type(item) == "table" and item.name then
-                    local def = NormalizeJsonSpellDef(item.name, item)
+                    local def = NormalizeJsonSpellDef(item.name, item, includeDisabled)
                     if def then defs[def.nameLower] = def end
                 end
             end
         else
             for spellName, rawDef in pairs(spellsMap) do
                 if type(spellName) == "string" and spellName:sub(1, 1) ~= "$" then
-                    local def = NormalizeJsonSpellDef(spellName, rawDef)
+                    local def = NormalizeJsonSpellDef(spellName, rawDef, includeDisabled)
                     if def then defs[def.nameLower] = def end
                 end
             end
@@ -407,14 +417,14 @@ function CustomSpells.ParseJsonDefinitions(rawJson)
     return defs, nil
 end
 
-function CustomSpells.ParseDefinitions(rawText)
+function CustomSpells.ParseDefinitions(rawText, opts)
     local defs = {}
     if not rawText or rawText == "" then
         return defs, nil
     end
 
     if Json.LooksLikeJson(rawText) then
-        return CustomSpells.ParseJsonDefinitions(rawText)
+        return CustomSpells.ParseJsonDefinitions(rawText, opts)
     end
 
     local current = nil
@@ -700,11 +710,19 @@ function CustomSpells.BuildCustomRegistryEntries(defs, spellRegistry, spellChain
             end
         end
 
-        local montObj, _, montShort = FindObjectFast(def.montage, safeGetNameFn, extractShortFn)
-        if not montObj and def.montage and def.montage ~= "" then
-            montObj = FindAssetByKeywordOnDemand("AnimMontage", def.montage, safeGetNameFn)
-            if montObj and montObj:IsValid() then
-                montShort = extractShortFn(safeGetNameFn(montObj))
+        local montObj, montShort = nil, nil
+        local montageLooksLikeSpellData = def.montage and def.montage ~= "" and (
+            def.montage:lower():find("^da_spell_") ~= nil
+            or (spellRegistry[def.montage:lower()] ~= nil and not spellRegistry[def.montage:lower()].suppressBaseSpell)
+        )
+        if not montageLooksLikeSpellData then
+            local mFound, _, mShort = FindObjectFast(def.montage, safeGetNameFn, extractShortFn)
+            montObj, montShort = mFound, mShort
+            if not montObj and def.montage and def.montage ~= "" then
+                montObj = FindAssetByKeywordOnDemand("AnimMontage", def.montage, safeGetNameFn)
+                if montObj and montObj:IsValid() then
+                    montShort = extractShortFn(safeGetNameFn(montObj))
+                end
             end
         end
         if not montObj and timeline and timeline.cues then
