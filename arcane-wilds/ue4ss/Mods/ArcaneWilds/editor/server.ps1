@@ -428,8 +428,8 @@ try {
                 $defCbPath = Join-Path $ModDir "combo_rules.json"
                 $defQcPath = Join-Path $ModDir "quick_cast.txt"
 
-                $defSpRaw = if (Test-Path -LiteralPath $defSpPath -PathType Leaf) { Get-Content -LiteralPath $defSpPath -Raw -Encoding UTF8 } else { '{"schemaVersion":1,"spells":{}}' }
-                $defCbRaw = if (Test-Path -LiteralPath $defCbPath -PathType Leaf) { Get-Content -LiteralPath $defCbPath -Raw -Encoding UTF8 } else { '{"schemaVersion":1,"rules":[]}' }
+                $defSpRaw = if (Test-Path -LiteralPath $defSpPath -PathType Leaf) { [System.IO.File]::ReadAllText($defSpPath, [System.Text.Encoding]::UTF8) } else { '{"schemaVersion":1,"spells":{}}' }
+                $defCbRaw = if (Test-Path -LiteralPath $defCbPath -PathType Leaf) { [System.IO.File]::ReadAllText($defCbPath, [System.Text.Encoding]::UTF8) } else { '{"schemaVersion":1,"rules":[]}' }
 
                 $qcBindings = @()
                 if (Test-Path -LiteralPath $defQcPath -PathType Leaf) {
@@ -463,7 +463,7 @@ try {
                     combosRaw = $defCbRaw
                     quickCast = $qcBindings
                 }
-                Write-JsonResponse $res 200 ($respObj | ConvertTo-Json -Depth 10)
+                Write-JsonResponse $res 200 ($respObj | ConvertTo-Json -Depth 10 -Compress)
                 continue
             }
 

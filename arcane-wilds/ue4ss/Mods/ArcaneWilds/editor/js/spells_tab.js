@@ -43,6 +43,7 @@ export class SpellsTab {
     this.onWarn = onWarn || (() => {});
     this.selectedId = null;
     this.selectedLayer = "user"; // "user" | "default"
+    this.viewMode = "gui"; // "gui" | "json"
     this.filterText = "";
 
     this.searchInputEl.addEventListener("input", () => {
@@ -280,6 +281,36 @@ export class SpellsTab {
     }
   }
 
+  renderViewModeToggle() {
+    const wrap = document.createElement("div");
+    wrap.className = "view-mode-toggle";
+    wrap.setAttribute("role", "group");
+    wrap.setAttribute("aria-label", "View mode");
+
+    const guiBtn = document.createElement("button");
+    guiBtn.type = "button";
+    guiBtn.className = `view-mode-btn${this.viewMode === "gui" ? " active" : ""}`;
+    guiBtn.textContent = "GUI";
+    guiBtn.addEventListener("click", () => {
+      if (this.viewMode === "gui") return;
+      this.viewMode = "gui";
+      this.renderEditor();
+    });
+
+    const jsonBtn = document.createElement("button");
+    jsonBtn.type = "button";
+    jsonBtn.className = `view-mode-btn${this.viewMode === "json" ? " active" : ""}`;
+    jsonBtn.textContent = "JSON";
+    jsonBtn.addEventListener("click", () => {
+      if (this.viewMode === "json") return;
+      this.viewMode = "json";
+      this.renderEditor();
+    });
+
+    wrap.append(guiBtn, jsonBtn);
+    return wrap;
+  }
+
   renderEditor() {
     const uState = this.getUserSpellsState();
     const userSpells = uState.spells || {};
@@ -291,18 +322,32 @@ export class SpellsTab {
       return;
     }
 
-    if (this.selectedLayer === "default") {
-      const def = defaultSpells[this.selectedId];
-      if (!def) return;
-      this.renderReadOnlyDefaultView(this.selectedId, def);
-      return;
-    }
-
-    const spells = userSpells;
-    if (!spells[this.selectedId]) return;
-
+    const readOnly = this.selectedLayer === "default";
     const id = this.selectedId;
-    const def = spells[id];
+    const def = readOnly ? defaultSpells[id] : userSpells[id];
+    if (!def) return;
+
+    if (readOnly) {
+      const banner = document.createElement("div");
+      banner.className = "readonly-banner";
+      banner.innerHTML = `
+        <div>
+          <span class="badge-builtin">Built-in Mod Spell</span>
+          <strong>${escapeHtml(def.displayName || id)}</strong> (<code>${escapeHtml(id)}</code>) is managed by Arcane Wilds so it automatically receives mod updates.
+          You can toggle it off on the left, or clone it into <strong>My Custom Spells</strong> to customize your own version.
+        </div>
+      `;
+      const btnGroup = document.createElement("div");
+      btnGroup.className = "combo-row-actions";
+      btnGroup.appendChild(makeBtn("Clone to My Spells", "btn-primary btn-sm", () => {
+        this.cloneDefaultToUser(id, false);
+      }));
+      btnGroup.appendChild(makeBtn("Clone & Disable Built-in", "btn-secondary btn-sm", () => {
+        this.cloneDefaultToUser(id, true);
+      }));
+      banner.appendChild(btnGroup);
+      this.editorEl.appendChild(banner);
+    }
 
     // Header actions
     const topBar = document.createElement("div");
@@ -310,28 +355,66 @@ export class SpellsTab {
     topBar.style.marginBottom = "12px";
 
     const titleWrap = document.createElement("div");
-    titleWrap.innerHTML = `<h3 style="margin:0;font-size:16px;">${escapeHtml(def.displayName || id)}</h3><span class="combo-row-meta">Internal ID: <code>${escapeHtml(id)}</code></span>`;
+    titleWrap.innerHTML = `<h3 style="margin:0;font-size:16px;">${escapeHtml(def.displayName || id)}</h3><span class="combo-row-meta">Internal ID: <code>${escapeHtml(id)}</code>${readOnly ? " · Read-Only" : ""}</span>`;
 
     const topBtns = document.createElement("div");
     topBtns.className = "combo-row-actions";
-    topBtns.appendChild(makeBtn("Duplicate", "btn-secondary btn-sm", () => {
-      let copyId = `${id}Copy`;
-      let n = 1;
-      while (spells[copyId]) copyId = `${id}Copy${++n}`;
-      spells[copyId] = structuredClone(def);
-      spells[copyId].displayName = `${def.displayName || id} (Copy)`;
-      this.selectedId = copyId;
-      this.onDirty();
-      this.render();
-    }));
-    topBtns.appendChild(makeBtn("Delete Spell", "btn-danger btn-sm", () => {
-      delete spells[id];
-      this.selectedId = Object.keys(spells)[0] || null;
-      this.onDirty();
-      this.render();
-    }));
+    topBtns.appendChild(this.renderViewModeToggle());
+    if (!readOnly) {
+      topBtns.appendChild(makeBtn("Duplicate", "btn-secondary btn-sm", () => {
+        let copyId = `${id}Copy`;
+        let n = 1;
+        while (userSpells[copyId]) copyId = `${id}Copy${++n}`;
+        userSpells[copyId] = structuredClone(def);
+        userSpells[copyId].displayName = `${def.displayName || id} (Copy)`;
+        this.selectedId = copyId;
+        this.onDirty();
+        this.render();
+      }));
+      topBtns.appendChild(makeBtn("Delete Spell", "btn-danger btn-sm", () => {
+        delete userSpells[id];
+        this.selectedId = Object.keys(userSpells)[0] || null;
+        this.onDirty();
+        this.render();
+      }));
+    }
     topBar.append(titleWrap, topBtns);
     this.editorEl.appendChild(topBar);
+
+    if (this.viewMode === "json") {
+      this.renderSpellJsonView(id, def, readOnly);
+      return;
+    }
+
+    this.renderSpellGuiForm(id, def, { readOnly, spells: userSpells });
+  }
+
+  renderSpellJsonView(id, def, readOnly) {
+    const title = readOnly
+      ? "Built-in Spell Definition (JSON · Read-Only)"
+      : "Custom Spell Definition (JSON Preview)";
+    const summaryCard = makeSectionCard(title);
+    const header = summaryCard.querySelector("h3");
+    const copyBtn = makeBtn("Copy JSON", "btn-secondary btn-xs", () => {
+      navigator.clipboard?.writeText(JSON.stringify(def, null, 2));
+      copyBtn.textContent = "Copied!";
+      setTimeout(() => { copyBtn.textContent = "Copy JSON"; }, 1200);
+    });
+    header.appendChild(copyBtn);
+
+    const pre = document.createElement("pre");
+    pre.className = "json-preview-pre";
+    pre.textContent = JSON.stringify(def, null, 2);
+    summaryCard.appendChild(pre);
+    this.editorEl.appendChild(summaryCard);
+  }
+
+  renderSpellGuiForm(id, def, { readOnly = false, spells = {} } = {}) {
+    const formHost = readOnly ? document.createElement("fieldset") : document.createDocumentFragment();
+    if (readOnly) {
+      formHost.disabled = true;
+      formHost.className = "readonly-fieldset";
+    }
 
     // Section 1: Core Properties
     const coreCard = makeSectionCard("Core Properties");
@@ -421,7 +504,7 @@ export class SpellsTab {
     });
     descField.appendChild(descArea);
     coreCard.appendChild(descField);
-    this.editorEl.appendChild(coreCard);
+    formHost.appendChild(coreCard);
 
     // Section 2: Rune Cost, Progression & Scaling
     const progCard = makeSectionCard("Rune Cost, Progression & Scaling");
@@ -488,31 +571,33 @@ export class SpellsTab {
     }, true));
 
     progCard.appendChild(progGrid);
-    this.editorEl.appendChild(progCard);
+    formHost.appendChild(progCard);
 
     // Section 3: Timeline Cues Builder
     const cuesCard = makeSectionCard("Timeline Cues (VFX, SFX, Spells, Hits, Animations)");
     const cuesHeader = cuesCard.querySelector("h3");
-    const addCueWrap = document.createElement("div");
-    addCueWrap.className = "combo-row-actions";
+    if (!readOnly) {
+      const addCueWrap = document.createElement("div");
+      addCueWrap.className = "combo-row-actions";
 
-    const cueTypeSelect = document.createElement("select");
-    cueTypeSelect.className = "select";
-    cueTypeSelect.style.width = "140px";
-    CUE_TYPES.forEach((t) => {
-      const opt = document.createElement("option");
-      opt.value = t;
-      opt.textContent = t;
-      cueTypeSelect.appendChild(opt);
-    });
+      const cueTypeSelect = document.createElement("select");
+      cueTypeSelect.className = "select";
+      cueTypeSelect.style.width = "140px";
+      CUE_TYPES.forEach((t) => {
+        const opt = document.createElement("option");
+        opt.value = t;
+        opt.textContent = t;
+        cueTypeSelect.appendChild(opt);
+      });
 
-    addCueWrap.append(cueTypeSelect, makeBtn("+ Add Cue", "btn-primary btn-xs", () => {
-      if (!Array.isArray(def.cues)) def.cues = [];
-      def.cues.push(createDefaultCue(cueTypeSelect.value));
-      this.onDirty();
-      this.render();
-    }));
-    cuesHeader.appendChild(addCueWrap);
+      addCueWrap.append(cueTypeSelect, makeBtn("+ Add Cue", "btn-primary btn-xs", () => {
+        if (!Array.isArray(def.cues)) def.cues = [];
+        def.cues.push(createDefaultCue(cueTypeSelect.value));
+        this.onDirty();
+        this.render();
+      }));
+      cuesHeader.appendChild(addCueWrap);
+    }
 
     const cuesList = document.createElement("div");
     cuesList.className = "cues-list";
@@ -521,19 +606,22 @@ export class SpellsTab {
     if (cues.length === 0) {
       const empty = document.createElement("div");
       empty.className = "combo-row-meta";
-      empty.textContent = "No timeline cues yet. Pick a cue type (vfx, sfx, spell, hit, anim, chainstrike…) and click + Add Cue.";
+      empty.textContent = readOnly
+        ? "This built-in spell has no timeline cues."
+        : "No timeline cues yet. Pick a cue type (vfx, sfx, spell, hit, anim, chainstrike…) and click + Add Cue.";
       cuesList.appendChild(empty);
     } else {
       cues.forEach((cue, cIdx) => {
-        cuesList.appendChild(this.renderCueCard(def, cue, cIdx));
+        cuesList.appendChild(this.renderCueCard(def, cue, cIdx, { readOnly }));
       });
     }
 
     cuesCard.appendChild(cuesList);
-    this.editorEl.appendChild(cuesCard);
+    formHost.appendChild(cuesCard);
+    this.editorEl.appendChild(formHost);
   }
 
-  renderCueCard(def, cue, cIdx) {
+  renderCueCard(def, cue, cIdx, { readOnly = false } = {}) {
     const card = document.createElement("div");
     card.className = "cue-card";
 
@@ -547,29 +635,33 @@ export class SpellsTab {
     badge.textContent = `#${cIdx + 1} ${cue.type}`;
     left.appendChild(badge);
 
-    const right = document.createElement("div");
-    right.className = "combo-row-actions";
-    const upBtn = makeBtn("↑", "btn-ghost btn-xs", () => {
-      if (cIdx === 0) return;
-      [def.cues[cIdx - 1], def.cues[cIdx]] = [def.cues[cIdx], def.cues[cIdx - 1]];
-      this.onDirty();
-      this.render();
-    });
-    upBtn.disabled = cIdx === 0;
-    const downBtn = makeBtn("↓", "btn-ghost btn-xs", () => {
-      if (cIdx >= def.cues.length - 1) return;
-      [def.cues[cIdx + 1], def.cues[cIdx]] = [def.cues[cIdx], def.cues[cIdx + 1]];
-      this.onDirty();
-      this.render();
-    });
-    downBtn.disabled = cIdx >= def.cues.length - 1;
-    const delBtn = makeBtn("Delete", "btn-danger btn-xs", () => {
-      def.cues.splice(cIdx, 1);
-      this.onDirty();
-      this.render();
-    });
-    right.append(upBtn, downBtn, delBtn);
-    head.append(left, right);
+    if (!readOnly) {
+      const right = document.createElement("div");
+      right.className = "combo-row-actions";
+      const upBtn = makeBtn("↑", "btn-ghost btn-xs", () => {
+        if (cIdx === 0) return;
+        [def.cues[cIdx - 1], def.cues[cIdx]] = [def.cues[cIdx], def.cues[cIdx - 1]];
+        this.onDirty();
+        this.render();
+      });
+      upBtn.disabled = cIdx === 0;
+      const downBtn = makeBtn("↓", "btn-ghost btn-xs", () => {
+        if (cIdx >= def.cues.length - 1) return;
+        [def.cues[cIdx + 1], def.cues[cIdx]] = [def.cues[cIdx], def.cues[cIdx + 1]];
+        this.onDirty();
+        this.render();
+      });
+      downBtn.disabled = cIdx >= def.cues.length - 1;
+      const delBtn = makeBtn("Delete", "btn-danger btn-xs", () => {
+        def.cues.splice(cIdx, 1);
+        this.onDirty();
+        this.render();
+      });
+      right.append(upBtn, downBtn, delBtn);
+      head.append(left, right);
+    } else {
+      head.append(left);
+    }
     card.appendChild(head);
 
     const grid = document.createElement("div");
@@ -730,39 +822,6 @@ export class SpellsTab {
 
     card.appendChild(grid);
     return card;
-  }
-
-  renderReadOnlyDefaultView(id, def) {
-    const banner = document.createElement("div");
-    banner.className = "readonly-banner";
-    banner.innerHTML = `
-      <div>
-        <span class="badge-builtin">Built-in Mod Spell</span>
-        <strong>${escapeHtml(def.displayName || id)}</strong> (<code>${escapeHtml(id)}</code>) is managed by Arcane Wilds so it automatically receives mod updates.
-        You can toggle it off on the left, or clone it into <strong>My Custom Spells</strong> to customize your own version.
-      </div>
-    `;
-    const btnGroup = document.createElement("div");
-    btnGroup.className = "combo-row-actions";
-    btnGroup.appendChild(makeBtn("Clone to My Spells", "btn-primary btn-sm", () => {
-      this.cloneDefaultToUser(id, false);
-    }));
-    btnGroup.appendChild(makeBtn("Clone & Disable Built-in", "btn-secondary btn-sm", () => {
-      this.cloneDefaultToUser(id, true);
-    }));
-    banner.appendChild(btnGroup);
-    this.editorEl.appendChild(banner);
-
-    const summaryCard = makeSectionCard("Built-in Spell Definition (Read-Only Preview)");
-    const pre = document.createElement("pre");
-    pre.style.margin = "0";
-    pre.style.overflowX = "auto";
-    pre.style.fontFamily = "var(--mono)";
-    pre.style.fontSize = "12px";
-    pre.style.color = "var(--text-muted)";
-    pre.textContent = JSON.stringify(def, null, 2);
-    summaryCard.appendChild(pre);
-    this.editorEl.appendChild(summaryCard);
   }
 
   makeAssetField(label, value, getOptions, onChange) {
