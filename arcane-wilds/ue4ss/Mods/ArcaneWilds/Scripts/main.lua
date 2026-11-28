@@ -146,13 +146,10 @@ local function RefreshSpells()
         ConfigManager.SaveConfigFile(Paths, Config)
     end
 
+    -- Re-resolve both default combo_rules.json and persistent user_combos.json against
+    -- the newly discovered spell lookup without clobbering user rules or default toggles.
     if State.LastValidComboRulesRaw then
-        local RuleParser = require("rule_parser")
-        local parsed, err = RuleParser.ParseWeightedMacros(
-            State.LastValidComboRulesRaw, State.NameMapByCat, State.GlobalNameMap, State.DiscoveredLookup)
-        if parsed and not err then
-            State.ParsedMacros = parsed
-        end
+        ConfigManager.LoadComboRulesFile(Paths, Config, State, nil, true, nil)
     end
     if Config.DebugMode and not State._LoggedInitialSpellMap and next(State.SpellRegistry) ~= nil then
         State._LoggedInitialSpellMap = true
@@ -385,29 +382,7 @@ local function SyncQuickCastInputSuppression(pc)
 end
 
 local function ResolveQuickCastEntry(spellName)
-    local clean = tostring(spellName or ""):gsub("^%s*(.-)%s*$", "%1")
-    if clean == "" then return nil end
-    local low = clean:lower()
-    if State.SpellRegistry[low] then
-        return State.SpellRegistry[low]
-    end
-    if State.GlobalNameMap and State.GlobalNameMap[low] then
-        local mapped = State.GlobalNameMap[low]:lower()
-        if State.SpellRegistry[mapped] then
-            return State.SpellRegistry[mapped]
-        end
-    end
-    if State.CustomSpellDefs and State.CustomSpellDefs[low] then
-        local rebuilt = CustomSpells.BuildCustomRegistryEntries(
-            { [low] = State.CustomSpellDefs[low] },
-            State.SpellRegistry, State.SpellChains, State.RuneItemDataCache,
-            SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName)
-        if rebuilt[low] then
-            State.SpellRegistry[low] = rebuilt[low]
-            return rebuilt[low]
-        end
-    end
-    return nil
+    return ConfigManager.ResolveQuickCastEntry(State, spellName)
 end
 
 local function PollQuickCastHotkeys(now, pc, pawn, combatMagic)
@@ -460,34 +435,41 @@ local function PollQuickCastHotkeys(now, pc, pawn, combatMagic)
                         local ruleStr = targetStr:match(";$") and targetStr or (targetStr .. ";")
                         local parsed = RuleParser.ParseWeightedMacros(ruleStr, State.NameMapByCat, State.GlobalNameMap, State.DiscoveredLookup)
                         if parsed and parsed[1] then
-                            local macroUnlocked, lockInfo = ProgressionScaling.CheckMacroUnlocked(
-                                Config, pc, pawn, State, parsed[1], ConfigManager.ResolveStepEntry)
-                            if not macroUnlocked then
-                                State._LastQuickCastTime = now
-                                ProgressionScaling.NotifySpellLocked(Config, pc, pawn, lockInfo, Log)
-                                firedAny = true
+                            local st1 = parsed[1].stages[1]
+                            local sd1 = st1 and st1.steps[1]
+                            local ent1 = sd1 and ConfigManager.ResolveStepEntry(State, st1, sd1)
+                            local blockedByInFlight, blockReason = CombatEngine.ShouldBlockForInFlightCast(
+                                Config, State, pawn, combatMagic, ent1)
+                            if blockedByInFlight then
+                                DebugLog(string.format("QuickCast #%d [%s%s] skipped (%s, PreventAbilityCanceling=true)",
+                                    idx, prefix, tostring(triggeredKey), tostring(blockReason)))
                             else
-                                State._LastQuickCastTime = now
-                                State.ActiveMacro = parsed[1]
-                                State.StageIndex = 1
-                                State.StepInStage = 1
-                                State.StepInFlight = false
-                                State.InFlightSpellObj = nil
-                                State._LastTriggeredSpellPtr = nil
-                                Log(string.format("QuickCast #%d [%s%s] -> Combo: %s", idx, prefix, tostring(triggeredKey), targetStr))
-                                local st1 = parsed[1].stages[1]
-                                local sd1 = st1 and st1.steps[1]
-                                local ent1 = sd1 and ConfigManager.ResolveStepEntry(State, st1, sd1)
-                                CombatEngine.ApplyStageSpeedAndPriming(Config, State, combatMagic, st1, 1, pawn, DebugLog)
-                                if ent1 then
-                                    State.LastAutoAttackTime = now
-                                    State.LastTriggeredSpellTime = now
-                                    State.StepInFlight = true
-                                    State.InFlightSpellObj = ent1.spellObj
-                                    State.InFlightStartedTime = now
-                                    CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, ent1, DebugLog, combatMagic, true)
+                                local macroUnlocked, lockInfo = ProgressionScaling.CheckMacroUnlocked(
+                                    Config, pc, pawn, State, parsed[1], ConfigManager.ResolveStepEntry)
+                                if not macroUnlocked then
+                                    State._LastQuickCastTime = now
+                                    ProgressionScaling.NotifySpellLocked(Config, pc, pawn, lockInfo, Log)
+                                    firedAny = true
+                                else
+                                    State._LastQuickCastTime = now
+                                    State.ActiveMacro = parsed[1]
+                                    State.StageIndex = 1
+                                    State.StepInStage = 1
+                                    State.StepInFlight = false
+                                    State.InFlightSpellObj = nil
+                                    State._LastTriggeredSpellPtr = nil
+                                    Log(string.format("QuickCast #%d [%s%s] -> Combo: %s", idx, prefix, tostring(triggeredKey), targetStr))
+                                    CombatEngine.ApplyStageSpeedAndPriming(Config, State, combatMagic, st1, 1, pawn, DebugLog)
+                                    if ent1 then
+                                        State.LastAutoAttackTime = now
+                                        State.LastTriggeredSpellTime = now
+                                        State.StepInFlight = true
+                                        State.InFlightSpellObj = ent1.spellObj
+                                        State.InFlightStartedTime = now
+                                        CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, ent1, DebugLog, combatMagic, true)
+                                    end
+                                    firedAny = true
                                 end
-                                firedAny = true
                             end
                         else
                             Log(string.format("QuickCast #%d [%s%s]: combo '%s' failed to parse", idx, prefix, tostring(triggeredKey), targetStr))
@@ -495,21 +477,28 @@ local function PollQuickCastHotkeys(now, pc, pawn, combatMagic)
                     else
                         local entry = ResolveQuickCastEntry(targetStr)
                         if entry then
-                            local spellUnlocked, lockInfo = ProgressionScaling.CheckSpellUnlocked(Config, pc, pawn, entry)
-                            if not spellUnlocked then
-                                State._LastQuickCastTime = now
-                                ProgressionScaling.NotifySpellLocked(Config, pc, pawn, lockInfo, Log)
-                                firedAny = true
+                            local blockedByInFlight, blockReason = CombatEngine.ShouldBlockForInFlightCast(
+                                Config, State, pawn, combatMagic, entry)
+                            if blockedByInFlight then
+                                DebugLog(string.format("QuickCast #%d [%s%s] -> %s skipped (%s, PreventAbilityCanceling=true)",
+                                    idx, prefix, tostring(triggeredKey), tostring(entry.shortName or targetStr), tostring(blockReason)))
                             else
-                                State._LastQuickCastTime = now
-                                State.LastAutoAttackTime = now
-                                State.LastTriggeredSpellTime = now
-                                State._LastTriggeredSpellPtr = nil
-                                State.StepInFlight = false
-                                State.InFlightSpellObj = nil
-                                Log(string.format("QuickCast #%d [%s%s] -> %s", idx, prefix, tostring(triggeredKey), tostring(entry.shortName or targetStr)))
-                                CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, entry, DebugLog, combatMagic, true)
-                                firedAny = true
+                                local spellUnlocked, lockInfo = ProgressionScaling.CheckSpellUnlocked(Config, pc, pawn, entry)
+                                if not spellUnlocked then
+                                    State._LastQuickCastTime = now
+                                    ProgressionScaling.NotifySpellLocked(Config, pc, pawn, lockInfo, Log)
+                                    firedAny = true
+                                else
+                                    State._LastQuickCastTime = now
+                                    State.LastAutoAttackTime = now
+                                    State.LastTriggeredSpellTime = now
+                                    State._LastTriggeredSpellPtr = nil
+                                    State.StepInFlight = false
+                                    State.InFlightSpellObj = nil
+                                    Log(string.format("QuickCast #%d [%s%s] -> %s", idx, prefix, tostring(triggeredKey), tostring(entry.shortName or targetStr)))
+                                    CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, entry, DebugLog, combatMagic, true)
+                                    firedAny = true
+                                end
                             end
                         else
                             Log(string.format("QuickCast #%d [%s%s]: spell '%s' not found in loaded/custom spells", idx, prefix, tostring(triggeredKey), targetStr))
@@ -868,7 +857,9 @@ local function TickAutoAttack(now, pc, pawn, combatMagic)
         local isParallelTimeline = entry.isCustomSpell and entry.hasTimeline and entry.timeline
             and ((entry.timeline.overlapPolicy or "replace"):lower() == "parallel")
         local minTriggerGap = entry.isSpecialSpell and 0.45 or (isParallelTimeline and 0.12 or 0.25)
-        if (isBusy and not isParallelTimeline) or (now - (State.LastTriggeredSpellTime or 0)) < minTriggerGap then
+        if (isBusy and not isParallelTimeline)
+            or CombatEngine.ShouldBlockForInFlightCast(Config, State, pawn, combatMagic, entry)
+            or (now - (State.LastTriggeredSpellTime or 0)) < minTriggerGap then
             return
         end
         if CombatEngine.TriggerSpellEntryForPlayer(Config, State, pawn, entry, DebugLog, combatMagic) then
@@ -984,7 +975,7 @@ local function RunMainGameThreadTick()
         State.ModifierHeld = true
         State._AppliedPadForCurrentStep = false
         SyncQuickCastInputSuppression(pc)
-        if Config.TriggerComboOnModifierHold == true then
+        if Config.TriggerComboOnModifierHold == true and not CombatEngine.ShouldBlockForInFlightCast(Config, State, pawn, combatMagic, nil) then
             CombatEngine.EngageModifierAndRollMacro(Config, State, pawn, combatMagic, Log, DebugLog)
             if State.ActiveMacro and pawn and pawn:IsValid() then
                 local st1 = State.ActiveMacro.stages[1]

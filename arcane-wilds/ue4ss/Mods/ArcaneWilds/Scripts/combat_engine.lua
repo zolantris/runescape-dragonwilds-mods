@@ -46,8 +46,52 @@ function CombatEngine.IsPlayerDead(pawn)
     return dead
 end
 
--- Clear any stuck Dragonwilds spell-casting lockouts (CurrentSpellActor / CastingTag) on death or respawn
+-- Clear any stuck Dragonwilds spell-casting lockouts (CurrentSpellActor / CastingTag)
 -- so PlayerActionPerformer::ActionBlockingQueries never permanently locks out Block or Attack.
+function CombatEngine.ClearStuckCastingLockout(combatMagic, pawn, debugLogFn, reason)
+    if not pawn or not pawn:IsValid() or not combatMagic or not combatMagic:IsValid() then
+        return false
+    end
+    local clearedAny = false
+    pcall(function()
+        local curActor = combatMagic.CurrentSpellActor
+        if curActor and curActor:IsValid() and combatMagic.Server_CancelSpell then
+            combatMagic:Server_CancelSpell()
+            clearedAny = true
+        end
+    end)
+    pcall(function()
+        local castingTag = combatMagic.CastingTag
+        if castingTag ~= nil then
+            local bpLib = StaticFindObject("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary")
+            if bpLib and bpLib:IsValid() and bpLib.RemoveTagFromPlayerCharacter then
+                pcall(function()
+                    bpLib:RemoveTagFromPlayerCharacter(pawn, castingTag)
+                    clearedAny = true
+                end)
+            end
+            local tagsComp = combatMagic.GameplayTagsComponent
+            if tagsComp and tagsComp:IsValid() then
+                if tagsComp.ClearLocalTag then
+                    pcall(function()
+                        tagsComp:ClearLocalTag(castingTag)
+                        clearedAny = true
+                    end)
+                elseif tagsComp.RemoveLocalTag then
+                    pcall(function()
+                        tagsComp:RemoveLocalTag(castingTag)
+                        clearedAny = true
+                    end)
+                end
+            end
+        end
+    end)
+    if clearedAny and debugLogFn and reason then
+        debugLogFn("Cleared spell casting lockout (" .. tostring(reason) .. ")")
+    end
+    return clearedAny
+end
+
 function CombatEngine.RecoverFromDeathOrRespawn(config, state, combatMagic, pawn, logFn, debugLogFn, reason)
     CombatEngine.ResetAllState(config, state, combatMagic, pawn, debugLogFn, reason or "death-recovery")
     if state then
@@ -55,31 +99,7 @@ function CombatEngine.RecoverFromDeathOrRespawn(config, state, combatMagic, pawn
         state.PrimaryAttackHeld = false
     end
 
-    if pawn and pawn:IsValid() and combatMagic and combatMagic:IsValid() then
-        pcall(function()
-            local curActor = combatMagic.CurrentSpellActor
-            if curActor and curActor:IsValid() and combatMagic.Server_CancelSpell then
-                combatMagic:Server_CancelSpell()
-            end
-        end)
-        pcall(function()
-            local castingTag = combatMagic.CastingTag
-            if castingTag ~= nil then
-                local bpLib = StaticFindObject("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary")
-                if bpLib and bpLib:IsValid() and bpLib.RemoveTagFromPlayerCharacter then
-                    pcall(function() bpLib:RemoveTagFromPlayerCharacter(pawn, castingTag) end)
-                end
-                local tagsComp = combatMagic.GameplayTagsComponent
-                if tagsComp and tagsComp:IsValid() then
-                    if tagsComp.ClearLocalTag then
-                        pcall(function() tagsComp:ClearLocalTag(castingTag) end)
-                    elseif tagsComp.RemoveLocalTag then
-                        pcall(function() tagsComp:RemoveLocalTag(castingTag) end)
-                    end
-                end
-            end
-        end)
-    end
+    CombatEngine.ClearStuckCastingLockout(combatMagic, pawn, debugLogFn, reason or "death-recovery")
     if logFn and reason then
         logFn("Recovered combat/casting state (" .. tostring(reason) .. ")")
     end
@@ -133,9 +153,13 @@ end
 function CombatEngine.PickWeightedMacroForElement(state, anchorCategory, activeStartingSpell, config, pawn)
     if #state.ParsedMacros == 0 then return nil end
 
+    local firstLockedInfo = nil
     local function IsMacroAllowed(m)
         if not config or not pawn then return true end
-        local ok = ProgressionScaling.CheckMacroUnlocked(config, nil, pawn, state, m, ConfigManager.ResolveStepEntry)
+        local ok, lockInfo = ProgressionScaling.CheckMacroUnlocked(config, nil, pawn, state, m, ConfigManager.ResolveStepEntry)
+        if ok ~= true and not firstLockedInfo and lockInfo then
+            firstLockedInfo = lockInfo
+        end
         return ok == true
     end
 
@@ -195,7 +219,7 @@ function CombatEngine.PickWeightedMacroForElement(state, anchorCategory, activeS
         end
     end
 
-    if #candidates == 0 then return nil end
+    if #candidates == 0 then return nil, firstLockedInfo end
 
     local totalWeight = 0.0
     for _, m in ipairs(candidates) do
@@ -260,6 +284,49 @@ function CombatEngine.GetActiveMontageObj(pawn)
         end)
     end
     return activeMontage
+end
+
+function CombatEngine.IsSpellCastInFlight(state, pawn, combatMagic)
+    if state and state.StepInFlight == true then
+        return true, "step-in-flight"
+    end
+    if combatMagic and combatMagic:IsValid() then
+        local hasActiveSpellActor = false
+        pcall(function()
+            if combatMagic.CurrentSpellActor and combatMagic.CurrentSpellActor:IsValid() then
+                hasActiveSpellActor = true
+            end
+        end)
+        if hasActiveSpellActor then
+            return true, "active-spell-actor"
+        end
+    end
+    if CombatEngine.GetActiveMontageObj(pawn) ~= nil then
+        return true, "active-montage"
+    end
+    if state and type(state.ActiveTimelines) == "table" then
+        for _, tl in ipairs(state.ActiveTimelines) do
+            if type(tl) == "table" and tl.finished ~= true then
+                local policy = tostring(tl.overlapPolicy or (tl.timeline and tl.timeline.overlapPolicy) or "replace"):lower()
+                if policy ~= "parallel" then
+                    return true, "active-timeline"
+                end
+            end
+        end
+    end
+    return false, nil
+end
+
+function CombatEngine.ShouldBlockForInFlightCast(config, state, pawn, combatMagic, entry)
+    if config and config.PreventAbilityCanceling == false then
+        return false, nil
+    end
+    local isParallelTimeline = entry and entry.isCustomSpell and entry.hasTimeline and entry.timeline
+        and ((entry.timeline.overlapPolicy or "replace"):lower() == "parallel")
+    if isParallelTimeline then
+        return false, nil
+    end
+    return CombatEngine.IsSpellCastInFlight(state, pawn, combatMagic)
 end
 
 function CombatEngine.ApplyMontageRateToInstance(config, pawn, montageObj, targetRate, isAirSmash)
@@ -793,7 +860,7 @@ function CombatEngine.RollAndEngageMacroForAnchor(config, state, pawn, combatMag
         startKey = detectedSpell
     end
 
-    local macro = CombatEngine.PickWeightedMacroForElement(state, freshAnchor, startKey, config, pawn)
+    local macro, lockedInfo = CombatEngine.PickWeightedMacroForElement(state, freshAnchor, startKey, config, pawn)
     state.ActiveMacro = macro
     state.StageIndex = 1
     state.StepInStage = 1
@@ -818,6 +885,11 @@ function CombatEngine.RollAndEngageMacroForAnchor(config, state, pawn, combatMag
                 end
             end
         end
+    elseif lockedInfo then
+        logFn(string.format("Start [%s] (Anchor [%s], Rune [%s]) -> Matching rule skipped because spell is locked: %s",
+            tostring(startKey or freshAnchor or "None"), tostring(freshAnchor or "None"),
+            tostring(state.LastKnownRuneName or "None"),
+            tostring(lockedInfo.reason or lockedInfo.spellName or "level requirement not met")))
     else
         logFn(string.format("Start [%s] (Anchor [%s], Rune [%s]) -> No matching rule for equipped element in combo_rules.json",
             tostring(startKey or freshAnchor or "None"), tostring(freshAnchor or "None"),
@@ -876,6 +948,7 @@ function CombatEngine.ReleaseModifierAndRevert(config, state, pawn, combatMagic,
             pcall(function() combatMagic.LastChainedSpell = nil end)
         end
     end
+    CombatEngine.ClearStuckCastingLockout(combatMagic, relPawn, debugLogFn, "modifier-released")
     local currentEquipped = EquipmentRunes.DetectEquippedCategory(relPawn, combatMagic, state, debugLogFn)
     state.AnchorElement = currentEquipped
     if hadActiveCombo then

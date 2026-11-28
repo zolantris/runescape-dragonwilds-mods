@@ -98,8 +98,8 @@ Air_Wand.slam   = DA_Spell_Primary_Air_Wand_04
 Earth.bolt    = DA_Spell_Primary_Earth_01
 Earth.spike   = DA_Spell_Primary_Earth_02
 Earth.shatter = DA_Spell_Primary_Earth_03
-Earth.boulder = DA_Spell_Primary_Earth_04
-Earth.slam    = DA_Spell_Primary_Earth_04
+Earth.boulder = DA_Spell_Primary_Earth_04_NEW
+Earth.slam    = DA_Spell_Primary_Earth_04_NEW
 Earth.hold    = DA_Spell_Secondary_Earth_HOLD
 
 Earth_Wand.bolt    = DA_Spell_Primary_Earth_Wand_01

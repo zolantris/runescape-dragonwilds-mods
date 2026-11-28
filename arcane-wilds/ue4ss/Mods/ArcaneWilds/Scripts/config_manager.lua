@@ -103,7 +103,7 @@ local DEFAULT_SPELL_NAMES_CONTENT = table.concat({
     "Earth.bolt    = DA_Spell_Primary_Earth_01",
     "Earth.spike   = DA_Spell_Primary_Earth_02",
     "Earth.shatter = DA_Spell_Primary_Earth_03",
-    "Earth.boulder = DA_Spell_Primary_Earth_04",
+    "Earth.boulder = DA_Spell_Primary_Earth_04_NEW",
     "Earth_Wand.bolt    = DA_Spell_Primary_Earth_Wand_01",
     "Earth_Wand.spike   = DA_Spell_Primary_Earth_Wand_02",
     "Earth_Wand.shatter = DA_Spell_Primary_Earth_Wand_03",
@@ -199,7 +199,7 @@ local DEFAULT_QUICK_CAST_CONTENT = table.concat({
 local ORDERED_CONFIG_KEYS = {
     "Enabled", "DebugMode", "AllowDebugCommands", "DebugHotkey",
     "EnableWebEditorHotkey", "WebEditorHotkey", "LaunchWebEditorNow",
-    "RequireModifierKey", "ModifierKey", "ConsumeRunesOnSwappedCasts",
+    "RequireModifierKey", "ModifierKey", "ConsumeRunesOnSwappedCasts", "PreventAbilityCanceling",
     "EnableQuickCastHotkeys", "QuickCastRequireModifier", "QuickCastSuppressGameActions",
     "ActiveQuickCastCount",
     "QuickCastHotkey1", "QuickCastSpell1",
@@ -241,6 +241,7 @@ function ConfigManager.CreateDefaultConfig()
         RequireModifierKey = true,
         ModifierKey = "RMB",
         ConsumeRunesOnSwappedCasts = true,
+        PreventAbilityCanceling = true,
         EnableQuickCastHotkeys = true,
         QuickCastRequireModifier = true,
         QuickCastSuppressGameActions = true,
@@ -337,6 +338,100 @@ function ConfigManager.ResolveStepEntry(state, stage, stepDescriptor)
             local sName = chain.stepNames and chain.stepNames[idx]
             if sName and state.SpellRegistry[sName:lower()] then
                 return state.SpellRegistry[sName:lower()]
+            end
+        end
+    end
+
+    return nil
+end
+
+local function IsEntryUsable(entry)
+    if not entry then return false end
+    if entry.suppressBaseSpell then return true end
+    return entry.spellObj ~= nil and entry.spellObj:IsValid()
+end
+
+function ConfigManager.ResolveQuickCastEntry(state, spellName)
+    if type(state) ~= "table" then return nil end
+    local clean = ConfigManager.Trim(tostring(spellName or ""))
+    if clean == "" then return nil end
+    local low = clean:lower()
+    local reg = state.SpellRegistry or {}
+
+    local function lookupAsset(assetName)
+        if type(assetName) ~= "string" or assetName == "" then return nil end
+        local e = reg[assetName:lower()]
+        if IsEntryUsable(e) then return e end
+        return nil
+    end
+
+    -- 1. Direct exact match in SpellRegistry (custom spells, DA_Spell_*, UtilitySpellData, etc.)
+    local direct = lookupAsset(low)
+    if direct then return direct end
+
+    -- 2. Global friendly alias (*.name in spell_names.txt)
+    if state.GlobalNameMap and state.GlobalNameMap[low] then
+        local mapped = lookupAsset(state.GlobalNameMap[low])
+        if mapped then return mapped end
+    end
+
+    -- 3. Category-qualified friendly alias (e.g. "Air.vortex", "Water.wave", "AncientMagicks.ice_barrage")
+    local catPart, aliasPart = low:match("^([^%.]+)%.(.+)$")
+    if catPart and aliasPart and state.NameMapByCat and state.NameMapByCat[catPart] then
+        local mapped = lookupAsset(state.NameMapByCat[catPart][aliasPart])
+        if mapped then return mapped end
+    end
+
+    -- 4. DiscoveredLookup (montage names, stripped modded names like "icebarrage")
+    if state.DiscoveredLookup and state.DiscoveredLookup[low] then
+        local mapped = lookupAsset(state.DiscoveredLookup[low])
+        if mapped then return mapped end
+    end
+
+    -- 5. Unqualified friendly alias across NameMapByCat (e.g. "vortex", "wave", "burst", "tsunami")
+    -- Prefer base categories over *_wand variants when an alias exists in multiple categories.
+    if state.NameMapByCat then
+        local cats = {}
+        for catKey in pairs(state.NameMapByCat) do
+            table.insert(cats, catKey)
+        end
+        table.sort(cats, function(a, b)
+            local aWand = a:find("_wand", 1, true) ~= nil
+            local bWand = b:find("_wand", 1, true) ~= nil
+            if aWand ~= bWand then return not aWand end
+            return a < b
+        end)
+        for _, catKey in ipairs(cats) do
+            local catMap = state.NameMapByCat[catKey]
+            if type(catMap) == "table" and catMap[low] then
+                local mapped = lookupAsset(catMap[low])
+                if mapped then return mapped end
+            end
+        end
+    end
+
+    -- 6. Lazy-rebuild custom spell if not yet registered
+    if state.CustomSpellDefs and state.CustomSpellDefs[low] then
+        local rebuilt = CustomSpells.BuildCustomRegistryEntries(
+            { [low] = state.CustomSpellDefs[low] },
+            reg, state.SpellChains, state.RuneItemDataCache,
+            SpellScanner.SafeGetName, SpellScanner.ExtractShortObjectName)
+        if rebuilt[low] then
+            reg[low] = rebuilt[low]
+            return rebuilt[low]
+        end
+    end
+
+    -- 7. Fallback to chain name (e.g. "Air", "Fire") -> first step in chain
+    if state.SpellChains and state.SpellChains[low] then
+        local chain = state.SpellChains[low]
+        if chain.stepNames then
+            for idx = 0, 3 do
+                local sName = chain.stepNames[idx]
+                if sName then
+                    local mapped = lookupAsset(sName)
+                    if mapped then return mapped end
+                end
             end
         end
     end
@@ -1162,6 +1257,7 @@ function ConfigManager.LoadConfigFile(paths, config, state, logFn, forceRebuildM
                 elseif k == "AutoTargetMaxDistance" then config.AutoTargetMaxDistance = math.max(100.0, tonumber(v) or 2500.0)
                 elseif k == "AutoTargetConeDeg" then config.AutoTargetConeDeg = math.max(5.0, math.min(360.0, tonumber(v) or 45.0))
                 elseif k == "RequireLockOnForChainSpells" then config.RequireLockOnForChainSpells = ConfigManager.ParseBool(v, true)
+                elseif k == "PreventAbilityCanceling" then config.PreventAbilityCanceling = ConfigManager.ParseBool(v, true)
                 elseif k == "EnableStaffDamageScaling" then config.EnableStaffDamageScaling = ConfigManager.ParseBool(v, true)
                 elseif k == "StaffBaselineTier" then config.StaffBaselineTier = math.max(1, math.floor(tonumber(v) or 1))
                 elseif k == "StaffTierStep" then config.StaffTierStep = math.max(0.0, tonumber(v) or 0.30)

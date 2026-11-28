@@ -211,4 +211,197 @@ T.Suite("combo_rules + rule_parser + combat_engine", function()
         T.AssertNotNil(err)
         T.AssertContains(err, "missing 'stages' array or 'chain' string")
     end)
+
+    T.Test("Earth.boulder and Earth.slam resolve to DA_Spell_Primary_Earth_04_NEW", function()
+        local byCat, globalMap = LoadDefaultNameMaps()
+        local raw = [[{
+            "rules": [
+                {
+                    "name": "Earth Chain",
+                    "enabled": true,
+                    "weight": 5,
+                    "stages": [
+                        { "category": "Earth", "spells": ["bolt", "spike", "shatter", "boulder"], "speed": 2.0 }
+                    ]
+                }
+            ]
+        }]]
+        local macros, err = RuleParser.ParseWeightedMacros(raw, byCat, globalMap, {})
+        T.AssertNil(err)
+        T.AssertEq(#macros, 1)
+        T.AssertEq(macros[1].stages[1].steps[4].assetName, "DA_Spell_Primary_Earth_04_NEW")
+        T.AssertEq(byCat["earth"]["boulder"], "DA_Spell_Primary_Earth_04_NEW")
+        T.AssertEq(byCat["earth"]["slam"], "DA_Spell_Primary_Earth_04_NEW")
+    end)
+
+    T.Test("PickWeightedMacroForElement returns lockedInfo when element-matching rule is level-locked", function()
+        Mock.Reset()
+        local byCat, globalMap = LoadDefaultNameMaps()
+        local raw = [[{
+            "rules": [
+                {
+                    "name": "EarthChain",
+                    "enabled": true,
+                    "weight": 5,
+                    "stages": [
+                        { "category": "Earth", "spells": ["bolt", "LockedEntangle"], "speed": 2.0 }
+                    ]
+                }
+            ]
+        }]]
+        local macros = RuleParser.ParseWeightedMacros(raw, byCat, globalMap, {})
+        local lockedEntry = {
+            shortName = "LockedEntangle",
+            suppressBaseSpell = true,
+            isCustomSpell = true,
+            requiredMagicLevel = 60,
+            requiredSkill = "Magic",
+            unlockedByDefault = false,
+        }
+        local boltEntry = {
+            shortName = "DA_Spell_Primary_Earth_01",
+            spellObj = Mock.MakeUObject("DA_Spell_Primary_Earth_01"),
+            categoryTag = "Earth",
+        }
+        local state = {
+            ParsedMacros = macros,
+            SpellRegistry = {
+                ["da_spell_primary_earth_01"] = boltEntry,
+                ["lockedentangle"] = lockedEntry,
+            },
+            SpellChains = {},
+        }
+        local pawn = Mock.MakeUObject("BP_PlayerCharacter_C_1")
+        local cfgEnforced = { EnforceSpellLevelRequirements = true }
+        local picked, lockedInfo = CombatEngine.PickWeightedMacroForElement(
+            state, "earth_wand", "DA_Spell_Primary_Earth_Wand_01", cfgEnforced, pawn)
+        T.AssertNil(picked, "locked earth macro should not be picked when EnforceSpellLevelRequirements=true")
+        T.AssertNotNil(lockedInfo, "lockedInfo must be returned so caller can log why the rule was skipped")
+        T.AssertContains(lockedInfo.reason, "60")
+
+        local cfgBypass = { EnforceSpellLevelRequirements = false }
+        local pickedBypass, lockedInfoBypass = CombatEngine.PickWeightedMacroForElement(
+            state, "earth_wand", "DA_Spell_Primary_Earth_Wand_01", cfgBypass, pawn)
+        T.AssertNotNil(pickedBypass, "earth_wand should fall back to Earth macro when level check is disabled")
+        T.AssertEq(pickedBypass.name, "EarthChain")
+        T.AssertNil(lockedInfoBypass)
+    end)
+
+    T.Test("ReleaseModifierAndRevert clears stuck CastingTag and CurrentSpellActor to prevent Block lockout", function()
+        Mock.Reset()
+        local removedTag = nil
+        local clearedLocalTag = nil
+        local cancelledSpell = false
+
+        local bpLib = Mock.MakeUObject("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary", {
+            RemoveTagFromPlayerCharacter = function(_, _, tag)
+                removedTag = tag
+            end,
+        })
+        Mock.RegisterPath("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary", bpLib)
+
+        local tagsComp = Mock.MakeUObject("GameplayTagsComponent_1", {
+            ClearLocalTag = function(_, tag)
+                clearedLocalTag = tag
+            end,
+        })
+        local spellActor = Mock.MakeUObject("BP_SpellActor_Earth_1")
+        local castingTag = { TagName = "Status.Casting" }
+        local combatMagic = Mock.MakeUObject("CombatMagicComponent_1", {
+            CurrentSpellActor = spellActor,
+            CastingTag = castingTag,
+            GameplayTagsComponent = tagsComp,
+            LastChainedSpell = spellActor,
+            Server_CancelSpell = function()
+                cancelledSpell = true
+            end,
+        })
+        local pawn = Mock.MakeUObject("BP_PlayerCharacter_C_1")
+        local state = {
+            ActiveMacro = { stages = {} },
+            StageIndex = 1,
+            StepInStage = 1,
+            ModifierHeld = false,
+            SpellRegistry = {},
+            SpellChains = {},
+        }
+        local cfg = ConfigManager.CreateDefaultConfig()
+        local logs = {}
+        CombatEngine.ReleaseModifierAndRevert(
+            cfg, state, pawn, combatMagic,
+            function(msg) table.insert(logs, msg) end,
+            function() end
+        )
+
+        T.AssertTrue(cancelledSpell, "Server_CancelSpell must be called on stale CurrentSpellActor")
+        T.AssertEq(removedTag, castingTag, "CastingTag must be removed from player character")
+        T.AssertEq(clearedLocalTag, castingTag, "Local CastingTag must be cleared on GameplayTagsComponent")
+        T.AssertNil(state.ActiveMacro)
+    end)
+
+    T.Test("PreventAbilityCanceling defaults true and guards in-flight spells, montages, and non-parallel timelines", function()
+        Mock.Reset()
+        local cfg = ConfigManager.CreateDefaultConfig()
+        T.AssertTrue(cfg.PreventAbilityCanceling, "PreventAbilityCanceling must default to true")
+
+        local idlePawn = Mock.MakeUObject("BP_PlayerCharacter_C_1")
+        local idleMagic = Mock.MakeUObject("CombatMagicComponent_1")
+        local idleState = { StepInFlight = false, ActiveTimelines = {} }
+
+        local blockedIdle, reasonIdle = CombatEngine.ShouldBlockForInFlightCast(cfg, idleState, idlePawn, idleMagic, nil)
+        T.AssertFalse(blockedIdle)
+        T.AssertNil(reasonIdle)
+
+        -- 1. StepInFlight blocks
+        local blockedStep, reasonStep = CombatEngine.ShouldBlockForInFlightCast(
+            cfg, { StepInFlight = true }, idlePawn, idleMagic, nil)
+        T.AssertTrue(blockedStep)
+        T.AssertEq(reasonStep, "step-in-flight")
+
+        -- 2. Active CurrentSpellActor blocks
+        local busyMagic = Mock.MakeUObject("CombatMagicComponent_2", {
+            CurrentSpellActor = Mock.MakeUObject("BP_SpellActor_1"),
+        })
+        local blockedActor, reasonActor = CombatEngine.ShouldBlockForInFlightCast(
+            cfg, idleState, idlePawn, busyMagic, nil)
+        T.AssertTrue(blockedActor)
+        T.AssertEq(reasonActor, "active-spell-actor")
+
+        -- 3. Active montage blocks
+        local activeMontage = Mock.MakeUObject("AM_Spell_Cast")
+        local animInst = Mock.MakeUObject("AnimInstance_1", {
+            GetCurrentActiveMontage = function() return activeMontage end,
+        })
+        local mesh = Mock.MakeUObject("SkeletalMeshComponent_1", {
+            GetAnimInstance = function() return animInst end,
+        })
+        local busyPawn = Mock.MakeUObject("BP_PlayerCharacter_C_2", { Mesh = mesh })
+        local blockedMontage, reasonMontage = CombatEngine.ShouldBlockForInFlightCast(
+            cfg, idleState, busyPawn, idleMagic, nil)
+        T.AssertTrue(blockedMontage)
+        T.AssertEq(reasonMontage, "active-montage")
+
+        -- 4. Active non-parallel timeline blocks; parallel/finished timelines do not
+        local blockedTl, reasonTl = CombatEngine.ShouldBlockForInFlightCast(
+            cfg, { ActiveTimelines = { { finished = false, overlapPolicy = "replace" } } }, idlePawn, idleMagic, nil)
+        T.AssertTrue(blockedTl)
+        T.AssertEq(reasonTl, "active-timeline")
+
+        local blockedParallel = CombatEngine.ShouldBlockForInFlightCast(
+            cfg, { ActiveTimelines = { { finished = false, overlapPolicy = "parallel" }, { finished = true, overlapPolicy = "replace" } } },
+            idlePawn, idleMagic, nil)
+        T.AssertFalse(blockedParallel)
+
+        -- 5. Parallel-policy entry bypasses block even during an active cast
+        local parallelEntry = {
+            isCustomSpell = true,
+            hasTimeline = true,
+            timeline = { overlapPolicy = "parallel" },
+        }
+        T.AssertFalse(CombatEngine.ShouldBlockForInFlightCast(cfg, { StepInFlight = true }, busyPawn, busyMagic, parallelEntry))
+
+        -- 6. Feature flag off disables the guard completely
+        local cfgOff = { PreventAbilityCanceling = false }
+        T.AssertFalse(CombatEngine.ShouldBlockForInFlightCast(cfgOff, { StepInFlight = true }, busyPawn, busyMagic, nil))
+    end)
 end)

@@ -70,6 +70,13 @@
       "default": true
     },
     {
+      "key": "PreventAbilityCanceling",
+      "type": "toggle",
+      "label": "Prevent Ability Canceling",
+      "description": "Guard Quick-Cast hotkeys and combos from interrupting an in-flight spell, montage, or custom spell timeline until it finishes.",
+      "default": true
+    },
+    {
       "type": "header",
       "label": "Quick-Cast Direct Spell Hotkeys (Keyboard 1-4 / Controller X,Y,B,A)"
     },
