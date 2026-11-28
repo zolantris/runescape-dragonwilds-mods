@@ -15,6 +15,7 @@ param(
     [switch]$NoArchiveOld,
     [switch]$NoUpdateModVersion,
     [switch]$NoSyncDescription,
+    [switch]$NoSyncChangelog,
     [switch]$DescriptionOnly,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$ExtraArgs
@@ -316,6 +317,49 @@ if (-not $NoSyncDescription -and -not [string]::IsNullOrWhiteSpace($uniqueModId)
             -ContentType "application/json" `
             -Body $modPatchBody | Out-Null
         Write-Host "Synced full mod description from README.md." -ForegroundColor Green
+    }
+}
+
+# Sync version changelog to Nexus Mods Changelogs tab via POST /v3/mods/{uniqueModId}/changelogs
+if (-not $NoSyncChangelog -and -not [string]::IsNullOrWhiteSpace($uniqueModId) -and -not [string]::IsNullOrWhiteSpace($notes)) {
+    $cleanChangelog = [regex]::Replace($notes, '\[([^\]]+)\]\([^\)]+\)', '$1')
+    $cleanChangelog = [regex]::Replace($cleanChangelog, '(?m)^###\s+v[^\r\n]+\r?\n?', '')
+    $cleanChangelog = [regex]::Replace($cleanChangelog, '[*_`]+', '').Trim()
+
+    if (-not [string]::IsNullOrWhiteSpace($cleanChangelog)) {
+        $alreadyHasVersion = $false
+        try {
+            $existingLogs = Invoke-RestMethod `
+                -Uri "$apiBaseUrl/mods/$uniqueModId/changelogs" `
+                -Method Get `
+                -Headers $apiHeaders
+            $logItems = if ($existingLogs.data) { @($existingLogs.data) } else { @($existingLogs) }
+            foreach ($entry in $logItems) {
+                if ($entry.version -eq $fullVersion) {
+                    $alreadyHasVersion = $true
+                    break
+                }
+            }
+        } catch {
+            Write-Warning "Could not check existing Nexus changelogs: $_"
+        }
+
+        if ($alreadyHasVersion) {
+            Write-Host "Nexus Mods changelog for v$fullVersion already exists; skipping to avoid duplicates." -ForegroundColor DarkGray
+        } else {
+            Write-Host "Posting changelog for v$fullVersion to Nexus Mods Changelogs tab..." -ForegroundColor Yellow
+            $changelogBody = @{
+                version   = $fullVersion
+                changelog = $cleanChangelog
+            } | ConvertTo-Json -Depth 4
+            Invoke-RestMethod `
+                -Uri "$apiBaseUrl/mods/$uniqueModId/changelogs" `
+                -Method Post `
+                -Headers $apiHeaders `
+                -ContentType "application/json" `
+                -Body $changelogBody | Out-Null
+            Write-Host "Posted changelog for v$fullVersion to Nexus Mods." -ForegroundColor Green
+        }
     }
 }
 
