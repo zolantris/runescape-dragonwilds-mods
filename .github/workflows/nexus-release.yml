@@ -21,6 +21,11 @@ on:
         required: false
         default: true
         type: boolean
+      upload_id:
+        description: "Optional finalized Nexus upload_id to reuse (skips download & steps 1-3)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -42,6 +47,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
           NEXUS_CATEGORY: ${{ inputs.category }}
           DRY_RUN: ${{ inputs.dry_run }}
+          NEXUS_UPLOAD_ID: ${{ inputs.upload_id }}
         run: |
           $ErrorActionPreference = "Stop"
 
@@ -55,17 +61,20 @@ jobs:
           $downloadDir = Join-Path $env:RUNNER_TEMP "nexus-release-asset"
           New-Item -ItemType Directory -Path $downloadDir -Force | Out-Null
 
-          Write-Host "Downloading release archive for tag '$($env:RELEASE_TAG)'..." -ForegroundColor Cyan
-          gh release download $env:RELEASE_TAG --pattern "*.zip" --dir $downloadDir
-          if ($LASTEXITCODE -ne 0) {
-            throw "Failed to download .zip asset from GitHub Release '$($env:RELEASE_TAG)'."
-          }
+          $zipPath = $null
+          if ([string]::IsNullOrWhiteSpace($env:NEXUS_UPLOAD_ID)) {
+            Write-Host "Downloading release archive for tag '$($env:RELEASE_TAG)'..." -ForegroundColor Cyan
+            gh release download $env:RELEASE_TAG --pattern "*.zip" --dir $downloadDir
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to download .zip asset from GitHub Release '$($env:RELEASE_TAG)'."
+            }
 
-          $zips = @(Get-ChildItem -LiteralPath $downloadDir -Filter "*.zip")
-          if ($zips.Count -ne 1) {
-            throw "Expected exactly 1 .zip asset in release '$($env:RELEASE_TAG)', found $($zips.Count)."
+            $zips = @(Get-ChildItem -LiteralPath $downloadDir -Filter "*.zip")
+            if ($zips.Count -ne 1) {
+              throw "Expected exactly 1 .zip asset in release '$($env:RELEASE_TAG)', found $($zips.Count)."
+            }
+            $zipPath = $zips[0].FullName
           }
-          $zipPath = $zips[0].FullName
 
           $notesPath = Join-Path $downloadDir "release-notes.md"
           $body = gh release view $env:RELEASE_TAG --json body --jq .body
@@ -80,9 +89,14 @@ jobs:
             "-Version", $version,
             "-Channel", $channel,
             "-Category", $env:NEXUS_CATEGORY,
-            "-ArchivePath", $zipPath,
             "-SkipBuild"
           )
+          if ($zipPath) {
+            $cliArgs += @("-ArchivePath", $zipPath)
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:NEXUS_UPLOAD_ID)) {
+            $cliArgs += @("-UploadId", $env:NEXUS_UPLOAD_ID)
+          }
           if ($notesPath) {
             $cliArgs += @("-NotesFile", $notesPath)
           }

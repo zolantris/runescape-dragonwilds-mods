@@ -360,7 +360,7 @@ switch ($cmd) {
 
     { $_ -in @("nexus", "publish-nexus", "nm") } {
         $parsed = Parse-CliArgs -RawArgs $RemainingArgs `
-            -SwitchNames @("DryRun", "SkipBuild", "NoArchiveOld", "NoUpdateModVersion", "Verbose", "Debug") `
+            -SwitchNames @("DryRun", "SkipBuild", "NoArchiveOld", "NoUpdateModVersion", "NoSyncDescription", "DescriptionOnly", "Verbose", "Debug") `
             -PassThroughFlags @("--dry-run", "-dry-run", "--skip-build", "--no-archive-old", "--no-update-mod-version")
         $params = $parsed.Named
         if (-not $params.ContainsKey("ModFolder")) {
