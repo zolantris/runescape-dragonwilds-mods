@@ -211,4 +211,131 @@ T.Suite("combo_rules + rule_parser + combat_engine", function()
         T.AssertNotNil(err)
         T.AssertContains(err, "missing 'stages' array or 'chain' string")
     end)
+
+    T.Test("Earth.boulder and Earth.slam resolve to DA_Spell_Primary_Earth_04_NEW", function()
+        local byCat, globalMap = LoadDefaultNameMaps()
+        local raw = [[{
+            "rules": [
+                {
+                    "name": "Earth Chain",
+                    "enabled": true,
+                    "weight": 5,
+                    "stages": [
+                        { "category": "Earth", "spells": ["bolt", "spike", "shatter", "boulder"], "speed": 2.0 }
+                    ]
+                }
+            ]
+        }]]
+        local macros, err = RuleParser.ParseWeightedMacros(raw, byCat, globalMap, {})
+        T.AssertNil(err)
+        T.AssertEq(#macros, 1)
+        T.AssertEq(macros[1].stages[1].steps[4].assetName, "DA_Spell_Primary_Earth_04_NEW")
+        T.AssertEq(byCat["earth"]["boulder"], "DA_Spell_Primary_Earth_04_NEW")
+        T.AssertEq(byCat["earth"]["slam"], "DA_Spell_Primary_Earth_04_NEW")
+    end)
+
+    T.Test("PickWeightedMacroForElement returns lockedInfo when element-matching rule is level-locked", function()
+        Mock.Reset()
+        local byCat, globalMap = LoadDefaultNameMaps()
+        local raw = [[{
+            "rules": [
+                {
+                    "name": "EarthChain",
+                    "enabled": true,
+                    "weight": 5,
+                    "stages": [
+                        { "category": "Earth", "spells": ["bolt", "LockedEntangle"], "speed": 2.0 }
+                    ]
+                }
+            ]
+        }]]
+        local macros = RuleParser.ParseWeightedMacros(raw, byCat, globalMap, {})
+        local lockedEntry = {
+            shortName = "LockedEntangle",
+            suppressBaseSpell = true,
+            isCustomSpell = true,
+            requiredMagicLevel = 60,
+            requiredSkill = "Magic",
+            unlockedByDefault = false,
+        }
+        local boltEntry = {
+            shortName = "DA_Spell_Primary_Earth_01",
+            spellObj = Mock.MakeUObject("DA_Spell_Primary_Earth_01"),
+            categoryTag = "Earth",
+        }
+        local state = {
+            ParsedMacros = macros,
+            SpellRegistry = {
+                ["da_spell_primary_earth_01"] = boltEntry,
+                ["lockedentangle"] = lockedEntry,
+            },
+            SpellChains = {},
+        }
+        local pawn = Mock.MakeUObject("BP_PlayerCharacter_C_1")
+        local cfgEnforced = { EnforceSpellLevelRequirements = true }
+        local picked, lockedInfo = CombatEngine.PickWeightedMacroForElement(
+            state, "earth_wand", "DA_Spell_Primary_Earth_Wand_01", cfgEnforced, pawn)
+        T.AssertNil(picked, "locked earth macro should not be picked when EnforceSpellLevelRequirements=true")
+        T.AssertNotNil(lockedInfo, "lockedInfo must be returned so caller can log why the rule was skipped")
+        T.AssertContains(lockedInfo.reason, "60")
+
+        local cfgBypass = { EnforceSpellLevelRequirements = false }
+        local pickedBypass, lockedInfoBypass = CombatEngine.PickWeightedMacroForElement(
+            state, "earth_wand", "DA_Spell_Primary_Earth_Wand_01", cfgBypass, pawn)
+        T.AssertNotNil(pickedBypass, "earth_wand should fall back to Earth macro when level check is disabled")
+        T.AssertEq(pickedBypass.name, "EarthChain")
+        T.AssertNil(lockedInfoBypass)
+    end)
+
+    T.Test("ReleaseModifierAndRevert clears stuck CastingTag and CurrentSpellActor to prevent Block lockout", function()
+        Mock.Reset()
+        local removedTag = nil
+        local clearedLocalTag = nil
+        local cancelledSpell = false
+
+        local bpLib = Mock.MakeUObject("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary", {
+            RemoveTagFromPlayerCharacter = function(_, _, tag)
+                removedTag = tag
+            end,
+        })
+        Mock.RegisterPath("/Script/Dominion.Default__DominionRuntimeBlueprintLibrary", bpLib)
+
+        local tagsComp = Mock.MakeUObject("GameplayTagsComponent_1", {
+            ClearLocalTag = function(_, tag)
+                clearedLocalTag = tag
+            end,
+        })
+        local spellActor = Mock.MakeUObject("BP_SpellActor_Earth_1")
+        local castingTag = { TagName = "Status.Casting" }
+        local combatMagic = Mock.MakeUObject("CombatMagicComponent_1", {
+            CurrentSpellActor = spellActor,
+            CastingTag = castingTag,
+            GameplayTagsComponent = tagsComp,
+            LastChainedSpell = spellActor,
+            Server_CancelSpell = function()
+                cancelledSpell = true
+            end,
+        })
+        local pawn = Mock.MakeUObject("BP_PlayerCharacter_C_1")
+        local state = {
+            ActiveMacro = { stages = {} },
+            StageIndex = 1,
+            StepInStage = 1,
+            ModifierHeld = false,
+            SpellRegistry = {},
+            SpellChains = {},
+        }
+        local cfg = ConfigManager.CreateDefaultConfig()
+        local logs = {}
+        CombatEngine.ReleaseModifierAndRevert(
+            cfg, state, pawn, combatMagic,
+            function(msg) table.insert(logs, msg) end,
+            function() end
+        )
+
+        T.AssertTrue(cancelledSpell, "Server_CancelSpell must be called on stale CurrentSpellActor")
+        T.AssertEq(removedTag, castingTag, "CastingTag must be removed from player character")
+        T.AssertEq(clearedLocalTag, castingTag, "Local CastingTag must be cleared on GameplayTagsComponent")
+        T.AssertNil(state.ActiveMacro)
+    end)
 end)
