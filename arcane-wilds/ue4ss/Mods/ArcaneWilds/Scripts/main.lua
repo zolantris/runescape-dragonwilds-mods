@@ -146,13 +146,10 @@ local function RefreshSpells()
         ConfigManager.SaveConfigFile(Paths, Config)
     end
 
+    -- Re-resolve both default combo_rules.json and persistent user_combos.json against
+    -- the newly discovered spell lookup without clobbering user rules or default toggles.
     if State.LastValidComboRulesRaw then
-        local RuleParser = require("rule_parser")
-        local parsed, err = RuleParser.ParseWeightedMacros(
-            State.LastValidComboRulesRaw, State.NameMapByCat, State.GlobalNameMap, State.DiscoveredLookup)
-        if parsed and not err then
-            State.ParsedMacros = parsed
-        end
+        ConfigManager.LoadComboRulesFile(Paths, Config, State, nil, true, nil)
     end
     if Config.DebugMode and not State._LoggedInitialSpellMap and next(State.SpellRegistry) ~= nil then
         State._LoggedInitialSpellMap = true

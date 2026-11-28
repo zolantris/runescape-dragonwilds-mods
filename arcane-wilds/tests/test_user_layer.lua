@@ -215,6 +215,12 @@ T.Suite("Persistent User Layer vs Immutable Mod Defaults", function()
             ConfigManager.LoadComboRulesFile(paths, cfg, st, function() end, false, nil)
             T.AssertEq(#st.ParsedMacros, 1)
             T.AssertEq(st.ParsedMacros[1].name, "Only My Combo")
+
+            -- Regression: periodic spell-scan forceRebuild must preserve user_combos.json and disableAllDefaults
+            ConfigManager.LoadComboRulesFile(paths, cfg, st, nil, true, nil)
+            T.AssertEq(#st.ParsedMacros, 1)
+            T.AssertEq(st.ParsedMacros[1].name, "Only My Combo")
+            T.AssertTrue(st.ParsedMacros[1].isUserCombo)
         end)
         CleanupTempDir(dir)
         if not ok then error(testErr) end
