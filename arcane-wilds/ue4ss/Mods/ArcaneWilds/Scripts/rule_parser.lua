@@ -263,10 +263,11 @@ end
 
 -- Parse combo_rules.json (or JSONC) into normalized weighted macros.
 -- Returns (macros, nil) on success, or (nil, errMsg) on syntax/schema error.
-function RuleParser.ParseJsonMacros(rawJson, nameMapByCat, globalNameMap, discoveredAssets)
+function RuleParser.ParseJsonMacros(rawJson, nameMapByCat, globalNameMap, discoveredAssets, opts)
     if not rawJson or Trim(rawJson) == "" then
         return {}, nil
     end
+    local includeDisabled = (type(opts) == "table" and opts.includeDisabled == true)
     local doc, err = Json.Decode(rawJson)
     if err then
         return nil, err
@@ -292,7 +293,8 @@ function RuleParser.ParseJsonMacros(rawJson, nameMapByCat, globalNameMap, discov
 
     local macros = {}
     for rIdx, rule in ipairs(rulesList) do
-        if type(rule) == "table" and rule.enabled ~= false then
+        local isRuleEnabled = (type(rule) == "table" and rule.enabled ~= false)
+        if type(rule) == "table" and (isRuleEnabled or includeDisabled) then
             local ruleId = rule.id ~= nil and Trim(tostring(rule.id)) or nil
             local ruleName = rule.name ~= nil and Trim(tostring(rule.name)) or nil
             local weight = tonumber(rule.weight)
@@ -340,6 +342,7 @@ function RuleParser.ParseJsonMacros(rawJson, nameMapByCat, globalNameMap, discov
                         table.insert(macros, {
                             id = ruleId,
                             name = ruleName,
+                            defaultEnabled = isRuleEnabled,
                             raw = FormatMacroDisplaySummary(ruleName, stages, weight),
                             weight = weight,
                             stages = stages
@@ -353,6 +356,7 @@ function RuleParser.ParseJsonMacros(rawJson, nameMapByCat, globalNameMap, discov
                         if rule.weight ~= nil then m.weight = weight end
                         m.id = ruleId
                         m.name = ruleName
+                        m.defaultEnabled = isRuleEnabled
                         if ruleName and ruleName ~= "" then
                             m.raw = "[" .. ruleName .. "] " .. m.raw
                         end
@@ -370,12 +374,12 @@ function RuleParser.ParseJsonMacros(rawJson, nameMapByCat, globalNameMap, discov
     return macros, nil
 end
 
-function RuleParser.ParseWeightedMacros(ruleStr, nameMapByCat, globalNameMap, discoveredAssets)
+function RuleParser.ParseWeightedMacros(ruleStr, nameMapByCat, globalNameMap, discoveredAssets, opts)
     if not ruleStr or Trim(ruleStr) == "" then
         return {}, nil
     end
     if Json.LooksLikeJson(ruleStr) then
-        return RuleParser.ParseJsonMacros(ruleStr, nameMapByCat, globalNameMap, discoveredAssets)
+        return RuleParser.ParseJsonMacros(ruleStr, nameMapByCat, globalNameMap, discoveredAssets, opts)
     end
     return ParseLegacyMacroList(ruleStr, nameMapByCat, globalNameMap, discoveredAssets), nil
 end

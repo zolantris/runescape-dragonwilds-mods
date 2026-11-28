@@ -149,15 +149,17 @@ T.Suite("Persistent User Layer vs Immutable Mod Defaults", function()
                 "schemaVersion": 1,
                 "rules": [
                     { "id": "default.fire_to_air", "name": "Fire -> Air", "enabled": true, "weight": 5, "stages": [{ "category": "Fire", "spells": ["bolt_1"], "speed": 2.0 }] },
-                    { "id": "default.water_chain", "name": "Water Chain", "enabled": true, "weight": 5, "stages": [{ "category": "Water", "spells": ["bolt"], "speed": 2.0 }] }
+                    { "id": "default.water_chain", "name": "Water Chain", "enabled": true, "weight": 5, "stages": [{ "category": "Water", "spells": ["bolt"], "speed": 2.0 }] },
+                    { "id": "default.storm_of_armadyl", "name": "StormOfArmadyl", "enabled": false, "weight": 5, "stages": [{ "category": "Air", "spells": ["StormOfArmadyl"], "speed": 1.6 }] }
                 ]
             }]])
 
-            -- Disable 1 default combo by id and add 1 user combo
+            -- Disable 1 enabled default combo, enable 1 shipped-disabled default combo, and add 1 user combo
             WriteText(paths.USER_COMBOS_PATH, [[{
                 "schemaVersion": 1,
                 "disableAllDefaults": false,
                 "disabledDefaultIds": ["default.fire_to_air"],
+                "enabledDefaultIds": ["default.storm_of_armadyl"],
                 "rules": [
                     { "name": "My Earth Finisher", "enabled": true, "weight": 7, "stages": [{ "category": "Earth", "spells": ["bolt"], "speed": 2.5 }] }
                 ]
@@ -166,10 +168,11 @@ T.Suite("Persistent User Layer vs Immutable Mod Defaults", function()
             local cfg = ConfigManager.CreateDefaultConfig()
             local st = MakeBaseState()
             ConfigManager.LoadComboRulesFile(paths, cfg, st, function() end, true, nil)
-            T.AssertEq(#st.ParsedMacros, 2)
+            T.AssertEq(#st.ParsedMacros, 3)
             T.AssertEq(st.ParsedMacros[1].id, "default.water_chain")
-            T.AssertEq(st.ParsedMacros[2].name, "My Earth Finisher")
-            T.AssertTrue(st.ParsedMacros[2].isUserCombo)
+            T.AssertEq(st.ParsedMacros[2].id, "default.storm_of_armadyl")
+            T.AssertEq(st.ParsedMacros[3].name, "My Earth Finisher")
+            T.AssertTrue(st.ParsedMacros[3].isUserCombo)
 
             -- Now disable ALL defaults so only user combos run
             WriteText(paths.USER_COMBOS_PATH, [[{
@@ -257,6 +260,38 @@ T.Suite("Persistent User Layer vs Immutable Mod Defaults", function()
             T.AssertFalse(ConfigManager.LoadCustomSpellsFile(paths, st, function() end))
             T.AssertNotNil(st.LastCustomSpellsError)
             T.AssertNotNil(st.CustomSpellDefs["usergood"])
+        end)
+        CleanupTempDir(dir)
+        if not ok then error(testErr) end
+    end)
+
+    T.Test("ConfigManager persists and reloads Web Editor hotkey settings", function()
+        Mock.Reset()
+        local dir, sep = MakeTempDir()
+        local ok, testErr = pcall(function()
+            local paths = {
+                CONFIG_PATH = dir .. sep .. "config.txt",
+                COMBO_RULES_JSON_PATH = dir .. sep .. "combo_rules.json",
+                SPELL_NAMES_PATH = dir .. sep .. "spell_names.txt",
+                CUSTOM_SPELLS_JSON_PATH = dir .. sep .. "custom_spells.json",
+                QUICK_CAST_PATH = dir .. sep .. "quick_cast.txt",
+            }
+            local cfg = ConfigManager.CreateDefaultConfig()
+            T.AssertTrue(cfg.EnableWebEditorHotkey)
+            T.AssertEq(cfg.WebEditorHotkey, "F9")
+            T.AssertFalse(cfg.LaunchWebEditorNow)
+
+            cfg.EnableWebEditorHotkey = false
+            cfg.WebEditorHotkey = "F10"
+            cfg.LaunchWebEditorNow = true
+            ConfigManager.SaveConfigFile(paths, cfg)
+
+            local reloaded = ConfigManager.CreateDefaultConfig()
+            local st = MakeBaseState()
+            ConfigManager.LoadConfigFile(paths, reloaded, st, function() end, true)
+            T.AssertFalse(reloaded.EnableWebEditorHotkey)
+            T.AssertEq(reloaded.WebEditorHotkey, "F10")
+            T.AssertTrue(reloaded.LaunchWebEditorNow)
         end)
         CleanupTempDir(dir)
         if not ok then error(testErr) end

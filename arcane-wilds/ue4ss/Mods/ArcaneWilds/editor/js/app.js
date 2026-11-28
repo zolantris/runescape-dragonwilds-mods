@@ -26,11 +26,13 @@ const state = {
   },
   userSpells: {
     disabledDefaults: [],
+    enabledDefaults: [],
     spells: {},
   },
   userCombos: {
     disableAllDefaults: false,
     disabledDefaultIds: [],
+    enabledDefaultIds: [],
     rules: [],
   },
   userQuickCast: {
@@ -98,17 +100,20 @@ function updateCountsAndStats() {
   catalogStore.setSpellLayers(
     state.defaults.spells,
     state.userSpells.spells,
-    state.userSpells.disabledDefaults
+    state.userSpells.disabledDefaults,
+    state.userSpells.enabledDefaults
   );
   const stats = catalogStore.getStats();
 
   const disabledComboSet = new Set((state.userCombos.disabledDefaultIds || []).map((x) => String(x).toLowerCase()));
+  const enabledComboSet = new Set((state.userCombos.enabledDefaultIds || []).map((x) => String(x).toLowerCase()));
   const activeDefaultCombos = state.userCombos.disableAllDefaults
     ? 0
     : state.defaults.rules.filter((r, i) => {
-        if (r.enabled === false) return false;
         const k = (r.id || r.name || `default_${i}`).toLowerCase();
-        return !disabledComboSet.has(k);
+        if (disabledComboSet.has(k)) return false;
+        if (enabledComboSet.has(k)) return true;
+        return r.enabled !== false;
       }).length;
 
   const activeQc = state.userQuickCast.overrideDefaults
@@ -303,6 +308,7 @@ async function bootstrap() {
       const uSpMig = migrateDocument("user_spells", parseJsonc(userSpellsRaw));
       if (!uSpMig.error && uSpMig.doc) {
         state.userSpells.disabledDefaults = Array.isArray(uSpMig.doc.disabledDefaults) ? uSpMig.doc.disabledDefaults : [];
+        state.userSpells.enabledDefaults = Array.isArray(uSpMig.doc.enabledDefaults) ? uSpMig.doc.enabledDefaults : [];
         state.userSpells.spells = uSpMig.doc.spells || {};
       }
 
@@ -310,6 +316,7 @@ async function bootstrap() {
       if (!uCbMig.error && uCbMig.doc) {
         state.userCombos.disableAllDefaults = uCbMig.doc.disableAllDefaults === true;
         state.userCombos.disabledDefaultIds = Array.isArray(uCbMig.doc.disabledDefaultIds) ? uCbMig.doc.disabledDefaultIds : [];
+        state.userCombos.enabledDefaultIds = Array.isArray(uCbMig.doc.enabledDefaultIds) ? uCbMig.doc.enabledDefaultIds : [];
         state.userCombos.rules = Array.isArray(uCbMig.doc.rules) ? uCbMig.doc.rules : [];
       }
 
@@ -344,6 +351,7 @@ async function saveUserSpells() {
     schemaVersion: CURRENT_VERSIONS.user_spells,
     format: FORMAT_IDS.user_spells,
     disabledDefaults: state.userSpells.disabledDefaults,
+    enabledDefaults: state.userSpells.enabledDefaults,
     spells: state.userSpells.spells,
   };
   const jsonText = JSON.stringify(payload, null, 2);
@@ -374,6 +382,7 @@ async function saveUserCombos() {
     format: FORMAT_IDS.user_combos,
     disableAllDefaults: state.userCombos.disableAllDefaults === true,
     disabledDefaultIds: state.userCombos.disabledDefaultIds,
+    enabledDefaultIds: state.userCombos.enabledDefaultIds,
     rules: state.userCombos.rules.map(cleanRuleForSave),
   };
   const jsonText = JSON.stringify(payload, null, 2);

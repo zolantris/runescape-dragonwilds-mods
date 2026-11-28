@@ -398,16 +398,51 @@ code {
 .combo-row.disabled { opacity: 0.65; }
 
 .combo-row-header {
-  display: grid;
-  grid-template-columns: auto minmax(180px, 240px) 1fr auto;
-  align-items: center;
-  gap: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   padding: 12px 14px;
+}
+
+.combo-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.combo-row-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.combo-row-left input[type="checkbox"] {
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+
+.combo-row-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.combo-row-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .combo-row-title {
   font-weight: 600;
   font-size: 14px;
+  word-break: break-word;
 }
 
 .combo-row-meta {
@@ -420,6 +455,7 @@ code {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  padding-left: 24px;
 }
 
 .stage-pill {
@@ -747,23 +783,31 @@ code {
 }
 
 .badge-builtin {
-  font-size: 10px;
+  display: inline-block;
+  white-space: nowrap;
+  font-size: 9px;
   font-weight: 700;
-  padding: 2px 7px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  padding: 1px 6px;
   border-radius: 99px;
-  background: rgba(167, 108, 255, 0.18);
+  background: rgba(167, 108, 255, 0.16);
   color: #cda6ff;
-  border: 1px solid rgba(167, 108, 255, 0.4);
+  border: 1px solid rgba(167, 108, 255, 0.38);
 }
 
 .badge-user {
-  font-size: 10px;
+  display: inline-block;
+  white-space: nowrap;
+  font-size: 9px;
   font-weight: 700;
-  padding: 2px 7px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  padding: 1px 6px;
   border-radius: 99px;
-  background: rgba(46, 168, 110, 0.18);
+  background: rgba(46, 168, 110, 0.16);
   color: #6be2a7;
-  border: 1px solid rgba(46, 168, 110, 0.4);
+  border: 1px solid rgba(46, 168, 110, 0.38);
 }
 
 .readonly-banner {

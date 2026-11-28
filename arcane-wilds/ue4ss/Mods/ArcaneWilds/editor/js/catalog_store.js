@@ -29,16 +29,23 @@ export class CatalogStore {
     };
   }
 
-  setSpellLayers(defaultSpells, userSpells, disabledDefaults = []) {
+  setSpellLayers(defaultSpells, userSpells, disabledDefaults = [], enabledDefaults = []) {
     this.defaultSpells = defaultSpells && typeof defaultSpells === "object" ? defaultSpells : {};
     this.userSpells = userSpells && typeof userSpells === "object" ? userSpells : {};
     this.disabledDefaults = new Set((disabledDefaults || []).map((s) => String(s).toLowerCase()));
+    this.enabledDefaults = new Set((enabledDefaults || []).map((s) => String(s).toLowerCase()));
   }
 
   getActiveCustomSpellsMap() {
     const merged = {};
     for (const [id, def] of Object.entries(this.defaultSpells)) {
-      if (!this.disabledDefaults.has(id.toLowerCase()) && def?.enabled !== false) {
+      const k = id.toLowerCase();
+      const active = this.disabledDefaults.has(k)
+        ? false
+        : this.enabledDefaults.has(k)
+          ? true
+          : def?.enabled !== false;
+      if (active) {
         merged[id] = { ...def, _layer: "Built-in" };
       }
     }

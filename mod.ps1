@@ -178,7 +178,7 @@ Game Directory:
 $cmd = if ($Command) { $Command.ToLowerInvariant() } else { "help" }
 
 switch ($cmd) {
-    { $_ -in @("help", "-h", "--help", "-?") } {
+    { $_ -in @("help", "-help", "--help", "-h", "-?") } {
         Show-Help
         return
     }
@@ -402,7 +402,9 @@ switch ($cmd) {
     }
 
     default {
-        Write-Error "Unknown command '$Command'. Run '.\mod.ps1 help' to see available commands."
+        Write-Host "Unknown command '$Command'." -ForegroundColor Red
+        Write-Host ""
+        Show-Help
         exit 1
     }
 }

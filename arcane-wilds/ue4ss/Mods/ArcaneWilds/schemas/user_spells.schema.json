@@ -17,6 +17,11 @@
       "description": "List of built-in mod default spell IDs disabled by the player.",
       "items": { "type": "string", "minLength": 1 }
     },
+    "enabledDefaults": {
+      "type": "array",
+      "description": "List of shipped-disabled built-in mod default spell IDs explicitly enabled by the player.",
+      "items": { "type": "string", "minLength": 1 }
+    },
     "spells": {
       "type": "object",
       "description": "Map of player-created custom spell IDs (cannot overwrite built-in default spell IDs).",

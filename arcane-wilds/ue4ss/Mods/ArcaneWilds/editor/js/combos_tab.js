@@ -120,6 +120,7 @@ export class CombosTab {
     const rules = uState.rules;
     const defaultRules = this.getDefaultRules() || [];
     const disabledSet = new Set((uState.disabledDefaultIds || []).map((x) => String(x).toLowerCase()));
+    const enabledSet = new Set((uState.enabledDefaultIds || []).map((x) => String(x).toLowerCase()));
 
     if (this.disableAllDefaultsEl) {
       this.disableAllDefaultsEl.checked = uState.disableAllDefaults === true;
@@ -150,9 +151,15 @@ export class CombosTab {
       const row = document.createElement("div");
       row.className = `combo-row${rule.enabled === false ? " disabled" : ""}`;
 
-      // Row header
+      // Row header (2-row layout: top metadata/actions + full-width combo flow row)
       const header = document.createElement("div");
       header.className = "combo-row-header";
+
+      const topRow = document.createElement("div");
+      topRow.className = "combo-row-top";
+
+      const leftGroup = document.createElement("div");
+      leftGroup.className = "combo-row-left";
 
       const toggle = document.createElement("input");
       toggle.type = "checkbox";
@@ -165,15 +172,16 @@ export class CombosTab {
       });
 
       const titleCol = document.createElement("div");
+      titleCol.className = "combo-row-title-block";
+      const badgeRow = document.createElement("div");
+      badgeRow.className = "combo-row-badge-row";
+      const stageCount = Array.isArray(rule.stages) ? rule.stages.length : 1;
+      badgeRow.innerHTML = `<span class="badge-user">Custom</span><span class="combo-row-meta">Weight: ${rule.weight ?? 1} · ${stageCount} stage(s)</span>`;
       const titleEl = document.createElement("div");
       titleEl.className = "combo-row-title";
       titleEl.textContent = rule.name || `Combo #${idx + 1}`;
-      const metaEl = document.createElement("div");
-      metaEl.className = "combo-row-meta";
-      const stageCount = Array.isArray(rule.stages) ? rule.stages.length : 1;
-      metaEl.textContent = `Weight: ${rule.weight ?? 1} · ${stageCount} stage(s)`;
-      titleCol.appendChild(titleEl);
-      titleCol.appendChild(metaEl);
+      titleCol.append(badgeRow, titleEl);
+      leftGroup.append(toggle, titleCol);
 
       const flowCol = document.createElement("div");
       flowCol.className = "combo-flow-preview";
@@ -240,7 +248,8 @@ export class CombosTab {
       });
 
       actionsCol.append(editBtn, upBtn, downBtn, dupBtn, delBtn);
-      header.append(toggle, titleCol, flowCol, actionsCol);
+      topRow.append(leftGroup, actionsCol);
+      header.append(topRow, flowCol);
       row.appendChild(header);
 
       if (isExpanded) {
@@ -265,8 +274,15 @@ export class CombosTab {
         }
         const keyId = defRule.id || defRule.name || `default_${dIdx}`;
         const keyLower = keyId.toLowerCase();
-        const isDisabledByUser = uState.disableAllDefaults || disabledSet.has(keyLower);
-        const isEffectivelyOn = defRule.enabled !== false && !isDisabledByUser;
+        const shippedEnabled = defRule.enabled !== false;
+        let isEffectivelyOn;
+        if (uState.disableAllDefaults || disabledSet.has(keyLower)) {
+          isEffectivelyOn = false;
+        } else if (enabledSet.has(keyLower)) {
+          isEffectivelyOn = true;
+        } else {
+          isEffectivelyOn = shippedEnabled;
+        }
 
         const row = document.createElement("div");
         row.className = `combo-row${!isEffectivelyOn ? " disabled" : ""}`;
@@ -274,35 +290,45 @@ export class CombosTab {
         const header = document.createElement("div");
         header.className = "combo-row-header";
 
+        const topRow = document.createElement("div");
+        topRow.className = "combo-row-top";
+
+        const leftGroup = document.createElement("div");
+        leftGroup.className = "combo-row-left";
+
         const toggle = document.createElement("input");
         toggle.type = "checkbox";
-        toggle.checked = !isDisabledByUser && defRule.enabled !== false;
-        toggle.disabled = uState.disableAllDefaults === true || defRule.enabled === false;
-        toggle.title = defRule.enabled === false
-          ? "Disabled by default in mod config (Clone to My Combos to enable your own copy)"
-          : "Enable / Disable this built-in combo";
+        toggle.checked = isEffectivelyOn;
+        toggle.disabled = uState.disableAllDefaults === true;
+        toggle.title = "Enable / Disable this built-in combo";
         toggle.addEventListener("change", () => {
-          const arr = new Set((uState.disabledDefaultIds || []).map((x) => String(x)));
-          if (toggle.checked) {
-            for (const x of [...arr]) {
-              if (x.toLowerCase() === keyLower) arr.delete(x);
-            }
-          } else {
-            arr.add(keyId);
+          const disArr = new Set((uState.disabledDefaultIds || []).map((x) => String(x)));
+          const enArr = new Set((uState.enabledDefaultIds || []).map((x) => String(x)));
+          for (const x of [...disArr]) { if (x.toLowerCase() === keyLower) disArr.delete(x); }
+          for (const x of [...enArr]) { if (x.toLowerCase() === keyLower) enArr.delete(x); }
+
+          if (toggle.checked && !shippedEnabled) {
+            enArr.add(keyId);
+          } else if (!toggle.checked && shippedEnabled) {
+            disArr.add(keyId);
           }
-          uState.disabledDefaultIds = [...arr];
+          uState.disabledDefaultIds = [...disArr];
+          uState.enabledDefaultIds = [...enArr];
           this.onDirty();
           this.render();
         });
 
         const titleCol = document.createElement("div");
+        titleCol.className = "combo-row-title-block";
+        const badgeRow = document.createElement("div");
+        badgeRow.className = "combo-row-badge-row";
+        const shipNote = !shippedEnabled ? " · Off by default" : "";
+        badgeRow.innerHTML = `<span class="badge-builtin">Built-in</span><span class="combo-row-meta">Weight: ${defRule.weight ?? 1}${shipNote}</span>`;
         const titleEl = document.createElement("div");
         titleEl.className = "combo-row-title";
-        titleEl.innerHTML = `${escapeHtml(defRule.name || keyId)} <span class="badge-builtin">Built-in</span>`;
-        const metaEl = document.createElement("div");
-        metaEl.className = "combo-row-meta";
-        metaEl.textContent = `Weight: ${defRule.weight ?? 1}${defRule.enabled === false ? " · Shipped disabled" : ""}`;
-        titleCol.append(titleEl, metaEl);
+        titleEl.textContent = defRule.name || keyId;
+        titleCol.append(badgeRow, titleEl);
+        leftGroup.append(toggle, titleCol);
 
         const flowCol = document.createElement("div");
         flowCol.className = "combo-flow-preview";
@@ -329,7 +355,8 @@ export class CombosTab {
           this.cloneDefaultToUser(defRule);
         }));
 
-        header.append(toggle, titleCol, flowCol, actionsCol);
+        topRow.append(leftGroup, actionsCol);
+        header.append(topRow, flowCol);
         row.appendChild(header);
         this.containerEl.appendChild(row);
       });

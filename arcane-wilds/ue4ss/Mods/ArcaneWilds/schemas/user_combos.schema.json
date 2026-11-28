@@ -22,6 +22,11 @@
       "description": "List of built-in default combo IDs (or names) disabled by the player.",
       "items": { "type": "string", "minLength": 1 }
     },
+    "enabledDefaultIds": {
+      "type": "array",
+      "description": "List of shipped-disabled built-in default combo IDs (or names) explicitly enabled by the player.",
+      "items": { "type": "string", "minLength": 1 }
+    },
     "rules": {
       "type": "array",
       "description": "Player-created combo rules.",

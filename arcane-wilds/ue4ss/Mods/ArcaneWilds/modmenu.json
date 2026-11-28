@@ -46,6 +46,31 @@
     },
     {
       "type": "header",
+      "label": "Spell & Combo Studio (Web GUI)"
+    },
+    {
+      "key": "EnableWebEditorHotkey",
+      "type": "toggle",
+      "label": "Enable Web Editor Hotkey (SHIFT + F9)",
+      "description": "Press SHIFT + Web Editor Hotkey in-game to launch the Arcane Wilds Spell & Combo Studio in your browser (edits hot-reload live).",
+      "default": true
+    },
+    {
+      "key": "WebEditorHotkey",
+      "type": "text",
+      "label": "Web Editor Hotkey (SHIFT + Key)",
+      "description": "Key combined with SHIFT to open the Spell & Combo Studio (default: F9; e.g. F9, F10, F11, HOME).",
+      "default": "F9"
+    },
+    {
+      "key": "LaunchWebEditorNow",
+      "type": "toggle",
+      "label": "Launch Web Editor Now",
+      "description": "Toggle ON to immediately open the Arcane Wilds Spell & Combo Studio in your browser (auto-resets to OFF).",
+      "default": false
+    },
+    {
+      "type": "header",
       "label": "Quick-Cast Direct Spell Hotkeys (Keyboard 1-4 / Controller X,Y,B,A)"
     },
     {

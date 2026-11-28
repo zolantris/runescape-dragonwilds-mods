@@ -152,6 +152,7 @@ export class SpellsTab {
     const userSpells = uState.spells || {};
     const defaultSpells = this.getDefaultSpells() || {};
     const disabledSet = new Set((uState.disabledDefaults || []).map((x) => String(x).toLowerCase()));
+    const enabledSet = new Set((uState.enabledDefaults || []).map((x) => String(x).toLowerCase()));
 
     this.listEl.innerHTML = "";
 
@@ -227,12 +228,16 @@ export class SpellsTab {
           if (!hay.includes(this.filterText)) return;
         }
 
-        const isDisabledByUser = disabledSet.has(id.toLowerCase());
-        const isShippedDisabled = def?.enabled === false;
+        const idLower = id.toLowerCase();
+        const shippedEnabled = def?.enabled !== false;
+        let isEffectivelyOn;
+        if (disabledSet.has(idLower)) isEffectivelyOn = false;
+        else if (enabledSet.has(idLower)) isEffectivelyOn = true;
+        else isEffectivelyOn = shippedEnabled;
         const isSelected = this.selectedLayer === "default" && id === this.selectedId;
 
         const item = document.createElement("div");
-        item.className = `spell-list-item${isSelected ? " active" : ""}${isDisabledByUser || isShippedDisabled ? " disabled" : ""}`;
+        item.className = `spell-list-item${isSelected ? " active" : ""}${!isEffectivelyOn ? " disabled" : ""}`;
         item.addEventListener("click", () => {
           this.selectedId = id;
           this.selectedLayer = "default";
@@ -245,27 +250,26 @@ export class SpellsTab {
         nameEl.textContent = def?.displayName || id;
         const subEl = document.createElement("div");
         subEl.className = "spell-item-sub";
-        subEl.textContent = `${id} · ${def?.category || "Built-in"}${isDisabledByUser ? " · Turned Off" : ""}`;
+        subEl.textContent = `${id} · ${def?.category || "Built-in"}${!isEffectivelyOn ? " · Off" : ""}`;
         left.append(nameEl, subEl);
 
         const chk = document.createElement("input");
         chk.type = "checkbox";
-        chk.checked = !isDisabledByUser && !isShippedDisabled;
-        chk.disabled = isShippedDisabled;
-        chk.title = isShippedDisabled
-          ? "Shipped as disabled example template (Clone to My Spells to customize)"
-          : "Enable / Disable this built-in mod spell";
+        chk.checked = isEffectivelyOn;
+        chk.title = "Enable / Disable this built-in mod spell";
         chk.addEventListener("click", (e) => e.stopPropagation());
         chk.addEventListener("change", () => {
-          const set = new Set((uState.disabledDefaults || []).map((x) => String(x)));
-          if (chk.checked) {
-            for (const x of [...set]) {
-              if (x.toLowerCase() === id.toLowerCase()) set.delete(x);
-            }
-          } else {
-            set.add(id);
+          const disSet = new Set((uState.disabledDefaults || []).map((x) => String(x)));
+          const enSet = new Set((uState.enabledDefaults || []).map((x) => String(x)));
+          for (const x of [...disSet]) { if (x.toLowerCase() === idLower) disSet.delete(x); }
+          for (const x of [...enSet]) { if (x.toLowerCase() === idLower) enSet.delete(x); }
+          if (chk.checked && !shippedEnabled) {
+            enSet.add(id);
+          } else if (!chk.checked && shippedEnabled) {
+            disSet.add(id);
           }
-          uState.disabledDefaults = [...set];
+          uState.disabledDefaults = [...disSet];
+          uState.enabledDefaults = [...enSet];
           this.onDirty();
           this.render();
         });

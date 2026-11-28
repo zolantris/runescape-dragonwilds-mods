@@ -79,6 +79,8 @@ local State = {
     LastQuickCastStatusWritten = "",
     LastDetectedSummaryWritten = "",
     BoundDebugKey = nil,
+    BoundEditorKey = nil,
+    LastEditorLaunchTime = 0,
     SpellChains = {},
     AllChainsList = {},
     SpellRegistry = {},
@@ -570,6 +572,37 @@ local function BindDebugHotkey()
     Log("Debug dump hotkey bound to: SHIFT + " .. tostring(normalized) .. " (set DebugHotkey=LISTEN in config.txt to rebind interactively)")
 end
 
+local function LaunchWebEditor()
+    local now = os.clock()
+    if (now - (State.LastEditorLaunchTime or 0)) < 3.0 then
+        return
+    end
+    State.LastEditorLaunchTime = now
+    local launcherBat = MOD_DIR .. "Launch-ArcaneWilds-Editor.bat"
+    local cmd = string.format('start "" /min cmd /c ""%s""', launcherBat)
+    Log("Launching Arcane Wilds Spell & Combo Studio (Web GUI)...")
+    pcall(function()
+        os.execute(cmd)
+    end)
+end
+
+local function BindWebEditorHotkey()
+    local rawTrim = tostring(Config.WebEditorHotkey or "F9"):gsub("^%s*(.-)%s*$", "%1")
+    local normalized = NormalizeKeyName(rawTrim)
+    if State.BoundEditorKey == normalized then return end
+    State.BoundEditorKey = normalized
+
+    local keyEnum = Key[normalized] or Key[rawTrim:upper()] or Key.F9
+    pcall(function()
+        RegisterKeyBind(keyEnum, { ModifierKey.SHIFT }, function()
+            if Config.EnableWebEditorHotkey ~= false then
+                ExecuteInGameThread(function() LaunchWebEditor() end)
+            end
+        end)
+    end)
+    Log("Web Editor hotkey bound to: SHIFT + " .. tostring(normalized))
+end
+
 local function TickAnchorReturn(now, pc, pawn, combatMagic)
     local anchor = EquipmentRunes.DetectEquippedCategory(pawn, combatMagic, State, DebugLog)
     local wantsComboContinue = State.ModifierHeld and ((Config.TriggerComboOnModifierHold == true) or CombatEngine.IsPrimaryAttackDown(pc))
@@ -835,6 +868,12 @@ local function RunMainGameThreadTick()
         ConfigManager.LoadConfigFile(Paths, Config, State, Log, false)
         State.Enabled = Config.Enabled
         BindDebugHotkey()
+        BindWebEditorHotkey()
+        if Config.LaunchWebEditorNow == true then
+            Config.LaunchWebEditorNow = false
+            ConfigManager.SaveConfigFile(Paths, Config)
+            LaunchWebEditor()
+        end
     end
     State.Enabled = Config.Enabled
 
@@ -1008,4 +1047,5 @@ TimelineRunner.LoadVfxCatalogFile(Paths.DETECTED_VFX_PATH, State.VfxPathLookup)
 TimelineRunner.LoadVfxCatalogFile(Paths.VFX_NAMES_PATH, State.VfxPathLookup)
 EquipmentRunes.InstallEquipmentSwapHooks(State, nil, Log, DebugLog)
 BindDebugHotkey()
+BindWebEditorHotkey()
 Log("v" .. MOD_VERSION .. " initialized cleanly (modular architecture).")

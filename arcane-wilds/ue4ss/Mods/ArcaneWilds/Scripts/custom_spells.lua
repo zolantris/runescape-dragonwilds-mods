@@ -209,12 +209,14 @@ local function CreateDefaultSpellDef(nameTrimmed)
     }
 end
 
-local function NormalizeJsonSpellDef(nameStr, raw)
+local function NormalizeJsonSpellDef(nameStr, raw, includeDisabled)
     local nameTrimmed = Trim(tostring(nameStr or ""))
     if nameTrimmed == "" or type(raw) ~= "table" then return nil end
-    if raw.enabled == false then return nil end
+    local defaultEnabled = (raw.enabled ~= false)
+    if not defaultEnabled and not includeDisabled then return nil end
 
     local def = CreateDefaultSpellDef(nameTrimmed)
+    def.defaultEnabled = defaultEnabled
 
     if raw.displayName ~= nil and Trim(tostring(raw.displayName)) ~= "" then
         def.displayName = Trim(tostring(raw.displayName))
@@ -364,10 +366,11 @@ end
 
 -- Parse custom_spells.json (or JSONC) into normalized CustomSpell definitions.
 -- Returns (defs, nil) on success, or (nil, errMsg) on syntax/schema error.
-function CustomSpells.ParseJsonDefinitions(rawJson)
+function CustomSpells.ParseJsonDefinitions(rawJson, opts)
     if not rawJson or Trim(rawJson) == "" then
         return {}, nil
     end
+    local includeDisabled = (type(opts) == "table" and opts.includeDisabled == true)
     local doc, err = Json.Decode(rawJson)
     if err then
         return nil, err
@@ -388,14 +391,14 @@ function CustomSpells.ParseJsonDefinitions(rawJson)
         if spellsMap[1] ~= nil then
             for _, item in ipairs(spellsMap) do
                 if type(item) == "table" and item.name then
-                    local def = NormalizeJsonSpellDef(item.name, item)
+                    local def = NormalizeJsonSpellDef(item.name, item, includeDisabled)
                     if def then defs[def.nameLower] = def end
                 end
             end
         else
             for spellName, rawDef in pairs(spellsMap) do
                 if type(spellName) == "string" and spellName:sub(1, 1) ~= "$" then
-                    local def = NormalizeJsonSpellDef(spellName, rawDef)
+                    local def = NormalizeJsonSpellDef(spellName, rawDef, includeDisabled)
                     if def then defs[def.nameLower] = def end
                 end
             end
@@ -414,14 +417,14 @@ function CustomSpells.ParseJsonDefinitions(rawJson)
     return defs, nil
 end
 
-function CustomSpells.ParseDefinitions(rawText)
+function CustomSpells.ParseDefinitions(rawText, opts)
     local defs = {}
     if not rawText or rawText == "" then
         return defs, nil
     end
 
     if Json.LooksLikeJson(rawText) then
-        return CustomSpells.ParseJsonDefinitions(rawText)
+        return CustomSpells.ParseJsonDefinitions(rawText, opts)
     end
 
     local current = nil

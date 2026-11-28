@@ -164,6 +164,7 @@ local DEFAULT_QUICK_CAST_CONTENT = table.concat({
 
 local ORDERED_CONFIG_KEYS = {
     "Enabled", "DebugMode", "AllowDebugCommands", "DebugHotkey",
+    "EnableWebEditorHotkey", "WebEditorHotkey", "LaunchWebEditorNow",
     "RequireModifierKey", "ModifierKey", "ConsumeRunesOnSwappedCasts",
     "EnableQuickCastHotkeys", "QuickCastRequireModifier", "QuickCastSuppressGameActions",
     "ActiveQuickCastCount",
@@ -200,6 +201,9 @@ function ConfigManager.CreateDefaultConfig()
         DebugMode = true,
         AllowDebugCommands = true,
         DebugHotkey = "OEM_5",
+        EnableWebEditorHotkey = true,
+        WebEditorHotkey = "F9",
+        LaunchWebEditorNow = false,
         RequireModifierKey = true,
         ModifierKey = "RMB",
         ConsumeRunesOnSwappedCasts = true,
@@ -426,7 +430,7 @@ function ConfigManager.LoadCustomSpellsFile(paths, state, logFn)
     if state.LastCustomSpellsRaw ~= rawKey then
         local isInitial = (state.LastCustomSpellsRaw == nil)
         state.LastCustomSpellsRaw = rawKey
-        local defaultDefs, parseErr = CustomSpells.ParseDefinitions(raw)
+        local defaultDefs, parseErr = CustomSpells.ParseDefinitions(raw, { includeDisabled = true })
         if parseErr or not defaultDefs then
             state.LastCustomSpellsError = tostring(parseErr or "unknown parse error")
             if logFn then
@@ -438,6 +442,7 @@ function ConfigManager.LoadCustomSpellsFile(paths, state, logFn)
 
         local mergedDefs = {}
         local disabledDefaults = {}
+        local enabledDefaults = {}
 
         if userRaw and ConfigManager.Trim(userRaw) ~= "" then
             local userDoc, uDecErr = Json.Decode(userRaw)
@@ -467,9 +472,25 @@ function ConfigManager.LoadCustomSpellsFile(paths, state, logFn)
                     end
                 end
             end
+            if type(migratedUser.enabledDefaults) == "table" then
+                for _, idStr in ipairs(migratedUser.enabledDefaults) do
+                    local idClean = ConfigManager.Trim(tostring(idStr or "")):lower()
+                    if idClean ~= "" then
+                        enabledDefaults[idClean] = true
+                    end
+                end
+            end
 
             for kLower, dDef in pairs(defaultDefs) do
-                if not disabledDefaults[kLower] then
+                local isActive
+                if disabledDefaults[kLower] then
+                    isActive = false
+                elseif enabledDefaults[kLower] then
+                    isActive = true
+                else
+                    isActive = (dDef.defaultEnabled ~= false)
+                end
+                if isActive then
                     dDef.isModDefault = true
                     mergedDefs[kLower] = dDef
                 end
@@ -508,8 +529,10 @@ function ConfigManager.LoadCustomSpellsFile(paths, state, logFn)
             end
         else
             for kLower, dDef in pairs(defaultDefs) do
-                dDef.isModDefault = true
-                mergedDefs[kLower] = dDef
+                if dDef.defaultEnabled ~= false then
+                    dDef.isModDefault = true
+                    mergedDefs[kLower] = dDef
+                end
             end
         end
 
@@ -625,7 +648,7 @@ function ConfigManager.LoadComboRulesFile(paths, config, state, logFn, forceRebu
         local isInitial = (state.LastComboRulesRaw == nil)
         state.LastComboRulesRaw = rawKey
         local defaultMacros, parseErr = RuleParser.ParseWeightedMacros(
-            parseInput, state.NameMapByCat, state.GlobalNameMap, state.DiscoveredLookup)
+            parseInput, state.NameMapByCat, state.GlobalNameMap, state.DiscoveredLookup, { includeDisabled = true })
 
         if parseErr or not defaultMacros then
             state.LastComboRulesError = tostring(parseErr or "unknown parse error")
@@ -667,10 +690,17 @@ function ConfigManager.LoadComboRulesFile(paths, config, state, logFn, forceRebu
             userActive = true
             local disableAll = (migratedUser.disableAllDefaults == true)
             local disabledSet = {}
+            local enabledSet = {}
             if type(migratedUser.disabledDefaultIds) == "table" then
                 for _, did in ipairs(migratedUser.disabledDefaultIds) do
                     local cleanId = ConfigManager.Trim(tostring(did or "")):lower()
                     if cleanId ~= "" then disabledSet[cleanId] = true end
+                end
+            end
+            if type(migratedUser.enabledDefaultIds) == "table" then
+                for _, eid in ipairs(migratedUser.enabledDefaultIds) do
+                    local cleanId = ConfigManager.Trim(tostring(eid or "")):lower()
+                    if cleanId ~= "" then enabledSet[cleanId] = true end
                 end
             end
 
@@ -678,7 +708,17 @@ function ConfigManager.LoadComboRulesFile(paths, config, state, logFn, forceRebu
                 for _, m in ipairs(defaultMacros) do
                     local idKey = m.id and m.id:lower() or nil
                     local nameKey = m.name and m.name:lower() or nil
-                    if not ((idKey and disabledSet[idKey]) or (nameKey and disabledSet[nameKey])) then
+                    local isDisabled = (idKey and disabledSet[idKey]) or (nameKey and disabledSet[nameKey])
+                    local isEnabled = (idKey and enabledSet[idKey]) or (nameKey and enabledSet[nameKey])
+                    local active
+                    if isDisabled then
+                        active = false
+                    elseif isEnabled then
+                        active = true
+                    else
+                        active = (m.defaultEnabled ~= false)
+                    end
+                    if active then
                         table.insert(parsedMacros, m)
                     end
                 end
@@ -707,7 +747,11 @@ function ConfigManager.LoadComboRulesFile(paths, config, state, logFn, forceRebu
                 end
             end
         else
-            parsedMacros = defaultMacros
+            for _, m in ipairs(defaultMacros) do
+                if m.defaultEnabled ~= false then
+                    table.insert(parsedMacros, m)
+                end
+            end
         end
 
         state.LastComboRulesError = nil
@@ -971,6 +1015,9 @@ function ConfigManager.LoadConfigFile(paths, config, state, logFn, forceRebuildM
                 elseif k == "DebugMode" then config.DebugMode = ConfigManager.ParseBool(v, false)
                 elseif k == "AllowDebugCommands" then config.AllowDebugCommands = ConfigManager.ParseBool(v, false)
                 elseif k == "DebugHotkey" then config.DebugHotkey = (v ~= "" and v or "OEM_5")
+                elseif k == "EnableWebEditorHotkey" then config.EnableWebEditorHotkey = ConfigManager.ParseBool(v, true)
+                elseif k == "WebEditorHotkey" then config.WebEditorHotkey = (v ~= "" and v:upper() or "F9")
+                elseif k == "LaunchWebEditorNow" then config.LaunchWebEditorNow = ConfigManager.ParseBool(v, false)
                 elseif k == "RequireModifierKey" then config.RequireModifierKey = ConfigManager.ParseBool(v, true)
                 elseif k == "ModifierKey" then config.ModifierKey = (v ~= "" and v:upper() or "SHIFT")
                 elseif k == "ConsumeRunesOnSwappedCasts" then config.ConsumeRunesOnSwappedCasts = ConfigManager.ParseBool(v, true)
