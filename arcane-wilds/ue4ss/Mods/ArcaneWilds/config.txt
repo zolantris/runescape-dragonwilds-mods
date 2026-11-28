@@ -5,6 +5,7 @@ DebugHotkey=
 RequireModifierKey=true
 ModifierKey=RMB
 ConsumeRunesOnSwappedCasts=true
+PreventAbilityCanceling=true
 EnableQuickCastHotkeys=true
 QuickCastRequireModifier=true
 QuickCastSuppressGameActions=true

@@ -199,7 +199,7 @@ local DEFAULT_QUICK_CAST_CONTENT = table.concat({
 local ORDERED_CONFIG_KEYS = {
     "Enabled", "DebugMode", "AllowDebugCommands", "DebugHotkey",
     "EnableWebEditorHotkey", "WebEditorHotkey", "LaunchWebEditorNow",
-    "RequireModifierKey", "ModifierKey", "ConsumeRunesOnSwappedCasts",
+    "RequireModifierKey", "ModifierKey", "ConsumeRunesOnSwappedCasts", "PreventAbilityCanceling",
     "EnableQuickCastHotkeys", "QuickCastRequireModifier", "QuickCastSuppressGameActions",
     "ActiveQuickCastCount",
     "QuickCastHotkey1", "QuickCastSpell1",
@@ -241,6 +241,7 @@ function ConfigManager.CreateDefaultConfig()
         RequireModifierKey = true,
         ModifierKey = "RMB",
         ConsumeRunesOnSwappedCasts = true,
+        PreventAbilityCanceling = true,
         EnableQuickCastHotkeys = true,
         QuickCastRequireModifier = true,
         QuickCastSuppressGameActions = true,
@@ -1256,6 +1257,7 @@ function ConfigManager.LoadConfigFile(paths, config, state, logFn, forceRebuildM
                 elseif k == "AutoTargetMaxDistance" then config.AutoTargetMaxDistance = math.max(100.0, tonumber(v) or 2500.0)
                 elseif k == "AutoTargetConeDeg" then config.AutoTargetConeDeg = math.max(5.0, math.min(360.0, tonumber(v) or 45.0))
                 elseif k == "RequireLockOnForChainSpells" then config.RequireLockOnForChainSpells = ConfigManager.ParseBool(v, true)
+                elseif k == "PreventAbilityCanceling" then config.PreventAbilityCanceling = ConfigManager.ParseBool(v, true)
                 elseif k == "EnableStaffDamageScaling" then config.EnableStaffDamageScaling = ConfigManager.ParseBool(v, true)
                 elseif k == "StaffBaselineTier" then config.StaffBaselineTier = math.max(1, math.floor(tonumber(v) or 1))
                 elseif k == "StaffTierStep" then config.StaffTierStep = math.max(0.0, tonumber(v) or 0.30)

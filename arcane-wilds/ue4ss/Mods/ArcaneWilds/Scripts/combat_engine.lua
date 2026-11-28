@@ -286,6 +286,49 @@ function CombatEngine.GetActiveMontageObj(pawn)
     return activeMontage
 end
 
+function CombatEngine.IsSpellCastInFlight(state, pawn, combatMagic)
+    if state and state.StepInFlight == true then
+        return true, "step-in-flight"
+    end
+    if combatMagic and combatMagic:IsValid() then
+        local hasActiveSpellActor = false
+        pcall(function()
+            if combatMagic.CurrentSpellActor and combatMagic.CurrentSpellActor:IsValid() then
+                hasActiveSpellActor = true
+            end
+        end)
+        if hasActiveSpellActor then
+            return true, "active-spell-actor"
+        end
+    end
+    if CombatEngine.GetActiveMontageObj(pawn) ~= nil then
+        return true, "active-montage"
+    end
+    if state and type(state.ActiveTimelines) == "table" then
+        for _, tl in ipairs(state.ActiveTimelines) do
+            if type(tl) == "table" and tl.finished ~= true then
+                local policy = tostring(tl.overlapPolicy or (tl.timeline and tl.timeline.overlapPolicy) or "replace"):lower()
+                if policy ~= "parallel" then
+                    return true, "active-timeline"
+                end
+            end
+        end
+    end
+    return false, nil
+end
+
+function CombatEngine.ShouldBlockForInFlightCast(config, state, pawn, combatMagic, entry)
+    if config and config.PreventAbilityCanceling == false then
+        return false, nil
+    end
+    local isParallelTimeline = entry and entry.isCustomSpell and entry.hasTimeline and entry.timeline
+        and ((entry.timeline.overlapPolicy or "replace"):lower() == "parallel")
+    if isParallelTimeline then
+        return false, nil
+    end
+    return CombatEngine.IsSpellCastInFlight(state, pawn, combatMagic)
+end
+
 function CombatEngine.ApplyMontageRateToInstance(config, pawn, montageObj, targetRate, isAirSmash)
     local effectiveRate = math.max(0.25, tonumber(targetRate) or 1.0)
     if isAirSmash and config and (config.EnableFinisherSpeedClamp ~= false) then

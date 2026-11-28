@@ -338,4 +338,70 @@ T.Suite("combo_rules + rule_parser + combat_engine", function()
         T.AssertEq(clearedLocalTag, castingTag, "Local CastingTag must be cleared on GameplayTagsComponent")
         T.AssertNil(state.ActiveMacro)
     end)
+
+    T.Test("PreventAbilityCanceling defaults true and guards in-flight spells, montages, and non-parallel timelines", function()
+        Mock.Reset()
+        local cfg = ConfigManager.CreateDefaultConfig()
+        T.AssertTrue(cfg.PreventAbilityCanceling, "PreventAbilityCanceling must default to true")
+
+        local idlePawn = Mock.MakeUObject("BP_PlayerCharacter_C_1")
+        local idleMagic = Mock.MakeUObject("CombatMagicComponent_1")
+        local idleState = { StepInFlight = false, ActiveTimelines = {} }
+
+        local blockedIdle, reasonIdle = CombatEngine.ShouldBlockForInFlightCast(cfg, idleState, idlePawn, idleMagic, nil)
+        T.AssertFalse(blockedIdle)
+        T.AssertNil(reasonIdle)
+
+        -- 1. StepInFlight blocks
+        local blockedStep, reasonStep = CombatEngine.ShouldBlockForInFlightCast(
+            cfg, { StepInFlight = true }, idlePawn, idleMagic, nil)
+        T.AssertTrue(blockedStep)
+        T.AssertEq(reasonStep, "step-in-flight")
+
+        -- 2. Active CurrentSpellActor blocks
+        local busyMagic = Mock.MakeUObject("CombatMagicComponent_2", {
+            CurrentSpellActor = Mock.MakeUObject("BP_SpellActor_1"),
+        })
+        local blockedActor, reasonActor = CombatEngine.ShouldBlockForInFlightCast(
+            cfg, idleState, idlePawn, busyMagic, nil)
+        T.AssertTrue(blockedActor)
+        T.AssertEq(reasonActor, "active-spell-actor")
+
+        -- 3. Active montage blocks
+        local activeMontage = Mock.MakeUObject("AM_Spell_Cast")
+        local animInst = Mock.MakeUObject("AnimInstance_1", {
+            GetCurrentActiveMontage = function() return activeMontage end,
+        })
+        local mesh = Mock.MakeUObject("SkeletalMeshComponent_1", {
+            GetAnimInstance = function() return animInst end,
+        })
+        local busyPawn = Mock.MakeUObject("BP_PlayerCharacter_C_2", { Mesh = mesh })
+        local blockedMontage, reasonMontage = CombatEngine.ShouldBlockForInFlightCast(
+            cfg, idleState, busyPawn, idleMagic, nil)
+        T.AssertTrue(blockedMontage)
+        T.AssertEq(reasonMontage, "active-montage")
+
+        -- 4. Active non-parallel timeline blocks; parallel/finished timelines do not
+        local blockedTl, reasonTl = CombatEngine.ShouldBlockForInFlightCast(
+            cfg, { ActiveTimelines = { { finished = false, overlapPolicy = "replace" } } }, idlePawn, idleMagic, nil)
+        T.AssertTrue(blockedTl)
+        T.AssertEq(reasonTl, "active-timeline")
+
+        local blockedParallel = CombatEngine.ShouldBlockForInFlightCast(
+            cfg, { ActiveTimelines = { { finished = false, overlapPolicy = "parallel" }, { finished = true, overlapPolicy = "replace" } } },
+            idlePawn, idleMagic, nil)
+        T.AssertFalse(blockedParallel)
+
+        -- 5. Parallel-policy entry bypasses block even during an active cast
+        local parallelEntry = {
+            isCustomSpell = true,
+            hasTimeline = true,
+            timeline = { overlapPolicy = "parallel" },
+        }
+        T.AssertFalse(CombatEngine.ShouldBlockForInFlightCast(cfg, { StepInFlight = true }, busyPawn, busyMagic, parallelEntry))
+
+        -- 6. Feature flag off disables the guard completely
+        local cfgOff = { PreventAbilityCanceling = false }
+        T.AssertFalse(CombatEngine.ShouldBlockForInFlightCast(cfgOff, { StepInFlight = true }, busyPawn, busyMagic, nil))
+    end)
 end)
