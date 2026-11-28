@@ -238,9 +238,13 @@ if ([string]::IsNullOrWhiteSpace($uploadId) -or [string]::IsNullOrWhiteSpace($pr
 
 # Step 2: Upload archive binary to presigned URL
 Write-Host "[2/4] Uploading archive binary to cloud storage..." -ForegroundColor Yellow
+$putHeaders = @{
+    "Content-Disposition" = "attachment; filename=`"$zipFileName`""
+}
 Invoke-RestMethod `
     -Uri $presignedUrl `
     -Method Put `
+    -Headers $putHeaders `
     -InFile $zipPath `
     -ContentType "application/octet-stream" | Out-Null
 
