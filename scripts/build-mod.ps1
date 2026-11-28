@@ -61,6 +61,25 @@ if ($Bump) {
 
 $fullVersion = if ($Channel -and $Channel.ToLower() -ne "stable") { "$Version-$Channel" } else { $Version }
 
+# Keep source modmenu.json and Scripts/main.lua synced with version.json
+$srcModDir = Join-Path $ue4ssSrc "Mods\$modName"
+$srcMenu   = Join-Path $srcModDir "modmenu.json"
+if (Test-Path $srcMenu) {
+    $srcMenuText = Get-Content $srcMenu -Raw -Encoding UTF8
+    $updatedSrcMenu = [regex]::Replace($srcMenuText, '("version"\s*:\s*")[^"]*(")', "`${1}$fullVersion`${2}")
+    if ($updatedSrcMenu -ne $srcMenuText) {
+        [System.IO.File]::WriteAllText($srcMenu, $updatedSrcMenu, (New-Object System.Text.UTF8Encoding($false)))
+    }
+}
+$srcMain = Join-Path $srcModDir "Scripts\main.lua"
+if (Test-Path $srcMain) {
+    $srcLuaText = Get-Content $srcMain -Raw -Encoding UTF8
+    $updatedSrcLua = [regex]::Replace($srcLuaText, '(local\s+(?:MOD_)?VERSION\s*=\s*")[^"]*(")', "`${1}$fullVersion`${2}")
+    if ($updatedSrcLua -ne $srcLuaText) {
+        [System.IO.File]::WriteAllText($srcMain, $updatedSrcLua, (New-Object System.Text.UTF8Encoding($false)))
+    }
+}
+
 # Optional UE Blueprint .pak pipeline when <ModFolder>/pak.json is present
 $pakConfigPath = Join-Path $modRoot "pak.json"
 $builtPakFiles = @()

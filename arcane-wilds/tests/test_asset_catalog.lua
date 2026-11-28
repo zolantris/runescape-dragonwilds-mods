@@ -50,7 +50,7 @@ T.Suite("AssetCatalog (Detected Spells, VFX, SFX, Montages)", function()
         }
 
         local catalog = AssetCatalog.BuildCatalog({
-            modVersion = "1.71.0",
+            modVersion = "1.1.0",
             baseSpellRegistry = baseSpellRegistry,
             orderedChains = { { tag = "Air" } },
             nameMapByCat = { air = { bolt = "DA_Spell_Primary_Air_01" } },
@@ -62,7 +62,7 @@ T.Suite("AssetCatalog (Detected Spells, VFX, SFX, Montages)", function()
 
         T.AssertEq(catalog.schemaVersion, 1)
         T.AssertEq(catalog.format, "arcane-wilds.detected_catalog")
-        T.AssertEq(catalog.modVersion, "1.71.0")
+        T.AssertEq(catalog.modVersion, "1.1.0")
         T.AssertEq(#catalog.categories, 1)
         T.AssertEq(catalog.categories[1], "Air")
 
@@ -94,7 +94,7 @@ T.Suite("AssetCatalog (Detected Spells, VFX, SFX, Montages)", function()
             Mock.RegisterClassInstance("NiagaraSystem", Mock.MakeUObject("NiagaraSystem /Game/VFX/NS_Fireball.NS_Fireball"))
 
             local cat1, err1 = AssetCatalog.ExportCatalogFile(outPath, {
-                modVersion = "1.71.0",
+                modVersion = "1.1.0",
                 sfxNamesPath = sfxNamesPath,
             })
             T.AssertNil(err1)
@@ -107,7 +107,7 @@ T.Suite("AssetCatalog (Detected Spells, VFX, SFX, Montages)", function()
             Mock.RegisterClassInstance("SoundBase", Mock.MakeUObject("SoundWave /Game/Audio/Spells/SW_IceShatter.SW_IceShatter"))
 
             local cat2, err2 = AssetCatalog.ExportCatalogFile(outPath, {
-                modVersion = "1.71.0",
+                modVersion = "1.1.0",
                 sfxNamesPath = sfxNamesPath,
             })
             T.AssertNil(err2)

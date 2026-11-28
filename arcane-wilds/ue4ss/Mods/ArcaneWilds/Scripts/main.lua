@@ -1,4 +1,4 @@
--- ArcaneWilds v1.70.0
+-- ArcaneWilds
 -- Thin Entrypoint & Main Loop Coordinator
 -- Modules:
 --   config_manager.lua  -> config.txt, spell_names.txt, custom_spells.txt, combo_rules.txt hot-reload & registry
@@ -7,7 +7,7 @@
 --   equipment_runes.lua -> Equipped rune/staff/Ancient Magicks detection & inventory rune deduction
 --   combat_engine.lua   -> Weighted macro state machine, montage pacing clamps & auto-attack triggering
 
-local MOD_VERSION = "1.70.0"
+local MOD_VERSION = "1.1.0"
 local MOD_DIR = debug.getinfo(1, "S").source:match("^@?(.*[\\/])Scripts[\\/]") or "ue4ss\\Mods\\ArcaneWilds\\"
 local SCRIPTS_DIR = MOD_DIR .. "Scripts\\"
 

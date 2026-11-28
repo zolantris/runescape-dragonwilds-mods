@@ -2,6 +2,9 @@
 
 **Arcane Wilds** is a script-driven **UE4SS** magic combat overhaul and custom spell framework for *RuneScape: Dragonwilds*. It unlocks move-while-casting, adds weighted cross-element and Ancient Magicks combo chaining, provides Block/Modifier Quick-Cast hotkeys with EnhancedInput action suppression, introduces a JSON-schema-validated custom spell timeline engine with crowd control, progression gating, and staff/Magic damage scaling, and fixes vanilla Air finisher aim—all with **zero vanilla asset overrides**.
 
+* **Discord:** [Join our Discord](https://discord.gg/QwktYjdbtx)
+* **Support:** [Support on Ko-fi](https://ko-fi.com/zolantris)
+
 ---
 
 ## Core Gameplay Features
@@ -163,8 +166,9 @@ See [`scripts/README.md`](../scripts/README.md) and [`unreal-engine/README.md`](
 _Changes since [ArcaneWilds-v1.0.0](https://github.com/zolantris/runescape-dragonwilds-mods/releases/tag/ArcaneWilds-v1.0.0)_
 
 
+- **2026-11-27** - skip if lua or json was not modified for lua and json tests (#5) ([95c5469](https://github.com/zolantris/runescape-dragonwilds-mods/commit/95c5469fca7251130e73fda94e1cccaa9fe66961))
+- **2026-11-27** - use latest github actions and fix deploy (#4) ([24db8e3](https://github.com/zolantris/runescape-dragonwilds-mods/commit/24db8e350e1e2855d0db407c5a62e96c1d652b95))
 - **2026-11-27** - Feat/arcane wilds gui (#3) ([4f26f92](https://github.com/zolantris/runescape-dragonwilds-mods/commit/4f26f925b03681a0693aa1f165a1c5af7a282471))
-
 ### v1.0.0
 
 - **2026-11-26** - - set arcane-wilds to 1.0.0 - set fire combos on ([60f8ab7](https://github.com/zolantris/runescape-dragonwilds-mods/commit/60f8ab7af6288ca8433d3800c321599c885e324b))
@@ -179,8 +183,6 @@ _Changes since [ArcaneWilds-v1.0.0](https://github.com/zolantris/runescape-drago
 - **2026-11-22** - reorganize repo ([150120c](https://github.com/zolantris/runescape-dragonwilds-mods/commit/150120cad88104ab9cc93e3671de690898012a0c))
 - **2026-11-22** - 1.2.9 working with both pause menu and inventory alignment and does not interfere with other panels ([76fab60](https://github.com/zolantris/runescape-dragonwilds-mods/commit/76fab605670f4b24d88be91b1935571c0560eb21))
 - **2026-11-22** - Initial commit ([0739035](https://github.com/zolantris/runescape-dragonwilds-mods/commit/0739035e6728071f701375b584fe1cfc1f7b3517))
-### v1.70.57
-
 - **2026-11-26** - Feat/arcane wilds mod (#2) ([81141a8](https://github.com/zolantris/runescape-dragonwilds-mods/commit/81141a88c65a41f36e66791ca9fb1e5c30069699))
 - **2026-11-22** - Fix missing commits issue with stale tag ([122495f](https://github.com/zolantris/runescape-dragonwilds-mods/commit/122495fbe7cc96152d1b7b8b7021c8fd063b6eee))
 - **2026-11-22** - Fix changelog linking ([39366ca](https://github.com/zolantris/runescape-dragonwilds-mods/commit/39366cae242e63c55f17e1a5a194e15bdc702e03))

@@ -176,6 +176,16 @@ if (-not [string]::IsNullOrWhiteSpace($NotesFile)) {
 }
 
 $modPageUrl = "https://www.nexusmods.com/$gameDomain/mods/$modId"
+$nexusDescScript = Join-Path $PSScriptRoot "export-nexus-description.ps1"
+$nexusDescPath   = Join-Path $modRoot "nexus-description.bbcode"
+
+if (Test-Path -LiteralPath $nexusDescScript -PathType Leaf) {
+    if ($DryRun) {
+        Write-Host "[DRY-RUN] Would regenerate Nexus BBCode description at '$nexusDescPath'" -ForegroundColor DarkCyan
+    } else {
+        & $nexusDescScript -ModFolder $ModFolder -OutputPath $nexusDescPath
+    }
+}
 
 if ($DryRun) {
     $placeholderWarn = ($modId -le 0 -or $fileId -le 0)

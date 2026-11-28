@@ -1,0 +1,185 @@
+[size=5][b]Arcane Wilds (ArcaneWilds v1.1.0)[/b][/size]
+
+[b]Arcane Wilds[/b] is a script-driven [b]UE4SS[/b] magic combat overhaul and custom spell framework for [i]RuneScape: Dragonwilds[/i]. It unlocks move-while-casting, adds weighted cross-element and Ancient Magicks combo chaining, provides Block/Modifier Quick-Cast hotkeys with EnhancedInput action suppression, introduces a JSON-schema-validated custom spell timeline engine with crowd control, progression gating, and staff/Magic damage scaling, and fixes vanilla Air finisher aim—all with [b]zero vanilla asset overrides[/b].
+
+[list]
+[*][b]Discord:[/b] [url=https://discord.gg/QwktYjdbtx]Join our Discord[/url][/*]
+[*][b]Support:[/b] [url=https://ko-fi.com/zolantris]Support on Ko-fi[/url][/*]
+[/list]
+
+[line]
+Please see the GitHub repo's [url=https://github.com/zolantris/runescape-dragonwilds-mods/blob/main/arcane-wilds/README.md]README[/url] for the latest information. The main GitHub repo can be found [url=https://github.com/zolantris/runescape-dragonwilds-mods/tree/main]here[/url].
+
+[size=4][b]Core Gameplay Features[/b][/size]
+
+[b]Movement Unlock (Freecast) & Vanilla Fixes[/b]
+[list]
+[*][b]Move-While-Casting (UnlockAir / Fire / Water / Earth)[/b]: Removes movement locks and root-motion anchoring during supported Staff and Wand spell montages, with configurable MaxMoveSpeed (default 600).[/*]
+[*][b]Third-Party & Utility Spell Support[/b]: Automatically discovers and unlocks modded combat spells (UnlockModdedCombat=true, e.g., [i]HydraAncientMagicks[/i], [i]Conjurer[/i], [i]Ancient Staff[/i]) and optionally utility spells (UnlockUtilitySpells=false).[/*]
+[*][b]4th Air Spell Freedom & Vertical Aim Fix (FixAir4thVerticalAim=true)[/b]:
+• Leaves the 4th Air combo unlocked by default (KeepGroundSmashAnchored=false; toggle ON to restore rooted vanilla behavior).
+• Runtime-patches DA_Spell_Primary_Air_04 (and Air_Wand_04 if present) so SpellModule_Transform and SpellModule_Movement trigger at cast start (Immediate instead of FinishedCasting), track TracedPlayerCameraForward vertical pitch/rotation like hits 1–3, and raise ground-level spawn offsets to torso height so sloped and elevated shots connect cleanly.[/*]
+[/list]
+
+[b]Block / Stance Modifier & Weighted Combo Chains[/b]
+[list]
+[*][b]Stance-Gated Combos (ModifierKey=RMB)[/b]: Hold Block (RMB / Gamepad LT / LB)—or rebind to SHIFT, ALT, CTRL, MOUSE4, MOUSE5, or MMB—to engage custom combo macros matching your equipped staff/wand and equipped elemental rune (MagicAmmo1) or active Ancient Magicks toggle.[/*]
+[*][b]Cross-Element, Custom & Modded Chains (combo_rules.json)[/b]:
+• Author weighted single-element, multi-stage cross-element, Ancient Magicks, Conjurer, or custom-spell chains with per-stage speed multipliers and BonusSpeedVariancePct randomization.
+• Automatically returns to your original equipped anchor element before rolling a new chain, and resets cleanly when you release Block or swap weapons/runes.
+• Validated by schemas/combo_rules.schema.json with ready-to-copy templates in combo_rules_examples.json and friendly aliases in spell_names.txt.[/*]
+[*][b]Hold-to-Auto-Attack (EnableAutoAttackHold=true)[/b]: Hold Left-Click (LMB) or Right Trigger (RT) to chain casts continuously when idle—both inside Block/Modifier combos and on standard attacks (AutoAttackAllCombos=true).[/*]
+[/list]
+
+[b]Quick-Cast Hotkeys & EnhancedInput Suppression[/b]
+[list]
+[*][b]Direct Spell & Combo Hotkeys (quick_cast.txt & Mod Menu)[/b]:
+• Cast any custom spell, native DA_Spell_* asset, or inline combo chain instantly using keyboard and controller bindings (with Block, Shift, Alt, Ctrl, or None modifiers).
+• Ships with 4 default bindings (editable in quick_cast.txt for unlimited slots, or via Slots #1–#4 in Mod Menu / config.txt):
+• Block + 1 / GP_X -> [b]Saradomin Godsword[/b]
+• Block + 2 / GP_Y -> [b]Flames of Zamorak[/b]
+• Block + 3 / GP_B -> [b]Storm of Armadyl[/b]
+• Block + 4 / GP_A -> [b]Saradomin Strike[/b][/*]
+[*][b]Conflict-Free Input Suppression (QuickCastSuppressGameActions=true)[/b]: Dynamically constructs a high-priority UInputMappingContext and UInputAction at runtime while holding your Quick-Cast modifier so vanilla Hotbar 1–4 and controller face-button actions do not trigger alongside Quick-Cast, restoring normal bindings immediately on release.[/*]
+[/list]
+
+[b]Animation Pacing, Special Abilities & Rune Accuracy[/b]
+[list]
+[*][b]Notify-Safe Speed Clamping (EnableFinisherSpeedClamp=true)[/b]: Drives live speed via Montage_SetPlayRate (keeping RateScale=1.0 so rates are never squared) and clamps delayed/multi-stage finishers (Meteor, Volcano, Air Slam, Boulder, or clamp: true custom spells) to MaxFinisherSpeedClamp (5.0x default) so AnimNotify damage and projectile spawns are never skipped.[/*]
+[*][b]Special Ability & Repeat-Animation Pacing[/b]: Supports special energy bar injection/checks (InjectSpecialBarOnSpecials, RequireSpecialEnergyForSpecials), special cast speed capping (MaxSpecialCastRate), post-special cooldown pauses (PostSpecialPauseSec), and repeat-montage padding (AnimRepeatPadSec).[/*]
+[*][b]Rune-Accurate Consumption (ConsumeRunesOnSwappedCasts=true)[/b]: Detects equipped staves/wands and MagicAmmo1 runes via PlayerEquipmentComponent / LoadoutComponent hooks and deducts matching runes or spell cost items from inventory on swapped and custom casts.[/*]
+[/list]
+
+[line]
+
+[size=4][b]Custom Spell Framework (custom_spells.json)[/b][/size]
+
+Define complete custom spells in custom_spells.json (JSONC comments and trailing commas supported, validated by schemas/custom_spells.schema.json, with legacy custom_spells.txt fallback).
+
+[b]Built-In Custom Spells[/b]
+[list]
+[*][b]Flames of Zamorak[/b] (ID: FlamesOfZamorak | Req. Level: Magic 20 | Rune Cost: 2× Fire) — Powered by DA_ZamorakStaff_Special with speed scaling and finisher clamp.[/*]
+[*][b]Saradomin Strike[/b] (ID: SaradominStrike | Req. Level: Magic 30 | Rune Cost: 2× Air) — Line-of-sight chainstrike lightning barrage that scales strike count with Magic level, prioritizes unique nearby enemies, stuns targets, and scales with staff & Magic stats.[/*]
+[*][b]Storm of Armadyl[/b] (ID: StormOfArmadyl | Req. Level: Magic 77 | Rune Cost: 2× Air) — Fires an Air Bolt with projectile impact tracking (trackImpact), erupting a windstorm AoE on impact with pushback, knockup, stun, and staff/Magic damage scaling.[/*]
+[*][b]Saradomin Godsword[/b] (ID: SaradominGodsword | Rune Cost: 1× Air) — Spawns BP_Godsword_Special_Saradomin_C with the 2H Greatsword secondary montage and melee spin AoE hitbox.[/*]
+[*][b]Saradomin Tempest[/b] (ID: SaradominTempest [i](disabled)[/i] | Rune Cost: 2× Air) — Reference template demonstrating layered multi-slot animations, ring-pattern VFX, GE_AddBurning, and target hit-react cues.[/*]
+[/list]
+
+[b]Timeline Cue Engine & Combat Effects[/b]
+[list]
+[*][b]Cue Types[/b]: anim, weaponAnim, targetAnim, vfx (Niagara with float/vector user parameters and point/ring/line/arc spawn patterns), sfx, actor, spell (with optional projectile trackImpact), hit, decal, shake, and chainstrike.[/*]
+[*][b]Synchronization & Layering[/b]: Anchor cues with absolute timestamps (@0.35), simultaneous/synced starts (&, &id+0.15), or chained after-end triggers (>, >id-0.10), slot-layered montages (FullBody, LeftArm, RightArm, etc.), overlapPolicy (replace / parallel / ignore), stepAdvanceAt, and cancelOnRelease.[/*]
+[*][b]Crowd Control & Hit Effects[/b]: hit and chainstrike cues support damage ranges, damage classes (Magical, Melee, Ranged), hit-reaction force, [b]Stun[/b] (with montage interrupt), [b]Root/Snare[/b], [b]Slow[/b] (multiplier + duration), [b]Pushback / Pull[/b], [b]Knockup (launchZ)[/b], and GameplayEffects (e.g., GE_AddBurning).[/*]
+[*][b]Auto-Targeting & Target Lock-On[/b]: Respects active lock-on, reticle hover, and configurable crosshair-cone acquisition (AutoTargetMaxDistance, AutoTargetConeDeg, RequireLockOnForChainSpells, plus per-spell autoTarget overrides).[/*]
+[/list]
+
+[b]Progression Gating & Staff / Magic Damage Scaling[/b]
+[list]
+[*][b]Skill Level Gating (EnforceSpellLevelRequirements=true)[/b]: Checks requiredMagicLevel (or any requiredSkill) against native USkillComponent levels for both Quick-Cast and combo rules, displaying native in-game HUD notifications (UNotificationsSubsystem) when a player attempts to cast a locked spell.[/*]
+[*][b]Dynamic Damage Scaling (EnableStaffDamageScaling=true)[/b]: Supports damageScaling modes (full, staff, magic, none) combining equipped staff tier, weapon damage multipliers, Masterwork bonus, per-staff keyword bonuses (staffBonus), Magic skill damage modifier, and live player Magic/Staff/Elemental attributes.[/*]
+[/list]
+
+[b]Companion Damage Bridge (.pak) & Runtime Safety[/b]
+[list]
+[*][b]Zero Vanilla Asset Overrides[/b]: All core gameplay patches run in Lua at runtime—patch-safe and compatible with .pak mods.[/*]
+[*][b]Optional Companion ArcaneWildsDamageBridge_P.pak[/b]: Bundled in release archives (Content/Paks/~mods/), this tiny cooked Blueprint Function Library (/Game/Mods/ArcaneWilds/BFL_ArcaneWildsDamage) routes custom spell hits cleanly through native UDamageComponent::PredictDamage and UDamageFunctionLibrary::ApplyDamage for native damage floaties and hit reactions. If omitted, Arcane Wilds automatically falls back to direct Lua calls.[/*]
+[*][b]Stability Guards[/b]: Executes all UObject/input/timeline logic on a single serialized Game-Thread tick (~40 Hz with watchdog recovery), validates UE asset classes before playing cues, and automatically clears casting tags, active timelines, and input blockers on player death, respawn, or pawn change.[/*]
+[/list]
+
+[line]
+
+[size=4][b]Controls Quick Reference[/b][/size]
+
+[list]
+[*][b]Engage Combo Macro[/b] Hold RMB (Block) + LMB  |  Controller: Hold LT or LB + RT[/*]
+[*][b]Hold-to-Auto-Attack[/b] Hold LMB  |  Controller: Hold RT[/*]
+[*][b]Quick-Cast Slots #1–#4[/b] Hold RMB + 1 / 2 / 3 / 4  |  Controller: Hold LT or LB + X / Y / B / A[/*]
+[*][b]Debug Dump & Live Reload[/b] SHIFT + \ (DebugHotkey)  |  Controller: [i](Keyboard only)[/i][/*]
+[/list]
+
+[line]
+
+[size=4][b]Arcane Wilds Studio (Visual Config Editor)[/b][/size]
+
+Use [b]Arcane Wilds Studio[/b] to visually build and edit [b]Spell Combos[/b], [b]Custom Spells[/b], and [b]Quick-Cast Hotkeys[/b] without hand-editing JSON.
+
+[list]
+[*][b]Web Studio (GitHub Pages — no install required):[/b] [url=https://zolantris.github.io/runescape-dragonwilds-mods/]https://zolantris.github.io/runescape-dragonwilds-mods/[/url]
+• Edit configs in your browser, then click [b]Export & Reveal[/b] (or [b]Bundle[/b]) and drop the exported user_*.json files into %LOCALAPPDATA%\ArcaneWilds\.
+• Also publishes [url=https://zolantris.github.io/runescape-dragonwilds-mods/llms.txt]llms.txt[/url], JSON schemas, and the asset catalog so you can generate spells/combos with an AI assistant and paste them via [b]Import JSON[/b].[/*]
+[*][b]Local Mode (1-click Save & live hot-reload):[/b] Double-click Launch-ArcaneWilds-Editor.bat inside ue4ss/Mods/ArcaneWilds/ (or run .\mod.ps1 editor arcane-wilds) to save directly to %LOCALAPPDATA%\ArcaneWilds\ and hot-reload changes in-game immediately.[/*]
+[/list]
+
+[quote][b]Full step-by-step tutorial:[/b] See [url=https://github.com/zolantris/runescape-dragonwilds-mods/blob/main/arcane-wilds/docs/studio-guide.md]docs/studio-guide.md[/url].[/quote]
+
+[b]Combos Editor[/b]
+[img]https://raw.githubusercontent.com/zolantris/runescape-dragonwilds-mods/main/arcane-wilds/docs/arcane-wilds-config-combos.png[/img]
+
+[b]Custom Spells Editor[/b]
+[img]https://raw.githubusercontent.com/zolantris/runescape-dragonwilds-mods/main/arcane-wilds/docs/arcane-wilds-config-spells.png[/img]
+
+[b]Quick-Cast Hotkeys Editor[/b]
+[img]https://raw.githubusercontent.com/zolantris/runescape-dragonwilds-mods/main/arcane-wilds/docs/arcane-wilds-config-hotkeys.png[/img]
+
+[line]
+
+[size=4][b]Configuration, Mod Menu & Hot-Reload[/b][/size]
+
+Most runtime settings can be edited live in-game via [b]Mod Menu[/b] (Esc > MODS > Arcane Wilds) or directly in ue4ss/Mods/ArcaneWilds/. Saving any editable file (Ctrl+S) [b]hot-reloads automatically in-game[/b]—and if a JSON syntax error is saved, Arcane Wilds keeps the previous valid rules/spells active and logs the error.
+
+[list]
+[*][b]config.txt[/b] — Core toggles, modifier key, Quick-Cast slots #1–#4, Freecast movement toggles, speed clamps, auto-targeting, staff scaling, progression gating, and debug flags.[/*]
+[*][b]modmenu.json[/b] — Mod Menu UI schema exposing runtime settings under Esc > MODS.[/*]
+[*][b]combo_rules.json[/b] — Active weighted combo chains (validated by schemas/combo_rules.schema.json; templates in combo_rules_examples.json).[/*]
+[*][b]custom_spells.json[/b] — Custom spell definitions, requirements, scaling, and cue timelines (validated by schemas/custom_spells.schema.json).[/*]
+[*][b]quick_cast.txt[/b] — Unlimited Quick-Cast spell & inline combo hotkey bindings.[/*]
+[*][b]spell_names.txt[/b] — Friendly name-to-asset aliases (e.g., Air.slam = DA_Spell_Primary_Air_04, Ancient Magicks, Conjurer).[/*]
+[*][b]detected_spells.txt / detected_vfx.txt[/b] — Auto-exported catalogs of loaded DominionSpellData assets, montages, and Niagara VFX paths (plus optional user-created vfx_names.txt aliases).[/*]
+[/list]
+
+[quote][b]Tip (Interactive Debug Hotkey & Inspection)[/b]: Set AllowDebugCommands=true and press SHIFT + BackSlash (\) in-game to force-reload configs, refresh detected_spells.txt / detected_vfx.txt, and log live staff/Magic scaling, lock status, InputBlocker state, and combo-to-asset bindings. Set DebugHotkey=LISTEN in config.txt to rebind interactively by pressing any key.[/quote]
+
+[line]
+
+[size=4][b]Installation & Multiplayer[/b][/size]
+
+[b]Vortex (Recommended)[/b]
+[list=1]
+[*]Download ArcaneWilds-vX.Y.Z.zip from Releases and drag it into Vortex.[/*]
+[*]Enable and deploy (Vortex installs RSDragonwilds/Binaries/Win64/ue4ss/Mods/ArcaneWilds/ and RSDragonwilds/Content/Paks/~mods/ArcaneWildsDamageBridge_P.pak).[/*]
+[/list]
+
+[b]Manual Installation[/b]
+[list=1]
+[*]Copy ue4ss/Mods/ArcaneWilds/ into <GameDir>/RSDragonwilds/Binaries/Win64/.[/*]
+[*][i](Optional, recommended for custom spell damage/floaties)[/i] Copy ArcaneWildsDamageBridge_P.pak into <GameDir>/RSDragonwilds/Content/Paks/~mods/.[/*]
+[*]Verify enabled.txt exists inside ue4ss/Mods/ArcaneWilds/.[/*]
+[/list]
+
+[b]Multiplayer[/b]
+[list]
+[*]Works client-side for Freecast and standard chaining.[/*]
+[*]Recommend [b]Host + Clients[/b] both install Arcane Wilds (including ArcaneWildsDamageBridge_P.pak) when using high animation speed multipliers or custom timeline spells/VFX/SFX.[/*]
+[/list]
+
+[line]
+
+[size=4][b]Development, Building & Testing[/b][/size]
+
+From the monorepo root:
+
+[code]
+# Validate JSON configs/schemas and run the offline Lua 5.4 test suite
+.\mod.ps1 test arcane-wilds
+
+# Build Vortex-ready archive (UE4SS Lua + ArcaneWildsDamageBridge_P.pak)
+.\mod.ps1 build arcane-wilds
+
+# Build without UE pak (Lua-only archive)
+.\mod.ps1 build arcane-wilds -SkipPak
+
+# Cleanly wipe and deploy ArcaneWilds to your game directory
+.\mod.ps1 build-deploy arcane-wilds
+[/code]
+
+See [url=https://github.com/zolantris/runescape-dragonwilds-mods/blob/main/scripts/README.md]scripts/README.md[/url] and [url=https://github.com/zolantris/runescape-dragonwilds-mods/blob/main/unreal-engine/README.md]unreal-engine/README.md[/url] for packaging and Damage Bridge details.
