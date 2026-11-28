@@ -1,4 +1,4 @@
--- Arcane Wilds v1.71.0 - Custom Spell Scaffolding & Timeline Integration Module
+-- Arcane Wilds v1.1.0 - Custom Spell Scaffolding & Timeline Integration Module
 -- Parses custom_spells.txt definitions (including simultaneous & synchronous animation/effect timelines)
 -- and resolves base DominionSpellData + optional VFX/SFX/Montage overrides safely without heavy FindAllOf scans.
 

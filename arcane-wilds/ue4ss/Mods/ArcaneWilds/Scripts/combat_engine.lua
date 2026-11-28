@@ -1,4 +1,4 @@
--- ArcaneWilds v1.70.0 - Combo Execution, Montage Pacing & Input Helpers
+-- ArcaneWilds - Combo Execution, Montage Pacing & Input Helpers
 -- Handles weighted macro selection, notify-safe speed clamps, spell triggering, and anchor return state.
 
 local RuleParser = require("rule_parser")

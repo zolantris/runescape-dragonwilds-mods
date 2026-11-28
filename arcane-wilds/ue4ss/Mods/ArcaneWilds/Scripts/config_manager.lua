@@ -1,4 +1,4 @@
--- ArcaneWilds v1.70.0 - Configuration, Hot-Reload File I/O & Registry Manager
+-- ArcaneWilds - Configuration, Hot-Reload File I/O & Registry Manager
 -- Handles config.txt, spell_names.txt, custom_spells.txt, combo_rules.txt, and merged spell registry.
 
 local RuleParser = require("rule_parser")

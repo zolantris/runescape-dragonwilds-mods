@@ -1,4 +1,4 @@
--- ArcaneWilds v1.70.0 - Equipment, Ancient Magicks State & Rune Consumption
+-- ArcaneWilds - Equipment, Ancient Magicks State & Rune Consumption
 -- Detects equipped weapon/runes/Ancient Magicks toggles and deducts runes on swapped casts.
 
 local SpellScanner = require("spell_scanner")
